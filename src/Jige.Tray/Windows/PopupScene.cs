@@ -4,22 +4,35 @@ using static Windows.Win32.Graphics.DirectWrite.DWRITE_TEXT_ALIGNMENT;
 
 namespace Jige.Tray.Windows;
 
-internal enum PopupAction { None, Refresh, Settings, Manage, Later, Dismiss, Close }
+internal enum PopupAction
+{
+    None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, PrimaryPicker, Threshold, PollInterval,
+    GameSilent, Autostart, Diagnostics, Updates, Rename, Pin, Visibility
+}
+
+internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
+{
+    public static implicit operator PopupTarget(PopupAction action) => new(action);
+}
 
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed class PopupScene : IDisposable
+internal sealed partial class PopupScene : IDisposable
 {
-    private readonly record struct HitBox(PopupAction Action, float X, float Y, float Width, float Height)
+    private readonly record struct HitBox(PopupTarget Target, PanelRect Rect)
     {
-        public bool Contains(float x, float y) => x >= X && y >= Y && x < X + Width && y < Y + Height;
+        public HitBox(PopupAction action, float x, float y, float width, float height)
+            : this(action, new PanelRect(x, y, width, height)) { }
+
+        public PopupAction Action => Target.Action;
+        public float X => Rect.X;
+        public float Y => Rect.Y;
+        public float Width => Rect.Width;
+        public float Height => Rect.Height;
     }
 
-    public const int Width = 344;
-    public const int NoticeHeight = 144;
-    public const int RowHeight = 48;
-    public const int RowTop = 202;
-    private const int FullBaseHeight = 247;
-    private const int EmptyHeight = 157;
+    public const int Width = PanelLayout.Width;
+    private const int RowHeight = PanelLayout.MainRowHeight;
+    private const int RowTop = 202;
     private static readonly HitBox[] PanelButtons =
     [
         new(PopupAction.Refresh, 260, 12, 32, 32),
@@ -35,7 +48,6 @@ internal sealed class PopupScene : IDisposable
 
     private readonly Composition composition;
     private readonly Palette colors;
-    private readonly bool acrylic;
     private readonly bool animations;
     private readonly Composition.Layer frame;
     private readonly Composition.Layer? refresh;
@@ -43,41 +55,47 @@ internal sealed class PopupScene : IDisposable
     private readonly List<Composition.Layer> pulses = [];
     private readonly TrayModel model;
     private readonly string? noticeId;
-    private readonly int height;
+    private readonly PanelSize size;
+    private int height => size.Height;
+    private readonly List<HitBox> subButtons = [];
+    private Composition.Layer? gameThumb;
+    private Composition.Layer? autostartThumb;
+    private ThumbMotion? gameMotion, autostartMotion;
+    private int hoverSetting = -1;
+    private string? error;
+    private string? editorId;
     private DeviceStatus[] devices = [];
     private DeviceStatus? notice;
+    private DeviceStatus? primary;
+    private HitBox? primaryPicker;
     private DateTimeOffset now;
     private bool reading;
     private int offset;
-    private PopupAction hover;
-    private PopupAction pressed;
-    private PopupAction focused;
+    private PopupTarget hover;
+    private PopupTarget pressed;
+    private PopupTarget focused;
     private int hoverRow = -1;
 
-    public static int MaximumRows(int height) => Math.Max(0, (height - FullBaseHeight) / RowHeight);
-    public static int PanelHeight(bool any, int rowCount) => any ? FullBaseHeight + rowCount * RowHeight : EmptyHeight;
-
-    public PopupScene(Composition composition, Palette colors, bool acrylic, bool animations,
-        TrayModel model, string? noticeId, int height, int rowCount)
+    public PopupScene(Composition composition, Palette colors, bool animations, TrayModel model,
+        PanelPage page, string? noticeId, PanelSize size, int offset)
     {
         this.composition = composition;
         this.colors = colors;
-        this.acrylic = acrylic;
         this.animations = animations;
         this.model = model;
         this.noticeId = noticeId;
-        this.height = height;
-        rows = new Composition.Layer[rowCount];
-        var root = composition.Root;
-        root.Clip(Width, height);
-        frame = new(composition, root, 0, 0, Width, height);
+        this.size = size;
+        this.offset = offset;
+        Page = page;
+        rows = new Composition.Layer[page == PanelPage.Main ? size.Rows : 0];
+        frame = new(composition, composition.Root, 0, 0, Width, height);
         try
         {
-            if (noticeId is null)
+            if (Page == PanelPage.Main)
             {
-                refresh = new(composition, root, 260, 12, 32, 32);
-                for (int i = 0; i < rowCount; i++)
-                    rows[i] = new(composition, root, 4, RowTop + i * RowHeight, Width - 8, RowHeight);
+                refresh = new(composition, frame, 260, 12, 32, 32);
+                for (int i = 0; i < rows.Length; i++)
+                    rows[i] = new(composition, frame, 4, RowTop + i * RowHeight, Width - 8, RowHeight);
             }
         }
         catch
@@ -87,15 +105,36 @@ internal sealed class PopupScene : IDisposable
         }
     }
 
-    private bool IsNotice => noticeId is not null;
-    private HitBox[] Buttons => IsNotice ? NoticeButtons : PanelButtons;
-    private int MaxOffset => Math.Max(0, devices.Length - 1 - rows.Length);
-
-    private HitBox Box(HitBox item) => item.Action == PopupAction.Manage ? item with { Y = height - 37 } : item;
-
-    public void Render(DateTimeOffset time, bool running)
+    public PanelPage Page { get; }
+    public PanelSize Size => size;
+    public int Offset => offset;
+    public Composition.Layer Visual => frame;
+    private bool IsNotice => Page == PanelPage.Notice;
+    private bool IsSubPage => Page is PanelPage.Settings or PanelPage.Devices;
+    private IReadOnlyList<HitBox> Buttons => Page switch
     {
-        devices = model.OrderedDevices();
+        PanelPage.Notice => NoticeButtons,
+        PanelPage.Main => PanelButtons,
+        _ => subButtons
+    };
+    private int MaxOffset => Page switch
+    {
+        PanelPage.Main => Math.Max(0, devices.Length - 1 - size.Rows),
+        PanelPage.Devices => Math.Max(0, devices.Length - size.Rows),
+        _ => 0
+    };
+
+    private HitBox Box(HitBox item) => item.Action == PopupAction.Manage
+        ? item with { Rect = item.Rect with { Y = height - 37 } }
+        : item;
+
+    public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing)
+    {
+        devices = Page == PanelPage.Main ? model.PanelDevices() : model.OrderedDevices(primaryFirst: false);
+        primary = IsSubPage ? model.PrimaryDevice : null;
+        primaryPicker = null;
+        error = settingsError;
+        editorId = editing;
         notice = devices.FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
         now = time;
         reading = running;
@@ -105,19 +144,20 @@ internal sealed class PopupScene : IDisposable
         pulses.Clear();
 
         DrawFrame();
+        if (Page == PanelPage.Settings)
+            DrawSwitchThumbs();
         for (int i = 0; i < rows.Length; i++)
             DrawRow(i);
         if (refresh is not null)
             refresh.Draw(DrawRefresh);
-        if (!IsNotice && devices.Length > 0 && devices[0].IsCharging)
-            AddPulse(composition.Root, devices[0], 165, 120, 13, 22, 3, 10);
+        if (Page == PanelPage.Main && devices.Length > 0 && devices[0].IsCharging)
+            AddPulse(frame, devices[0], 165, 120, 13, 22, 3, 10);
         for (int i = 0; i < rows.Length; i++)
         {
             var row = devices[1 + offset + i];
             if (row.IsCharging)
                 AddPulse(rows[i], row, 221, 17, 5, 14, 1.5f, 5);
         }
-        composition.Commit();
     }
 
     public void Open()
@@ -150,25 +190,40 @@ internal sealed class PopupScene : IDisposable
         }
     }
 
-    public PopupAction Hit(float x, float y)
+    public PopupTarget Hit(float x, float y)
     {
         foreach (var button in Buttons)
         {
-            if (Box(button).Contains(x, y))
-                return button.Action;
+            if (Box(button).Rect.Contains(x, y))
+                return button.Target;
         }
-        return PopupAction.None;
+        return default;
+    }
+
+    public PanelRect? TargetRect(PopupTarget target)
+    {
+        foreach (var button in Buttons)
+        {
+            if (button.Target == target)
+                return Box(button).Rect;
+        }
+        return null;
     }
 
     public void Pointer(float x, float y, bool? down = null)
     {
         var next = Hit(x, y);
         int row = -1;
-        if (!IsNotice && x >= 4 && x < Width - 4 && y >= RowTop && y < RowTop + RowHeight * rows.Length)
-            row = (int)(y - RowTop) / RowHeight;
-        var nextPressed = down is true ? next : down is false || x < 0 ? PopupAction.None : pressed;
+        float top = Page == PanelPage.Devices ? PanelLayout.DeviceRowsTop : RowTop;
+        float step = Page == PanelPage.Devices ? PanelLayout.DeviceRowHeight : RowHeight;
+        if (Page is PanelPage.Main or PanelPage.Devices && x >= 4 && x < Width - 4 &&
+            y >= top && y < top + step * size.Rows)
+            row = (int)((y - top) / step);
+
+        int setting = Page == PanelPage.Settings ? SettingRowAt(x, y) : -1;
+        var nextPressed = down is true ? next : down is false || x < 0 ? default : pressed;
         bool buttonChanged = hover != next || pressed != nextPressed;
-        if (!buttonChanged && row == hoverRow)
+        if (!buttonChanged && row == hoverRow && setting == hoverSetting)
             return;
 
         int previousRow = hoverRow;
@@ -176,13 +231,14 @@ internal sealed class PopupScene : IDisposable
         hover = next;
         pressed = nextPressed;
         hoverRow = row;
-        if (buttonChanged)
+        hoverSetting = setting;
+        if (buttonChanged || IsSubPage)
         {
             DrawFrame();
-            if (refresh is not null && (previousHover == PopupAction.Refresh || next == PopupAction.Refresh))
+            if (refresh is not null && (previousHover.Action == PopupAction.Refresh || next.Action == PopupAction.Refresh))
                 refresh.Draw(DrawRefresh);
         }
-        if (previousRow != row)
+        if (Page == PanelPage.Main && previousRow != row)
         {
             if (previousRow >= 0)
                 DrawRow(previousRow);
@@ -192,41 +248,53 @@ internal sealed class PopupScene : IDisposable
         composition.Commit();
     }
 
-    public PopupAction Focused => focused;
+    public PopupTarget Focused => focused;
 
     public void Tab(bool reverse)
     {
-        int index = Array.FindIndex(Buttons, box => box.Action == focused);
+        int index = -1;
+        for (int i = 0; i < Buttons.Count; i++)
+        {
+            if (Buttons[i].Target == focused)
+            {
+                index = i;
+                break;
+            }
+        }
         if (index < 0 && reverse)
             index = 0;
-        index = (index + Buttons.Length + (reverse ? -1 : 1)) % Buttons.Length;
-        focused = Buttons[index].Action;
+        index = (index + Buttons.Count + (reverse ? -1 : 1)) % Buttons.Count;
+        focused = Buttons[index].Target;
         DrawFrame();
         composition.Commit();
     }
 
-    public void Scroll(int step)
+    public bool Scroll(int step)
     {
         int next = Math.Clamp(offset + step, 0, MaxOffset);
         if (next == offset)
-            return;
+            return false;
         offset = next;
-        Render(DateTimeOffset.Now, reading);
+        return true;
     }
 
     private void DrawFrame() => frame.Draw(canvas =>
     {
-        canvas.Fill(0, 0, Width, height, 8, acrylic ? colors.Flyout : colors.Solid);
-        canvas.Stroke(.5f, .5f, Width - 1, height - 1, 7.5f, colors.Border);
         if (IsNotice)
         {
             DrawNotice(canvas);
             return;
         }
 
+        if (IsSubPage)
+        {
+            DrawSubPage(canvas);
+            return;
+        }
+
         canvas.BrandIcon(15, 18, 20);
         canvas.Text("几格", 40, 12, 38, 32, 14, colors.Ink, 600);
-        var updated = Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
+        var updated = error ?? Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
         canvas.Text(updated, 80, 12, 172, 32, 12, colors.Muted, align: DWRITE_TEXT_ALIGNMENT_TRAILING);
         foreach (var button in PanelButtons)
             ButtonBackground(canvas, Box(button));
@@ -239,7 +307,7 @@ internal sealed class PopupScene : IDisposable
         int footer = height - 37;
         canvas.Line(0, footer + .5f, Width, footer + .5f, colors.Border);
         var settings = model.Settings;
-        canvas.Text($"每 {settings.PollSeconds} 秒查询 · 游戏中 {Presentation.Interval(settings.GamePollSeconds)}",
+        canvas.Text($"每 {Presentation.Interval(settings.PollSeconds)}查询 · 游戏中 {Presentation.Interval(settings.GamePollSeconds)}",
             16, footer + 1, 246, 34, 12, colors.Muted, ellipsis: true);
         canvas.Text("管理设备", 268, footer + 1, 64, 34, 12, colors.Accent, align: DWRITE_TEXT_ALIGNMENT_CENTER);
 
@@ -386,17 +454,17 @@ internal sealed class PopupScene : IDisposable
             align: DWRITE_TEXT_ALIGNMENT_CENTER);
     }
 
-    private void ButtonBackground(Canvas canvas, HitBox box)
+    private void ButtonBackground(Canvas canvas, HitBox box, float radius = 5)
     {
-        if (hover == box.Action)
-            canvas.Fill(box.X, box.Y, box.Width, box.Height, 5, pressed == box.Action ? colors.Press : colors.Hover);
-        if (focused == box.Action)
-            canvas.Stroke(box.X + .5f, box.Y + .5f, box.Width - 1, box.Height - 1, 4.5f, colors.Accent);
+        if (hover == box.Target)
+            canvas.Fill(box.X, box.Y, box.Width, box.Height, radius, pressed == box.Target ? colors.Press : colors.Hover);
+        if (focused == box.Target)
+            canvas.Stroke(box.X + .5f, box.Y + .5f, box.Width - 1, box.Height - 1, radius - .5f, colors.Accent);
     }
 
     private void DrawSettings(Canvas canvas)
     {
-        var ink = hover == PopupAction.Settings ? colors.Ink : colors.Secondary;
+        var ink = hover.Action == PopupAction.Settings ? colors.Ink : colors.Secondary;
         canvas.Ring(316, 28, 2.2f, ink, 1.3f);
         for (int i = 0; i < 8; i++)
         {
@@ -408,19 +476,20 @@ internal sealed class PopupScene : IDisposable
 
     private void DrawRefresh(Canvas canvas)
     {
-        var ink = hover == PopupAction.Refresh ? colors.Ink : colors.Secondary;
+        var ink = hover.Action == PopupAction.Refresh ? colors.Ink : colors.Secondary;
         canvas.Arc(16, 16, 5.5f, 0, MathF.PI * 1.75f, ink, 1.4f);
         canvas.Line(20.2f, 9.8f, 20.2f, 12.4f, ink, 1.4f);
         canvas.Line(20.2f, 12.4f, 17.6f, 12.4f, ink, 1.4f);
     }
 
-    private void DrawPin(Canvas canvas, float x, float y)
+    private void DrawPin(Canvas canvas, float x, float y) => DrawPin(canvas, x, y, colors.Accent, 1);
+
+    private static void DrawPin(Canvas canvas, float x, float y, Color ink, float scale)
     {
-        var ink = colors.Accent;
-        canvas.Line(x + 6, y + 1, x + 9, y + 4, ink, 1.6f);
-        canvas.Line(x + 7, y + 3, x + 4, y + 6, ink, 2.2f);
-        canvas.Line(x + 2, y + 4, x + 7, y + 9, ink, 1.6f);
-        canvas.Line(x + 5, y + 7, x + 1, y + 11, ink, 1);
+        canvas.Line(x + 6 * scale, y + scale, x + 9 * scale, y + 4 * scale, ink, 1.6f * scale);
+        canvas.Line(x + 7 * scale, y + 3 * scale, x + 4 * scale, y + 6 * scale, ink, 2.2f * scale);
+        canvas.Line(x + 2 * scale, y + 4 * scale, x + 7 * scale, y + 9 * scale, ink, 1.6f * scale);
+        canvas.Line(x + 5 * scale, y + 7 * scale, x + scale, y + 11 * scale, ink, scale);
     }
 
     private static void DeviceIcon(Canvas canvas, DeviceKind kind, float x, float y, float size, Color fill, Color ink)
@@ -457,6 +526,8 @@ internal sealed class PopupScene : IDisposable
         foreach (var row in rows)
             row?.Dispose();
         refresh?.Dispose();
+        gameThumb?.Dispose();
+        autostartThumb?.Dispose();
         frame.Dispose();
     }
 }

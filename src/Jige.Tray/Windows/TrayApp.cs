@@ -235,6 +235,8 @@ internal sealed class TrayApp : IDisposable
             {
                 if (message == 0x0021 && active.IsNotice)
                     return (LRESULT)3; // MA_NOACTIVATE
+                if (message == 0x0133 && active.IsEditor((HWND)lParam.Value)) // WM_CTLCOLOREDIT
+                    return active.EditColors((HDC)wParam.Value);
                 if (app.HandlePopup(active, message, wParam, lParam))
                     return default;
             }
@@ -320,6 +322,7 @@ internal sealed class TrayApp : IDisposable
         RefreshIcon();
         if (popup is { } active)
         {
+            CompleteEdit(active, save: true);
             active.SetAnchor(Anchor(null));
             RenderPopup(reset: resetPopup);
         }
@@ -333,7 +336,7 @@ internal sealed class TrayApp : IDisposable
         bool hasLocation = icon.TryGetRect(out var bounds);
         if (!hasLocation)
             bounds = Desktop.TaskbarAnchor();
-        var appearance = Presentation.Icon(model.OrderedDevices().FirstOrDefault(), darkTaskbar);
+        var appearance = Presentation.Icon(model.PrimaryDevice, darkTaskbar);
         var tip = game.BlockPopups ? "" : Presentation.Tooltip(model);
         int size = IconSize(bounds);
         icon.Update(appearance, size, tip);
@@ -532,15 +535,22 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void ChangeSettings(TraySettings settings, bool persist)
+    private void ChangeSettings(TraySettings settings)
     {
+        if (settings == model.Settings)
+            return;
+        settings = settings.Normalize();
         bool autostartChanged = settings.StartWithWindows != model.Settings.StartWithWindows;
         if (autostartChanged && !UpdateAutostart(settings.StartWithWindows))
+        {
+            RenderPopup();
             return;
-        if (persist && !SaveSettings(settings))
+        }
+        if (!SaveSettings(settings))
         {
             if (autostartChanged)
                 UpdateAutostart(model.Settings.StartWithWindows);
+            RenderPopup();
             return;
         }
 
@@ -589,6 +599,8 @@ internal sealed class TrayApp : IDisposable
             return;
         if (action == TrayAction.Menu)
         {
+            if (popup is { } active)
+                CompleteEdit(active, save: true);
             DestroyPopup();
             ShowMenu(point);
         }
@@ -601,7 +613,7 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void ShowPopup(string? noticeId, Point? point)
+    private void ShowPopup(string? noticeId, Point? point, PanelPage page = PanelPage.Main)
     {
         bool notice = noticeId is not null;
         try
@@ -611,7 +623,7 @@ internal sealed class TrayApp : IDisposable
                 extra |= WS_EX_NOACTIVATE;
             var anchor = Anchor(point);
             HWND window = MakeWindow(PopupClass, extra, WS_POPUP | WS_THICKFRAME);
-            popup = new(window, model, noticeId, anchor);
+            popup = new(window, model, noticeId, anchor, page);
             RenderPopup();
             ReadGameMode();
             if (popup is { } active)
@@ -646,7 +658,7 @@ internal sealed class TrayApp : IDisposable
         var now = DateTimeOffset.UtcNow;
         try
         {
-            active.Render(now, schedule.Running, reset);
+            active.Render(now, schedule.Running, settingsError, reset);
             textDue = active.IsNotice ? null : now.AddMinutes(1);
         }
         catch (Exception error)
@@ -666,6 +678,8 @@ internal sealed class TrayApp : IDisposable
         {
             case 0x0006 when (ushort)wParam.Value == 0 && !active.IsNotice: // WM_ACTIVATE
             case 0x0008 when !active.IsNotice: // WM_KILLFOCUS
+                if (menuOpen || (message == 0x0008 && active.IsEditor((HWND)wParam.Value)))
+                    return true;
                 if (active.TryReclaimFocus())
                 {
                     Desktop.Log($"面板刚显示即失焦（{Desktop.ForegroundClass()}），重新激活");
@@ -686,9 +700,23 @@ internal sealed class TrayApp : IDisposable
             case 0x0200: active.PointerMove(lParam); return true;
             case 0x02A3: active.PointerLeave(); return true;
             case 0x0201 or 0x0202:
-                PopupCommand(active, active.PointerButton(lParam, message == 0x0201));
+                if (message == 0x0201)
+                    CompleteEdit(active, save: true);
+                if (popup == active)
+                    PopupCommand(active, active.PointerButton(lParam, message == 0x0201));
                 return true;
-            case 0x020A: active.Wheel(unchecked((short)(wParam.Value >> 16))); return true;
+            case 0x020A:
+                CompleteEdit(active, save: true);
+                if (popup == active)
+                    active.Wheel(unchecked((short)(wParam.Value >> 16)));
+                return true;
+            case InlineEdit.CompletedMessage:
+                if (active.IsEditor((HWND)lParam.Value))
+                    CompleteEdit(active, save: wParam.Value != 0);
+                return true;
+            case 0x0113 when wParam.Value == PopupWindow.AnimationTimer: // WM_TIMER
+                active.Animate();
+                return true;
             case 0x0100: PopupCommand(active, active.Key(wParam.Value)); return true;
             case 0x02E0: // WM_DPICHANGED，延后到当前移动消息完成。
                 PInvoke.PostMessage(host, 0x02E0, default, default);
@@ -698,8 +726,9 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void PopupCommand(PopupWindow active, PopupAction action)
+    private void PopupCommand(PopupWindow active, PopupTarget target)
     {
+        var action = target.Action;
         if (action == PopupAction.None)
             return;
         if (active.NoticeId is { } id)
@@ -722,25 +751,87 @@ internal sealed class TrayApp : IDisposable
                 schedule.Request();
                 ProcessWork();
                 break;
-            case PopupAction.Settings or PopupAction.Manage:
-                PInvoke.GetCursorPos(out var point);
-                RequestTrayAction(TrayAction.Menu, point);
+            case PopupAction.Settings:
+                active.Navigate(PanelPage.Settings);
+                break;
+            case PopupAction.Manage:
+                active.Navigate(PanelPage.Devices);
+                break;
+            case PopupAction.Back:
+                active.Navigate(PanelPage.Main);
+                break;
+            case PopupAction.PrimaryPicker:
+                ShowPrimaryPicker(active, target);
+                break;
+            case PopupAction.Threshold:
+                ChangeSettings(model.Settings with { LowBatteryThreshold = target.Value });
+                break;
+            case PopupAction.PollInterval:
+                ChangeSettings(model.Settings with { PollSeconds = target.Value });
+                break;
+            case PopupAction.GameSilent:
+                ChangeSettings(model.Settings with { GameSilent = !model.Settings.GameSilent });
+                break;
+            case PopupAction.Autostart:
+                ChangeSettings(model.Settings with { StartWithWindows = !model.Settings.StartWithWindows });
+                break;
+            case PopupAction.Pin when target.DeviceId is { } pin:
+                ChangeSettings(model.Settings.WithPrimary(pin));
+                break;
+            case PopupAction.Visibility when target.DeviceId is { } visibility:
+                ChangeSettings(model.ToggleVisibility(visibility));
+                break;
+            case PopupAction.Rename:
+                try
+                {
+                    active.StartEdit(target);
+                }
+                catch (Exception error) when (error is Win32Exception or InvalidOperationException)
+                {
+                    settingsError = "无法打开改名输入框";
+                    Desktop.Log(error.Message);
+                    RenderPopup();
+                }
+                break;
+            case PopupAction.Diagnostics:
+                ClosePopup();
+                ShowDiagnostics();
+                break;
+            case PopupAction.Updates:
+                DestroyPopup();
+                ShowUpdates();
                 break;
         }
     }
 
+    private void CompleteEdit(PopupWindow active, bool save)
+    {
+        if (!active.Editing)
+            return;
+        if (active.FinishEdit(save, restoreFocus: true) is { } edit)
+        {
+            var settings = model.Settings.WithAlias(edit.Id, edit.Name);
+            if (settings != model.Settings)
+            {
+                ChangeSettings(settings);
+                return;
+            }
+        }
+        RenderPopup();
+    }
+
     private void ClosePopup()
     {
-        if (popup is null)
+        if (popup is not { Closing: false } active)
             return;
-        if (!popup.Closing)
-            Desktop.Log("收起面板");
-        if (popup.Closing)
+        Desktop.Log("收起面板");
+        CompleteEdit(active, save: true);
+        if (popup != active)
             return;
         textDue = null;
         try
         {
-            if (popup.BeginClose())
+            if (active.BeginClose())
             {
                 ArmTimer(CloseTimer, 120);
                 return;
@@ -780,32 +871,12 @@ internal sealed class TrayApp : IDisposable
         menuOpen = true;
         try
         {
-            if (settingsError is { } error)
-                Append(menu, error, flags: MENU_ITEM_FLAGS.MF_GRAYED);
-            var settings = model.Settings;
-            var devices = model.OrderedDevices();
-            var primary = Submenu(menu, "主设备");
-            Add(primary, "自动选择", () => ChangeSettings(settings with { PrimaryDeviceId = null }, true),
-                settings.PrimaryDeviceId is null);
-            foreach (var device in devices)
-            {
-                string id = device.Device.Id;
-                string name = Presentation.Shorten(model.Name(device.Device), 60);
-                Add(primary, $"{name}  {Presentation.Value(device)}",
-                    () => ChangeSettings(settings with { PrimaryDeviceId = id }, true),
-                    string.Equals(settings.PrimaryDeviceId, id, StringComparison.OrdinalIgnoreCase));
-            }
-
-            Add(menu, "立即刷新", () => { schedule.Request(); ProcessWork(); });
-            Add(menu, "开机自启", () => ChangeSettings(settings with { StartWithWindows = !settings.StartWithWindows }, true),
-                settings.StartWithWindows);
+            Add("立即刷新", () => { schedule.Request(); ProcessWork(); });
+            Add("设置…", () => ShowPopup(null, point, PanelPage.Settings));
+            Add("检查更新…", ShowUpdates);
+            Add("诊断信息…", ShowDiagnostics);
             Append(menu, "", flags: MENU_ITEM_FLAGS.MF_SEPARATOR);
-            Add(menu, "检查更新…", ShowUpdates);
-            Add(menu, "诊断信息…", ShowDiagnostics);
-            Add(menu, "编辑配置文件", OpenConfig);
-            Add(menu, "重新加载配置", ReloadSettings);
-            Append(menu, "", flags: MENU_ITEM_FLAGS.MF_SEPARATOR);
-            Add(menu, "退出", () => PInvoke.PostQuitMessage(0));
+            Add("退出", () => PInvoke.PostQuitMessage(0));
 
             if (point is { X: -1, Y: -1 })
             {
@@ -827,28 +898,60 @@ internal sealed class TrayApp : IDisposable
             ArmTimer(WorkTimer, 50);
         }
 
-        void Add(HMENU target, string label, Action run, bool check = false)
+        void Add(string label, Action run)
         {
             int id = commands.Count + 1;
             commands.Add(id, run);
-            Append(target, label, (nuint)id, check ? MENU_ITEM_FLAGS.MF_CHECKED : 0);
+            Append(menu, label, (nuint)id);
         }
     }
 
-    private static unsafe HMENU Submenu(HMENU parent, string title)
+    private unsafe void ShowPrimaryPicker(PopupWindow active, PopupTarget target)
     {
-        var child = PInvoke.CreatePopupMenu();
-        if (child.IsNull)
-            throw new InvalidOperationException("无法创建托盘子菜单");
+        if (active.ScreenRect(target) is not { } bounds)
+            return;
+        var menu = PInvoke.CreatePopupMenu();
+        if (menu.IsNull)
+            return;
+
+        var devices = model.OrderedDevices(primaryFirst: false);
+        var settings = model.Settings;
+        int selected;
+        menuOpen = true;
         try
         {
-            Append(parent, title, (nuint)child.Value, MENU_ITEM_FLAGS.MF_POPUP);
-            return child;
+            Append(menu, "自动选择", 1, settings.PrimaryDeviceId is null ? MENU_ITEM_FLAGS.MF_CHECKED : 0);
+            for (int i = 0; i < devices.Length; i++)
+            {
+                var device = devices[i].Device;
+                Append(menu, Presentation.Shorten(model.Name(device), 60), (nuint)(i + 2),
+                    StringComparer.OrdinalIgnoreCase.Equals(device.Id, settings.PrimaryDeviceId)
+                        ? MENU_ITEM_FLAGS.MF_CHECKED : 0);
+            }
+            var exclude = new TPMPARAMS { cbSize = (uint)sizeof(TPMPARAMS), rcExclude = bounds };
+            // 将控件矩形作为避让区域，菜单优先从它的左下角展开。
+            selected = PInvoke.TrackPopupMenuEx(menu, 0x0100 | 0x0040, bounds.left, bounds.bottom,
+                active.Handle, &exclude).Value; // TPM_RETURNCMD | TPM_VERTICAL
         }
-        catch
+        finally
         {
-            PInvoke.DestroyMenu(child);
-            throw;
+            menuOpen = false;
+            PInvoke.DestroyMenu(menu);
+            PInvoke.PostMessage(active.Handle, 0, default, default);
+        }
+
+        if (exitRequested || popup != active)
+            return;
+        if (selected == 1)
+            ChangeSettings(model.Settings.WithPrimary(null));
+        else if (selected >= 2 && selected <= devices.Length + 1)
+            ChangeSettings(model.Settings.WithPrimary(devices[selected - 2].Device.Id));
+        if (popup == active && PInvoke.GetForegroundWindow() != active.Handle)
+        {
+            if (selected != 0)
+                PInvoke.SetForegroundWindow(active.Handle);
+            else
+                ClosePopup();
         }
     }
 
@@ -904,17 +1007,6 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void ReloadSettings()
-    {
-        if (!files.TryLoadSettings(out var settings))
-        {
-            settingsError = "配置读取失败";
-            return;
-        }
-        settingsError = null;
-        ChangeSettings(settings, false);
-    }
-
     /// <summary>
     /// 用户点击后才生成诊断报告：后台枚举与查询，写入本地文本文件，再用记事本完整打开，
     /// 由用户检查后自行复制发送。诊断流程只在本机执行，内容说明见 PRIVACY.md。
@@ -951,20 +1043,6 @@ internal sealed class TrayApp : IDisposable
                 Desktop.Log($"诊断信息生成失败：{error.Message}");
             }
         });
-    }
-
-    private unsafe void OpenConfig()
-    {
-        if (!File.Exists(files.ConfigPath) && !SaveSettings(model.Settings))
-            return;
-        fixed (char* notepad = "notepad.exe")
-        fixed (char* arguments = $"\"{files.ConfigPath}\"")
-        {
-            var result = PInvoke.ShellExecute(host, default, new PCWSTR(notepad), new PCWSTR(arguments),
-                default, SHOW_WINDOW_CMD.SW_SHOWNORMAL);
-            if ((nint)result.Value <= 32)
-                Desktop.Log("无法打开配置文件");
-        }
     }
 
     public void Dispose()
