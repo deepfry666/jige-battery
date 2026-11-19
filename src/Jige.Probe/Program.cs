@@ -133,12 +133,23 @@ internal static class Probe
         foreach (var device in devices)
         {
             bool serial = device.Target.Endpoint is UsbSerialPort;
-            PrintTarget(device, serial ? (baud == 0 ? DefaultBaud : baud) : null);
-            var reading = await registry.ReadAsync(device, transport, raw ? PrintFrame : null, token);
-            PrintReading(reading);
-            bool deviceFailed = reading.Percentage is null;
+            var serialBaud = serial ? (baud == 0 ? DefaultBaud : baud) : (int?)null;
+            PrintTarget(device, serialBaud);
+            var readings = await registry.ReadDevicesAsync(device, transport, raw ? PrintFrame : null, token);
+            if (readings.Count == 0)
+                Console.WriteLine("  未确认接收器下有已配对的 HID++ 2.0 设备。");
+            foreach (var item in readings)
+            {
+                if (item.Device != device.Target.Device)
+                    Console.WriteLine($"  {item.Device.Name}  {item.Device.Id}");
+                PrintReading(item);
+            }
+
+            bool deviceFailed = readings.Count == 0 || readings.Any(item => item.Percentage is null && item.Link != LinkState.Offline)
+                || readings.Any(item => item.Issue != ReadIssue.None);
+            var reading = readings.FirstOrDefault();
             if (alternateSerial is not null && alternateSerial.TryGetValue(device.Target.Device.Id, out var second) &&
-                reading.Issue is not (ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.Disconnected))
+                reading is not null && reading.Issue is not (ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.Disconnected))
             {
                 PrintTarget(second, AlternateBaud);
                 var alternateReading = await alternate!.ReadAsync(second, transport, raw ? PrintFrame : null, token);

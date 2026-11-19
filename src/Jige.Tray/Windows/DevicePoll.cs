@@ -24,8 +24,8 @@ internal sealed class DevicePoll
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    var reading = await registry.ReadAsync(device, transport, null, token).ConfigureAwait(false);
-                    readings.Add(reading);
+                    // 罗技接收器下可能有多台设备，统一走多设备读取。
+                    readings.AddRange(await registry.ReadDevicesAsync(device, transport, null, token).ConfigureAwait(false));
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {

@@ -96,14 +96,16 @@ public static class DiagnosticReport
                 report.AppendLine($"匹配 {label} {id}");
                 var capture = new DiagnosticTransport(transport, endpoint);
                 long started = Stopwatch.GetTimestamp();
-                var reading = await registry.ReadAsync(device, capture, null, cancellationToken).ConfigureAwait(false);
+                // 罗技接收器下可能有多台设备，统一走多设备读取，逐条输出结果。
+                var readings = await registry.ReadDevicesAsync(device, capture, null, cancellationToken).ConfigureAwait(false);
                 long elapsed = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 var (transfers, truncated) = capture.Finish();
                 WriteTransfers(report, id, transfers);
                 if (truncated)
                     report.AppendLine($"截断 {id} 耗尽诊断记录上限");
-                report.AppendLine(FormattableString.Invariant(
-                    $"结果 {id} {elapsed} ms 电量 {reading.Percentage?.ToString(CultureInfo.InvariantCulture) ?? "-"}% {reading.Charging} {reading.Link} {reading.Issue}"));
+                foreach (var reading in readings)
+                    report.AppendLine(FormattableString.Invariant(
+                        $"结果 {id} {elapsed} ms {reading.Device.Kind} 电量 {reading.Percentage?.ToString(CultureInfo.InvariantCulture) ?? "-"}% {reading.Charging} {reading.Link} {reading.Issue}"));
             }
         }
         return report.ToString();

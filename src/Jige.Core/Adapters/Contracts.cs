@@ -1,12 +1,21 @@
 namespace Jige.Core.Adapters;
 
-public sealed record DeviceTarget(DeviceIdentity Device, ReceiverEndpoint Endpoint, string Slot);
+public sealed record DeviceTarget(DeviceIdentity Device, ReceiverEndpoint Endpoint, string Slot)
+{
+    internal HidInterface? ShortHid { get; init; }
+}
 
 public interface IDeviceAdapter
 {
     IEnumerable<DeviceTarget> Detect(DeviceInventory inventory);
 
     ValueTask<BatteryReading> ReadAsync(
+        DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken);
+}
+
+internal interface IMultiDeviceAdapter : IDeviceAdapter
+{
+    ValueTask<IReadOnlyList<BatteryReading>> ReadDevicesAsync(
         DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken);
 }
 
