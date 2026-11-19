@@ -151,7 +151,46 @@ section{margin-top:28px}
 .row .num small{font-size:12px;color:var(--ink-3);font-weight:600;margin-left:1px}
 .row.dim .num,.row.dim .nm{color:var(--ink-3)}
 .fo-foot{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 10px 16px;border-top:1px solid var(--flyout-stroke);margin-top:4px;font-size:12px;color:var(--ink-3)}
-.link{color:var(--accent);cursor:pointer}
+.link{color:var(--accent);cursor:pointer;background:none;border:0;font:inherit;font-size:12px;padding:0}
+.link:hover{text-decoration:underline}
+
+/* 面板内分页：设置页与设备页从右侧推入，返回时主页从左侧回来 */
+.pages{position:relative;overflow:hidden;transition:height .25s cubic-bezier(.1,.9,.2,1)}
+.page{position:absolute;left:0;top:0;width:100%;transition:transform .25s cubic-bezier(.1,.9,.2,1),opacity .18s linear}
+.page.right{transform:translateX(56px);opacity:0;pointer-events:none}
+.page.left{transform:translateX(-56px);opacity:0;pointer-events:none}
+.sub-head{display:flex;align-items:center;gap:4px;padding:10px 12px 6px 8px}
+.sub-head b{font-size:14px;font-weight:600}
+.sec{font-size:12px;color:var(--ink-3);padding:10px 16px 4px;font-weight:600}
+.set{display:flex;align-items:center;gap:12px;min-height:40px;padding:6px 12px 6px 16px;margin:0 4px;border-radius:6px}
+.set:hover{background:var(--hover)}
+.set .lbl{flex:1;min-width:0}
+.set .lbl div{font-size:13.5px}
+.set .lbl small{display:block;font-size:12px;color:var(--ink-3);line-height:1.35}
+.tg{position:relative;width:40px;height:20px;border-radius:10px;border:1px solid var(--ink-2);background:transparent;cursor:pointer;flex:none;padding:0;transition:background .15s,border-color .15s}
+.tg::after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--ink-2);transition:transform .2s cubic-bezier(.1,.9,.2,1),background .15s}
+.tg[aria-checked="true"]{background:var(--accent);border-color:var(--accent)}
+.tg[aria-checked="true"]::after{transform:translateX(20px);background:var(--flyout-solid)}
+.chips{display:inline-flex;background:var(--chip);border-radius:6px;padding:2px;gap:2px;flex:none}
+.chips button{border:0;background:transparent;color:var(--ink-2);font:inherit;font-size:12px;padding:3px 8px;border-radius:4px;cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--flyout-solid);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.sel{font:inherit;font-size:12.5px;color:var(--ink);background:var(--chip);border:0;border-radius:6px;padding:5px 8px;max-width:150px}
+.about{display:flex;align-items:center;gap:10px;padding:10px 16px 12px;border-top:1px solid var(--flyout-stroke);margin-top:8px;font-size:12px;color:var(--ink-3)}
+.about .sp{flex:1}
+.drow{display:flex;align-items:center;gap:10px;padding:7px 8px 7px 12px;margin:0 4px;border-radius:6px}
+.drow:hover{background:var(--hover)}
+.drow .dev-ico{width:32px;height:32px;border-radius:7px;background:var(--chip);color:var(--ink-2)}
+.drow .meta{flex:1;min-width:0}
+.drow .nm{font-size:13.5px;border:0;background:transparent;color:var(--ink);font:inherit;font-size:13.5px;padding:1px 4px;margin-left:-4px;border-radius:4px;width:100%;text-align:left;cursor:text}
+.drow .nm:hover{background:var(--chip)}
+.drow input.nm{background:var(--flyout-solid);outline:2px solid var(--accent)}
+.drow .st{font-size:12px;color:var(--ink-3)}
+.badge{font-size:10.5px;padding:0 5px;border-radius:4px;background:var(--chip);color:var(--ink-2);font-weight:600}
+.badge.ok{background:color-mix(in srgb,var(--charge) 16%,transparent);color:var(--charge)}
+.drow.hid .dev-ico,.drow.hid .meta{opacity:.45}
+.ib{width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--ink-3);display:grid;place-items:center;cursor:pointer}
+.ib:hover{background:var(--hover);color:var(--ink)}
+.ib.on{color:var(--accent)}
 
 /* 电量指示：格子 / 细条 / 圆环 */
 .cells{display:flex;gap:3px}
@@ -273,19 +312,43 @@ section{margin-top:28px}
       <div class="queued" id="queued">游戏中：低电量提醒已推迟，退出全屏后再提醒</div>
 
       <div class="flyout open" id="flyout" role="dialog" aria-label="几格">
+       <div class="pages" id="pages">
+       <div class="page" id="pMain">
         <div class="fo-head">
           <div class="fo-title">几格</div>
           <div class="fo-time" id="foTime">刚刚更新</div>
           <button class="icon-btn" id="refresh" title="立即刷新" aria-label="立即刷新">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M12.2 1.8v2.6H9.6"/></svg>
           </button>
-          <button class="icon-btn" title="设置" aria-label="设置">
+          <button class="icon-btn" id="goSettings" title="设置" aria-label="设置">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
           </button>
         </div>
         <div id="hero"></div>
         <div class="list" id="list"></div>
-        <div class="fo-foot"><span>每 60 秒查询 · 游戏中 5 分钟</span><span class="link">管理设备</span></div>
+        <div class="fo-foot"><span id="pollNote">每 60 秒查询 · 游戏中 5 分钟</span><button class="link" id="goDevices">管理设备</button></div>
+       </div>
+
+       <div class="page right" id="pSettings" aria-label="设置">
+        <div class="sub-head"><button class="icon-btn back" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button><b>设置</b></div>
+        <div class="sec">托盘</div>
+        <div class="set"><div class="lbl"><div>托盘显示</div><small>任务栏数字显示哪台设备</small></div><select class="sel" id="primarySel"></select></div>
+        <div class="sec">提醒</div>
+        <div class="set"><div class="lbl"><div>低电量提醒</div><small>跌破阈值时提醒一次</small></div><div class="chips" data-chips="threshold"><button>10%</button><button aria-pressed="true">15%</button><button>20%</button><button>30%</button></div></div>
+        <div class="set"><div class="lbl"><div>游戏中静默</div><small>全屏游戏时不弹任何窗口，退出后再提醒</small></div><button class="tg" role="switch" aria-checked="true" aria-label="游戏中静默"></button></div>
+        <div class="sec">常规</div>
+        <div class="set"><div class="lbl"><div>查询间隔</div><small>游戏中自动放宽到 5 分钟</small></div><div class="chips" data-chips="poll"><button>30 秒</button><button aria-pressed="true">60 秒</button><button>2 分钟</button></div></div>
+        <div class="set"><div class="lbl"><div>开机自启</div></div><button class="tg" role="switch" aria-checked="true" aria-label="开机自启"></button></div>
+        <div class="about"><span>几格 0.1.3</span><span class="sp"></span><button class="link">诊断信息</button><button class="link">检查更新</button></div>
+       </div>
+
+       <div class="page right" id="pDevices" aria-label="管理设备">
+        <div class="sub-head"><button class="icon-btn back" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button><b>管理设备</b></div>
+        <div class="sec" style="font-weight:400">点名称可以改名，图钉设为托盘显示，眼睛控制是否出现在面板里。</div>
+        <div id="devList" style="padding-bottom:4px"></div>
+        <div class="about"><span>没看到你的设备？</span><span class="sp"></span><button class="link">导出诊断信息</button></div>
+       </div>
+       </div>
       </div>
 
       <div class="toast" id="toast" role="status">
@@ -450,7 +513,7 @@ section{margin-top:28px}
         </div>
         <div class="sub"><span class="dot" style="color:${hs.c}"></span>${hs.text}</div>
       </div>`;
-    const rows = devices.filter(d=>!d.primary).map((d,i)=>{
+    const rows = devices.filter(d=>!d.primary && !d.hidden).map((d,i)=>{
       const s = state(d);
       const numColor = s.k==='low' ? 'color:var(--low)' : '';
       return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
@@ -463,6 +526,7 @@ section{margin-top:28px}
     }).join('');
     document.getElementById('list').innerHTML = rows;
     renderTray(); renderTip();
+    if (typeof fit === 'function' && current === 'pMain') fit('pMain');
   }
 
   // 托盘数字图标：SVG 模拟，真实实现为按 DPI 绘制的 HICON
@@ -521,12 +585,12 @@ section{margin-top:28px}
   const fly = document.getElementById('flyout'), tray = document.getElementById('trayIcon'), tip = document.getElementById('tip');
   const toast = document.getElementById('toast'), game = document.getElementById('game'), queued = document.getElementById('queued');
   let pendingToast = false;
-  function setOpen(v){ fly.classList.toggle('open', v); tray.classList.toggle('on', v); if (v){ tip.classList.remove('show'); toast.classList.remove('show'); } }
+  function setOpen(v){ if(!v) nav('pMain', true); fly.classList.toggle('open', v); tray.classList.toggle('on', v); if (v){ tip.classList.remove('show'); toast.classList.remove('show'); } }
   tray.addEventListener('click', e=>{ e.stopPropagation(); setOpen(!fly.classList.contains('open')); });
   tray.addEventListener('mouseenter', ()=>{ if(!fly.classList.contains('open')) tip.classList.add('show'); });
   tray.addEventListener('mouseleave', ()=> tip.classList.remove('show'));
   document.getElementById('stage').addEventListener('click', e=>{ if(!fly.contains(e.target)) setOpen(false); });
-  document.addEventListener('keydown', e=>{ if(e.key==='Escape') setOpen(false); });
+  document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return; if(current!=='pMain') nav('pMain'); else setOpen(false); });
   document.getElementById('refresh').addEventListener('click', e=>{
     const b = e.currentTarget; b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
     document.getElementById('foTime').textContent = '刚刚更新';
@@ -576,6 +640,72 @@ section{margin-top:28px}
     const n = new Date(), p = x=>String(x).padStart(2,'0');
     document.getElementById('clock').innerHTML = `${p(n.getHours())}:${p(n.getMinutes())}<br>${n.getFullYear()}/${n.getMonth()+1}/${n.getDate()}`;
   }
+  // ---------- 面板内分页 ----------
+  const pages = document.getElementById('pages');
+  const order = ['pMain','pSettings','pDevices'];
+  let current = 'pMain';
+  const VERIFIED = {ulx:false, h9:true, atk:false, gw:true, lg:false};
+  function fit(id){ pages.style.height = document.getElementById(id).offsetHeight + 'px'; }
+  function nav(id, instant){
+    if (id===current) return;
+    const forward = id !== 'pMain';
+    order.forEach(p=>{
+      const el = document.getElementById(p);
+      if (instant) el.style.transition='none';
+      el.classList.remove('left','right');
+      if (p===id) return;
+      el.classList.add(p==='pMain' ? (forward?'left':'') || 'left' : 'right');
+    });
+    if (id==='pSettings') fillSettings();
+    if (id==='pDevices') fillDevices();
+    current = id; fit(id);
+    if (instant) requestAnimationFrame(()=>order.forEach(p=>document.getElementById(p).style.transition=''));
+  }
+  document.getElementById('goSettings').addEventListener('click', e=>{ e.stopPropagation(); nav('pSettings'); });
+  document.getElementById('goDevices').addEventListener('click', e=>{ e.stopPropagation(); nav('pDevices'); });
+  document.querySelectorAll('.back').forEach(b=>b.addEventListener('click', e=>{ e.stopPropagation(); nav('pMain'); }));
+  document.querySelectorAll('.tg').forEach(t=>t.addEventListener('click', e=>{ e.stopPropagation(); t.setAttribute('aria-checked', t.getAttribute('aria-checked')!=='true'); }));
+  document.querySelectorAll('[data-chips]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation(); g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x===b));
+    if (g.dataset.chips==='poll') document.getElementById('pollNote').textContent = `每 ${b.textContent.replace(' ','')} 查询 · 游戏中 5 分钟`;
+  })));
+  function setPrimary(id){ devices.forEach(d=>d.primary = d.id===id); devices.find(d=>d.primary).hidden=false; render(); }
+  function fillSettings(){
+    const sel = document.getElementById('primarySel');
+    sel.innerHTML = devices.map(d=>`<option value="${d.id}" ${d.primary?'selected':''}>${d.name}</option>`).join('');
+    sel.onchange = ()=>setPrimary(sel.value);
+  }
+  const EYE = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>';
+  const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2l12 12M6.4 3.8A6.6 6.6 0 0 1 8 3.5C12 3.5 14.5 8 14.5 8a12 12 0 0 1-1.9 2.4M10.5 10.9A5.4 5.4 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a12.6 12.6 0 0 1 2.7-3.2"/></svg>';
+  function fillDevices(){
+    const box = document.getElementById('devList');
+    box.innerHTML = devices.map(d=>`
+      <div class="drow ${d.hidden?'hid':''}" data-id="${d.id}">
+        <div class="dev-ico">${ICON[d.kind]}</div>
+        <div class="meta"><button class="nm" title="点击改名">${d.name}</button>
+          <div class="st">2.4G · <span class="badge ${VERIFIED[d.id]?'ok':''}">${VERIFIED[d.id]?'已实机验证':'按协议适配'}</span></div></div>
+        <button class="ib ${d.primary?'on':''}" data-act="pin" title="${d.primary?'托盘正在显示':'设为托盘显示'}">${PIN.replace('width="11" height="11"','width="14" height="14"')}</button>
+        <button class="ib" data-act="eye" title="${d.hidden?'在面板中显示':'在面板中隐藏'}" ${d.primary?'disabled style="opacity:.35"':''}>${d.hidden?EYE_OFF:EYE}</button>
+      </div>`).join('');
+    box.querySelectorAll('.drow').forEach(row=>{
+      const d = devices.find(x=>x.id===row.dataset.id);
+      row.querySelector('[data-act="pin"]').onclick = e=>{ e.stopPropagation(); setPrimary(d.id); fillDevices(); };
+      row.querySelector('[data-act="eye"]').onclick = e=>{ e.stopPropagation(); if(d.primary) return; d.hidden=!d.hidden; render(); fillDevices(); };
+      const nm = row.querySelector('.nm');
+      nm.onclick = e=>{
+        e.stopPropagation();
+        const input = document.createElement('input'); input.className='nm'; input.value=d.name;
+        nm.replaceWith(input); input.focus(); input.select();
+        const done = ok=>{ if(ok && input.value.trim()) d.name = input.value.trim(); render(); fillDevices(); };
+        input.onkeydown = ev=>{ ev.stopPropagation(); if(ev.key==='Enter') done(true); if(ev.key==='Escape') done(false); };
+        input.onblur = ()=>done(true);
+        input.onclick = ev=>ev.stopPropagation();
+      };
+    });
+    fit('pDevices');
+  }
+  requestAnimationFrame(()=>fit('pMain'));
+
   tick(); setInterval(tick, 30000);
   render(); renderIconGrid();
 })();
