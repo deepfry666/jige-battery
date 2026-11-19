@@ -48,7 +48,9 @@ KillTimer
 LoadCursorW
 MonitorFromRect
 MonitorFromWindow
-OutputDebugStringW
+GetWindowLongW
+SetCursor
+ScreenToClient
 PostMessageW
 PostQuitMessage
 RegisterClassExW

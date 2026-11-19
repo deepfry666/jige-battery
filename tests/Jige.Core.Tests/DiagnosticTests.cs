@@ -156,13 +156,157 @@ public sealed class DiagnosticTests
         Assert.Null(reading.Percentage);
     }
 
+    [Fact]
+    public async Task LogitechHidppExportKeepsRoutesAndReplaysWithoutDeviceIdentifiers()
+    {
+        var longHid = new HidInterface("private-receiver", "long-path", 0x046D, 0xC548, "Private Receiver Name",
+            0xFF00, 2, 20, 20, 0, 2);
+        var shortHid = longHid with { Path = "short-path", Usage = 1, InputLength = 7, OutputLength = 7 };
+        var longSession = new BatteryHidStub(request => (request[1], request[2], request[3]) switch
+        {
+            (1, 0, 0x1A) => [Frame($"1101001A0402{request[6]:X2}", 20)],
+            (2, 0, 0x1A) => [Frame("10028F001A04", 7)],
+            (_, 0, 0x1A) => [Frame($"10{request[1]:X2}8F001A08", 7)],
+            (1, 0, 0x0B) => [Frame("1101000B07", 20)],
+            (1, 7, 0x0A) => [Frame("1101070A05", 20)],
+            (1, 7, 0x1A) => [Frame("1101071A414C494345", 20)], // ALICE
+            (1, 7, 0x2A) => [Frame("1101072A03", 20)],
+            (1, 0, 0x0E) => [Frame("1101000E08", 20)],
+            (1, 8, 0x0A) => [Frame("1101080A01DEADBEEF000140A900000000CAFE00", 20)],
+            (1, 0, 0x0A) => [Frame("1101000A06", 20)],
+            (1, 6, 0x0A) => [Frame("1101060A0F03", 20)],
+            (1, 6, 0x1A) => [Frame("1101061A5E080100", 20)],
+            _ => throw new InvalidOperationException("意外发包")
+        });
+        var shortSession = new BatteryHidStub(request =>
+        {
+            Assert.Equal("10FF83B5520000", Convert.ToHexString(request));
+            longSession.Enqueue(Frame("11FF83B55202A94012345678", 20));
+            return [];
+        });
+
+        string report = await DiagnosticReport.GenerateAsync(new([longHid, shortHid], [], []),
+            new BatteryTransportStub(hid => hid.Path == shortHid.Path ? shortSession : longSession));
+        Assert.Contains("匹配 Logitech HID++ H1（长报告） H2（短报告）", report);
+        Assert.Contains("OP|H2|OpenHid|", report);
+        Assert.Contains("OP|H2|HidOutput|", report);
+        Assert.Contains("OP|H1|HidInput|", report);
+        Assert.Contains("|11FF83B55202A940000000000000000000000000|1", report);
+        Assert.Contains("|1101080A0100000000000140A900000000000000|1", report);
+        Assert.DoesNotContain("414C494345", report);
+        Assert.DoesNotContain("Private Receiver Name", report);
+        Assert.DoesNotContain("private-receiver", report);
+        Assert.Collection(await Replay(report),
+            online =>
+            {
+                Assert.Equal(94, online.Percentage);
+                Assert.Equal(DeviceKind.Mouse, online.Device.Kind);
+                Assert.Equal(ChargingState.Charging, online.Charging);
+            },
+            offline =>
+            {
+                Assert.Equal(LinkState.Offline, offline.Link);
+                Assert.EndsWith("/wpid-40A9", offline.Device.Id);
+            });
+    }
+
+    [Fact]
+    public async Task UnknownLogitechReceiverCanReplayWithAProtectedProductName()
+    {
+        var hid = new HidInterface("receiver", "unknown-path", 0x046D, 0xC5FF, "私有名称 dongle",
+            0xFF00, 2, 20, 20, 0, 2);
+        var session = new BatteryHidStub(request => request[3] == 0x1A
+            ? [Frame($"1101001A0201{request[6]:X2}", 20)]
+            : [Frame("1101000A060005", 20)]);
+        string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
+        Assert.DoesNotContain("私有名称", report);
+        Assert.Equal(LinkState.Online, Assert.Single(await Replay(report)).Link);
+    }
+
+    [Fact]
+    public async Task LogitechCenturionReportRetainsBridgeAndBatteryFields()
+    {
+        var hid = new HidInterface("receiver", "headset", 0x046D, 0x0AF7, null, 0xFFA0, 1, 64, 64, 0, 3);
+        var session = new BatteryHidStub(request => request[1] switch
+        {
+            5 => [Frame("510600000103CAFE", 64)],
+            10 => [Frame("5103000311", 64), Frame("510C00031000070000010400DEAD", 64)],
+            8 => [Frame("510B00031000060004014B4B03", 64)],
+            _ => throw new InvalidOperationException("意外发包")
+        });
+        string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
+        Assert.Contains("匹配 Logitech 耳机 H1", report);
+        Assert.DoesNotContain("CAFE", report);
+        Assert.DoesNotContain("DEAD", report);
+        var reading = Assert.Single(await Replay(report));
+        Assert.Equal(75, reading.Percentage);
+        Assert.Equal(ChargingState.Full, reading.Charging);
+    }
+
+    [Theory]
+    [InlineData(2, ReadIssue.None, LinkState.Online)]
+    [InlineData(1, ReadIssue.Busy, LinkState.Busy)]
+    [InlineData(4, ReadIssue.None, LinkState.Offline)]
+    public async Task Razer90BReportRetainsStatusAndRecalculatesItsChecksum(int status, ReadIssue issue, LinkState link)
+    {
+        var hid = new HidInterface("razer", "feature-path", 0x1532, 0x00C1, "Razer private", 0xFF00, 1, 0, 0, 91, 0);
+        var session = new BatteryHidStub(request =>
+        {
+            byte[] reply = request.ToArray();
+            reply[1] = request[8] == 0x80 ? (byte)status : (byte)2;
+            reply[10] = request[8] == 0x80 ? (byte)128 : (byte)1;
+            Convert.FromHexString("CAFEF00D").CopyTo(reply, 14);
+            reply[89] = RazerFeatureProtocol.Checksum(reply);
+            return [reply];
+        }, feature: true);
+
+        string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
+        Assert.Contains("匹配 Razer 90B H1", report);
+        Assert.DoesNotContain("CAFEF00D", report);
+        var result = Assert.Single(await Replay(report));
+        Assert.Equal(issue, result.Issue);
+        Assert.Equal(link, result.Link);
+        if (status == 2)
+        {
+            Assert.Equal(50, result.Percentage);
+            Assert.Equal(ChargingState.Charging, result.Charging);
+        }
+    }
+
+    [Fact]
+    public async Task RazerHeadsetReportReplaysWithNewTransactionSequences()
+    {
+        var hid = new HidInterface("razer", "headset-path", 0x1532, 0x0565, "private", 0xFF14, 1, 64, 64, 0, 3);
+        var session = new BatteryHidStub(request =>
+        {
+            byte[] reply = request.ToArray();
+            reply[1] = 2;
+            reply[6] = 9;
+            reply[8] = 0x80;
+            reply[11] = 1;
+            reply[12] = 5;
+            reply[13] = request[10] == 0x21 ? (byte)19 : (byte)1;
+            Convert.FromHexString("BAADF00D").CopyTo(reply, 14);
+            reply[62] = RazerHeadsetProtocol.Checksum(reply, 1);
+            return [reply];
+        });
+        string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
+        Assert.Contains("匹配 Razer 耳机 H1", report);
+        Assert.DoesNotContain("BAADF00D", report);
+        var result = Assert.Single(await Replay(report));
+        Assert.Equal(19, result.Percentage);
+        Assert.Equal(ChargingState.Charging, result.Charging);
+    }
+
+    private static byte[] Frame(string hex, int length) => LogitechBatteryTests.Frame(hex, length);
+
     private static async Task<List<BatteryReading>> Replay(string report)
     {
         var (inventory, transport, baud) = FakeReceiverTransport.FromReport(report);
         var registry = AdapterRegistry.CreateDefault(baud);
         List<BatteryReading> readings = [];
         foreach (var device in registry.Detect(inventory))
-            readings.Add(await registry.ReadAsync(device, transport, null, CancellationToken.None));
+            readings.AddRange(await registry.ReadDevicesAsync(device, transport, null, CancellationToken.None));
         transport.AssertComplete();
         return readings;
     }

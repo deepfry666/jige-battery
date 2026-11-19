@@ -6,15 +6,17 @@ namespace Jige.Core.Diagnostics;
 internal enum DiagnosticOperation { OpenHid, OpenSerial, HidOutput, HidInput, SetFeature, GetFeature, SerialWrite, SerialRead }
 
 internal sealed record DiagnosticTransfer(
-    DiagnosticOperation Operation, long Milliseconds, ReadIssue Issue, int? NativeCode, int? Argument, byte[] Data, bool Masked = false);
+    ReceiverEndpoint Endpoint, DiagnosticOperation Operation, long Milliseconds, ReadIssue Issue, int? NativeCode, int? Argument, byte[] Data, bool Masked = false);
 
-internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndpoint endpoint) : IReceiverTransport
+internal sealed class DiagnosticTransport(IReceiverTransport inner, IDeviceAdapter adapter) : IReceiverTransport
 {
     private readonly object gate = new();
     private readonly List<(long Started, DiagnosticTransfer Transfer)> transfers = [];
     private const int TransferLimit = 2048;
     private bool finished;
     private bool truncated;
+    private byte[] request = [];
+    private readonly Dictionary<(byte Slot, byte Index), HidppFeature> features = [];
 
     public (DiagnosticTransfer[] Transfers, bool Truncated) Finish()
     {
@@ -28,14 +30,14 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
     }
 
     public IHidSession OpenHid(HidInterface endpoint, CancellationToken token) =>
-        new Hid(this, Open(DiagnosticOperation.OpenHid, null, () => inner.OpenHid(endpoint, token)));
+        new Hid(this, endpoint, Open(endpoint, DiagnosticOperation.OpenHid, null, () => inner.OpenHid(endpoint, token)));
 
     public ISerialSession OpenSerial(UsbSerialPort endpoint, int baudRate, CancellationToken token) =>
-        new Serial(this, Open(DiagnosticOperation.OpenSerial, baudRate, () => inner.OpenSerial(endpoint, baudRate, token)));
+        new Serial(this, endpoint, Open(endpoint, DiagnosticOperation.OpenSerial, baudRate, () => inner.OpenSerial(endpoint, baudRate, token)));
 
-    private T Open<T>(DiagnosticOperation kind, int? argument, Func<T> open)
+    private T Open<T>(ReceiverEndpoint endpoint, DiagnosticOperation kind, int? argument, Func<T> open)
     {
-        var entry = Begin(kind, argument);
+        var entry = Begin(endpoint, kind, argument);
         try
         {
             var session = open();
@@ -54,7 +56,7 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
         }
     }
 
-    private (int Index, long Started) Begin(DiagnosticOperation kind, int? argument)
+    private (int Index, long Started) Begin(ReceiverEndpoint endpoint, DiagnosticOperation kind, int? argument)
     {
         long started = Stopwatch.GetTimestamp();
         lock (gate)
@@ -68,7 +70,7 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
                 truncated = true;
                 return (-1, started);
             }
-            transfers.Add((started, new(kind, 0, ReadIssue.Timeout, null, argument, [])));
+            transfers.Add((started, new(endpoint, kind, 0, ReadIssue.Timeout, null, argument, [])));
             return (index, started);
         }
     }
@@ -80,9 +82,11 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
             if (finished || entry.Index < 0)
                 return;
             var transfer = transfers[entry.Index].Transfer;
-            var safe = endpoint is HidInterface hid &&
+            var safe = transfer.Endpoint is HidInterface hid &&
                 transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature)
-                ? DiagnosticPrivacy.HidReply(hid, data) : data.ToArray();
+                ? DiagnosticPrivacy.HidReply(adapter, hid, data, request, features) : data.ToArray();
+            if (issue == ReadIssue.None && transfer.Operation is DiagnosticOperation.HidOutput or DiagnosticOperation.SetFeature)
+                request = safe;
             transfers[entry.Index] = (0, transfer with
             {
                 Milliseconds = (long)Stopwatch.GetElapsedTime(entry.Started).TotalMilliseconds,
@@ -91,10 +95,10 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
         }
     }
 
-    private async ValueTask<int> TransferAsync(DiagnosticOperation op, byte[] buffer,
+    private async ValueTask<int> TransferAsync(ReceiverEndpoint endpoint, DiagnosticOperation op, byte[] buffer,
         Func<ValueTask<int>> transfer, bool write = false, int? argument = null)
     {
-        var entry = Begin(op, argument);
+        var entry = Begin(endpoint, op, argument);
         try
         {
             int count = await transfer().ConfigureAwait(false);
@@ -113,41 +117,41 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, ReceiverEndp
         }
     }
 
-    private async ValueTask TransferReportAsync(DiagnosticOperation op, byte[] bytes, Func<ValueTask> transfer,
+    private async ValueTask TransferReportAsync(ReceiverEndpoint endpoint, DiagnosticOperation op, byte[] bytes, Func<ValueTask> transfer,
         bool write = false, int? argument = null)
     {
-        await TransferAsync(op, bytes, async () =>
+        await TransferAsync(endpoint, op, bytes, async () =>
         {
             await transfer().ConfigureAwait(false);
             return bytes.Length;
         }, write, argument).ConfigureAwait(false);
     }
 
-    private sealed class Hid(DiagnosticTransport owner, IHidSession session) : IHidSession
+    private sealed class Hid(DiagnosticTransport owner, HidInterface endpoint, IHidSession session) : IHidSession
     {
         public ValueTask WriteOutputAsync(byte[] report, CancellationToken token) =>
-            owner.TransferReportAsync(DiagnosticOperation.HidOutput, report, () => session.WriteOutputAsync(report, token), true);
+            owner.TransferReportAsync(endpoint, DiagnosticOperation.HidOutput, report, () => session.WriteOutputAsync(report, token), true);
 
         public ValueTask<int> ReadInputAsync(byte[] report, CancellationToken token) =>
-            owner.TransferAsync(DiagnosticOperation.HidInput, report, () => session.ReadInputAsync(report, token));
+            owner.TransferAsync(endpoint, DiagnosticOperation.HidInput, report, () => session.ReadInputAsync(report, token));
 
         public ValueTask WriteFeatureAsync(byte[] report, CancellationToken token) =>
-            owner.TransferReportAsync(DiagnosticOperation.SetFeature, report, () => session.WriteFeatureAsync(report, token), true);
+            owner.TransferReportAsync(endpoint, DiagnosticOperation.SetFeature, report, () => session.WriteFeatureAsync(report, token), true);
 
         public ValueTask ReadFeatureAsync(byte[] report, CancellationToken token) =>
-            owner.TransferReportAsync(DiagnosticOperation.GetFeature, report, () => session.ReadFeatureAsync(report, token),
+            owner.TransferReportAsync(endpoint, DiagnosticOperation.GetFeature, report, () => session.ReadFeatureAsync(report, token),
                 argument: report[0]);
 
         public void Dispose() => session.Dispose();
     }
 
-    private sealed class Serial(DiagnosticTransport owner, ISerialSession session) : ISerialSession
+    private sealed class Serial(DiagnosticTransport owner, UsbSerialPort endpoint, ISerialSession session) : ISerialSession
     {
         public ValueTask WriteAsync(byte[] bytes, CancellationToken token) =>
-            owner.TransferReportAsync(DiagnosticOperation.SerialWrite, bytes, () => session.WriteAsync(bytes, token), true);
+            owner.TransferReportAsync(endpoint, DiagnosticOperation.SerialWrite, bytes, () => session.WriteAsync(bytes, token), true);
 
         public ValueTask<int> ReadAsync(byte[] buffer, CancellationToken token) =>
-            owner.TransferAsync(DiagnosticOperation.SerialRead, buffer, () => session.ReadAsync(buffer, token));
+            owner.TransferAsync(endpoint, DiagnosticOperation.SerialRead, buffer, () => session.ReadAsync(buffer, token));
 
         public void Dispose() => session.Dispose();
     }

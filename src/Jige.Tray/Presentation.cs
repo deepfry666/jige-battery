@@ -47,45 +47,46 @@ internal sealed record Palette(Color Ink, Color Secondary, Color Muted, Color Ca
     };
 }
 
-internal readonly record struct IconAppearance(int? Percentage, BatteryTone Tone, Color Ink)
+internal readonly record struct IconAppearance(int? Percentage, BatteryTone Tone, Color Ink, bool AlreadyFull = false)
 {
     public bool Full => Percentage == 100;
-    public bool Underline => Tone == BatteryTone.Charging && !Full;
+    public bool Underline => Tone == BatteryTone.Charging && !Full && !AlreadyFull;
 }
 
 internal static class Presentation
 {
-    public static BatteryTone Tone(DeviceStatus? device) => device switch
+    public static BatteryTone Tone(DeviceStatus? device, int threshold) => device switch
     {
-        not { Fresh: true } => BatteryTone.Idle,
-        { IsCharging: true } => BatteryTone.Charging,
-        { Percentage: <= 15 } => BatteryTone.Low,
-        { Percentage: <= 30 } => BatteryTone.Warning,
+        not { Fresh: true, Percentage: { } } => BatteryTone.Idle,
+        { IsFull: true } or { IsCharging: true } => BatteryTone.Charging,
+        { Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         _ => BatteryTone.Normal
     };
 
-    public static IconAppearance Icon(DeviceStatus? device, bool darkTaskbar)
+    public static IconAppearance Icon(DeviceStatus? device, bool darkTaskbar, int threshold)
     {
         var palette = Palette.Create(darkTaskbar);
-        var tone = Tone(device);
+        var tone = Tone(device, threshold);
         var color = tone switch
         {
             BatteryTone.Idle => palette.Ink.WithAlpha(140),
             BatteryTone.Normal => palette.Ink,
             _ => palette.Status(tone)
         };
-        return new(device?.Percentage, tone, color);
+        return new(device?.Percentage, tone, color, device?.IsFull == true);
     }
 
     public static int FilledCells(int? percent, int count) => ((percent ?? 0) * count + 50) / 100;
 
-    public static string Status(DeviceStatus device, DateTimeOffset now)
+    public static string Status(DeviceStatus device, DateTimeOffset now, int threshold)
     {
         if (device.Fresh)
-            return Tone(device) switch
+            return Tone(device, threshold) switch
             {
-                BatteryTone.Charging => "充电中",
+                BatteryTone.Charging => device.IsFull ? "已充满" : "充电中",
                 BatteryTone.Low => "电量低，该充电了",
+                BatteryTone.Warning => "电量偏低",
                 _ => device.Last?.IsEstimated == true ? "2.4G 已连接 · 电压估算" : "2.4G 已连接"
             };
 
@@ -119,14 +120,20 @@ internal static class Presentation
 
     public static string Tooltip(TrayModel model)
     {
-        const int limit = 127;
-        var entries = model.OrderedDevices().Select(device =>
+        const int limit = 127; // Shell 的 128 个 UTF-16 字符含结尾的 NUL。
+        var primary = model.PrimaryDevice;
+        var devices = model.OrderedDevices().Where(device => device != primary)
+            .OrderBy(device => model.IsHidden(device.Device.Id))
+            .ThenBy(device => device.Percentage ?? int.MaxValue);
+        var ordered = primary is null ? devices.AsEnumerable() : devices.Prepend(primary);
+        var entries = ordered.Select(device =>
         {
-            string tail = Tone(device) switch
+            string tail = Tone(device, model.Settings.LowBatteryThreshold) switch
             {
                 BatteryTone.Idle when device.Last is not null => "（上次）",
-                BatteryTone.Charging => " 充电中",
+                BatteryTone.Charging => device.IsFull ? " 已充满" : " 充电中",
                 BatteryTone.Low => " 电量低",
+                BatteryTone.Warning => " 电量偏低",
                 _ => ""
             };
             return (Name: model.Name(device.Device), Value: $" {Value(device)}{tail}");
@@ -134,32 +141,22 @@ internal static class Presentation
 
         if (entries.Length == 0)
             return "几格 · 未找到支持的设备";
-        string full = string.Join('\n', entries.Select(entry => entry.Name + entry.Value));
-        if (full.Length <= limit)
-            return full;
 
-        // 名称过长时先压缩名称，保留每一行的百分比和状态。
-        int count = 0, minimum = 0;
-        foreach (var entry in entries)
+        static string Overflow(int count) => count > 0 ? $"\n另有 {count} 台" : "";
+        var first = entries[0];
+        int spare = limit - first.Value.Length - Overflow(entries.Length - 1).Length;
+        var tip = new System.Text.StringBuilder(Shorten(first.Name, spare)).Append(first.Value);
+        int shown = 1;
+        while (shown < entries.Length)
         {
-            int line = Math.Min(entry.Name.Length, 8) + entry.Value.Length + 1;
-            if (minimum + line > limit - 1)
+            var entry = entries[shown];
+            int available = limit - tip.Length - 1 - entry.Value.Length - Overflow(entries.Length - shown - 1).Length;
+            if (available < Math.Min(entry.Name.Length, 8))
                 break;
-            minimum += line;
-            count++;
+            tip.Append('\n').Append(Shorten(entry.Name, available)).Append(entry.Value);
+            shown++;
         }
-        bool omitted = count < entries.Length;
-        int spare = limit - minimum + 1 - (omitted ? 2 : 0);
-        var lines = new string[count];
-        for (int i = 0; i < count; i++)
-        {
-            var (name, value) = entries[i];
-            int baseLength = Math.Min(name.Length, 8);
-            int extra = Math.Min(name.Length - baseLength, spare / (count - i));
-            lines[i] = Shorten(name, baseLength + extra) + value;
-            spare -= extra;
-        }
-        return string.Join('\n', lines) + (omitted ? "\n…" : "");
+        return tip.Append(Overflow(entries.Length - shown)).ToString();
     }
 
     public static string Shorten(string value, int max)

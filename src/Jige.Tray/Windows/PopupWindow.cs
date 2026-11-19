@@ -33,11 +33,14 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private DateTimeOffset now;
     private bool running;
     private string? error;
+    private DiagnosticStatus diagnosticStatus;
+    private bool diagnosticPreviewPending;
     private Transition? transition;
 
     public HWND Handle { get; private set; } = hwnd;
     public string? NoticeId { get; } = noticeId;
-    public bool IsNotice => NoticeId is not null;
+    public bool IsWelcome => page == PanelPage.Welcome;
+    public bool IsNotice => NoticeId is not null || IsWelcome;
     public bool Closing { get; private set; }
     public bool Editing => editor is not null;
     public bool IsEditor(HWND child) => editor?.Handle == child;
@@ -55,7 +58,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         public Pose Exit => new(-Direction, 0);
     }
 
-    public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, bool reset = false)
+    public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics, bool previewPending, bool reset = false)
     {
         if (Closing)
             return;
@@ -63,6 +66,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         now = time;
         running = pollRunning;
         error = settingsError;
+        diagnosticStatus = diagnostics;
+        diagnosticPreviewPending = previewPending;
         // 轮询结果先进入模型，等结束改名后再更新行顺序，避免输入框跳到另一台设备。
         if (Editing && !reset)
             return;
@@ -247,7 +252,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         displayedHeight = height;
         var next = PopupPlacement.Place(iconBounds, screenBounds, work, Pixels(PanelLayout.Width),
-            Pixels(height), Pixels(12), IsNotice);
+            Pixels(height), Pixels(12), IsNotice && !IsWelcome);
         if (position == next && background is not null)
             return;
 
@@ -311,7 +316,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)
@@ -349,6 +354,22 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     }
 
     public LRESULT EditColors(HDC dc) => editor?.PaintColors(dc) ?? default;
+
+    public bool UpdateCursor()
+    {
+        if (transition is not null || !PInvoke.GetCursorPos(out var point) ||
+            !PInvoke.ScreenToClient(Handle, ref point))
+            return false;
+        var action = scene?.Hit(point.X / scale, point.Y / scale).Action ?? PopupAction.None;
+        int cursorId = action switch
+        {
+            PopupAction.None => 32512, // IDC_ARROW
+            PopupAction.Rename => 32513, // IDC_IBEAM
+            _ => 32649 // IDC_HAND
+        };
+        PInvoke.SetCursor(PInvoke.LoadCursor(default(HINSTANCE), new PCWSTR((char*)cursorId)));
+        return true;
+    }
 
     public void PointerMove(LPARAM lParam)
     {
@@ -402,7 +423,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
                 UpdateSettingsAnimation();
                 return default;
             }
-            return page is PanelPage.Main or PanelPage.Notice ? PopupAction.Close : PopupAction.Back;
+            return page is PanelPage.Main or PanelPage.Notice or PanelPage.Welcome ? PopupAction.Close : PopupAction.Back;
         }
         if (transition is not null)
             return default;

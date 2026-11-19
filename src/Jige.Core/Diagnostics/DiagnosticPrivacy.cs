@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -33,9 +34,25 @@ internal static partial class DiagnosticPrivacy
             .Select(group => group.Value.ToUpperInvariant()));
     }
 
-    public static byte[] HidReply(HidInterface hid, ReadOnlySpan<byte> raw)
+    public static byte[] HidReply(IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw,
+        ReadOnlySpan<byte> request, Dictionary<(byte Slot, byte Index), HidppFeature> features)
     {
         var result = new byte[raw.Length];
+        switch (adapter)
+        {
+            case LogitechHidppAdapter:
+                CopyHidpp(raw, request, result, features);
+                return result;
+            case LogitechHeadsetAdapter:
+                CopyLogitechHeadset(hid.ProductId!.Value, raw, request, result);
+                return result;
+            case RazerFeatureAdapter:
+                CopyRazerFeature(hid.ProductId, raw, request, result);
+                return result;
+            case RazerHeadsetAdapter:
+                CopyRazerHeadset(raw, request, result);
+                return result;
+        }
         if (FinalmouseAdapter.IsReceiver(hid))
         {
             foreach (var query in new[] { UlxQuery.Link, UlxQuery.Percentage, UlxQuery.Voltage, UlxQuery.Charging })
@@ -75,6 +92,103 @@ internal static partial class DiagnosticPrivacy
                 break;
         }
         return result;
+    }
+
+    private static void CopyHidpp(ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result,
+        Dictionary<(byte Slot, byte Index), HidppFeature> features)
+    {
+        if (request.Length < LogitechHidppProtocol.ShortLength || !LogitechHidppProtocol.Matches(raw, request))
+            return;
+
+        int length = raw[0] == 0x10 ? LogitechHidppProtocol.ShortLength : LogitechHidppProtocol.LongLength;
+        if (raw[2] is 0x8F or 0xFF)
+        {
+            raw[..6].CopyTo(result);
+            return;
+        }
+        raw[..4].CopyTo(result);
+        if (request[0] == 0x10)
+        {
+            // B5 配对记录保留选择器、类型和 WPID。Bolt 偏移 8 起是配对序号。
+            if (raw[4] >= 0x50)
+                raw[4..8].CopyTo(result[4..]);
+            else
+                raw[4..12].CopyTo(result[4..]);
+            return;
+        }
+        if (request[2] == 0)
+        {
+            raw[4..7].CopyTo(result[4..]); // Ping 版本和标记，或 Root 的索引、类型和版本。
+            if (request[3] != 0x1A && LogitechHidppProtocol.IsFeatureIndex(raw[4]))
+            {
+                var feature = (HidppFeature)BinaryPrimitives.ReadUInt16BigEndian(request[4..]);
+                features[(request[1], raw[4])] = feature;
+            }
+            return;
+        }
+
+        if (!features.TryGetValue((request[1], request[2]), out var known))
+            return;
+        int function = request[3] >> 4;
+        int payloadEnd = known switch
+        {
+            HidppFeature.DeviceInfo => 17,
+            HidppFeature.DeviceName when function != 1 => 5, // 名称长度或设备类型。
+            HidppFeature.Unified => function == 0 ? 6 : 8,
+            HidppFeature.Battery or HidppFeature.Voltage => 7,
+            _ => 4
+        };
+        raw[4..Math.Min(length, payloadEnd)].CopyTo(result[4..]);
+        if (known == HidppFeature.DeviceInfo)
+            result[5..Math.Min(length, 9)].Clear(); // 仅保留实体数量、传输和型号字段，清除 Unit ID。
+    }
+
+    private static void CopyLogitechHeadset(ushort pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
+    {
+        if (LogitechHeadsetProtocol.TryFixedBattery(raw, pid, out _, out _))
+        {
+            int end = pid switch { 0x0B21 => 14, 0x0B1C => 9, _ => 13 };
+            raw[..end].CopyTo(result);
+            return;
+        }
+        if (pid is not (0x0AF7 or 0x0B18 or 0x0B45) || request.Length != LogitechHeadsetProtocol.ReportLength)
+            return;
+
+        int prefix = pid == 0x0AF7 ? 1 : 2;
+        var query = request[prefix] switch
+        {
+            5 => LogitechHeadsetQuery.Bridge,
+            10 => LogitechHeadsetQuery.BatteryIndex,
+            8 => LogitechHeadsetQuery.Battery,
+            _ => (LogitechHeadsetQuery)(-1)
+        };
+        byte bridge = request[prefix + 2];
+        byte index = query == LogitechHeadsetQuery.Battery ? request[prefix + 7] : (byte)0;
+        if (LogitechHeadsetProtocol.TryCenturion(raw, pid, query, bridge, index, out var parameters))
+        {
+            int count = query == LogitechHeadsetQuery.Battery ? 3 : 1;
+            int start = prefix + 2 + raw[prefix] - 1 - parameters.Length;
+            raw[..(start + count)].CopyTo(result);
+        }
+    }
+
+    private static void CopyRazerFeature(ushort? pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
+    {
+        if (request.Length != RazerFeatureProtocol.ReportLength || RazerFeatureProtocol.Find(pid) is not { } model ||
+            !RazerFeatureProtocol.TryDecode(raw, model, (RazerFeatureQuery)request[8], out byte status, out _))
+            return;
+        raw[..(status == 2 ? 11 : 9)].CopyTo(result);
+        result[89] = RazerFeatureProtocol.Checksum(result);
+    }
+
+    private static void CopyRazerHeadset(ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
+    {
+        if (!RazerHeadsetProtocol.TryMediaTek(raw, request, 0x0565, out _))
+            return;
+        raw[..3].CopyTo(result);
+        result[6] = raw[6];
+        raw[8..14].CopyTo(result[8..]);
+        result[62] = RazerHeadsetProtocol.Checksum(result, 1);
     }
 
     public static byte[] SerialReplies(ReadOnlySpan<byte> raw)

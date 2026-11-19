@@ -1,11 +1,14 @@
 using System.Buffers.Binary;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace Jige.Core.Adapters;
 
 internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
 {
     private static int nextMarker;
+
+    internal static bool UsesReceiverName(HidInterface hid) => !IsKnownReceiver(hid.ProductId) && IsLong(hid);
 
     private static bool IsKnownReceiver(ushort? pid) => pid is
         0xC539 or 0xC53A or 0xC53D or 0xC53F or 0xC541 or 0xC545 or 0xC547 or 0xC54D or
@@ -94,7 +97,8 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
                             : "未知 PID 的只读探测未确认电量功能")];
                 }
 
-                var device = new DeviceIdentity($"{target.Device.Id}/{slot}", $"Logitech 无线设备（槽 {slot}）", DeviceKind.Other);
+                var device = new DeviceIdentity($"{target.Device.Id}/{slot}/unknown",
+                    $"Logitech 无线设备（槽 {slot}）", DeviceKind.Other);
                 if (online)
                 {
                     // 当前接收器句柄下，每个槽独立缓存。关闭句柄即丢弃，重新打开时重新确认索引。
@@ -122,7 +126,11 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
                         if (wpid is not (0 or ushort.MaxValue))
                         {
                             var type = pair![bolt ? 5 : 11];
-                            device = device with { Kind = LogitechHidppProtocol.PairingKind((byte)(type & 0x0F)) };
+                            device = device with
+                            {
+                                Id = device.Id[..^"unknown".Length] + $"wpid-{wpid:X4}",
+                                Kind = LogitechHidppProtocol.PairingKind((byte)(type & 0x0F))
+                            };
                             unreachable = true;
                         }
                     }
@@ -149,6 +157,22 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
         ValueTask<byte[]?> QueryAsync(byte[] request) => HidQuery.OutputAsync(session, session, request,
             LogitechHidppProtocol.LongLength, reply => LogitechHidppProtocol.Matches(reply, request),
             trace, scanToken, 200);
+    }
+
+    private static string IdentitySuffix(byte[]? info, DeviceIdentity device)
+    {
+        if (info is { Length: LogitechHidppProtocol.LongLength })
+        {
+            var unit = info.AsSpan(5, 4);
+            if (unit.ContainsAnyExcept((byte)0) && unit.ContainsAnyExcept(byte.MaxValue))
+            {
+                // P1–P4 为 Unit ID，P6–P11 为型号 ID。两者结合可区分同槽换配对。
+                byte[] identity = [.. unit, .. info.AsSpan(10, 6)];
+                return $"unit-{Convert.ToHexString(SHA256.HashData(identity).AsSpan(0, 12))}";
+            }
+        }
+        byte[] metadata = Encoding.UTF8.GetBytes($"{device.Kind}:{device.Name}");
+        return $"model-{Convert.ToHexString(SHA256.HashData(metadata).AsSpan(0, 12))}";
     }
 
     private sealed class SlotReader(byte slot, Func<byte[], ValueTask<byte[]?>> query)
@@ -195,6 +219,11 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
             if (type is not null)
                 device = device with { Kind = LogitechHidppProtocol.NameKind(type[4]) };
 
+            // Unit ID 只用于本机区分同型号的不同设备，不保存原始值。
+            var info = await ReadFeatureAsync(HidppFeature.DeviceInfo).ConfigureAwait(false);
+            string suffix = IdentitySuffix(info, device);
+            device = device with { Id = device.Id[..^"unknown".Length] + suffix };
+
             var capabilities = await ReadFeatureAsync(HidppFeature.Unified).ConfigureAwait(false);
             if (capabilities is not null && (capabilities[5] & 0x02) != 0)
             {
@@ -217,7 +246,8 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
                 var charging = (voltage[6] & 0x80) == 0 ? ChargingState.NotCharging : (voltage[6] & 0x07) switch
                 {
                     0 => ChargingState.Charging,
-                    1 or 2 => ChargingState.NotCharging,
+                    1 => ChargingState.Full,
+                    2 => ChargingState.NotCharging,
                     _ => ChargingState.Unknown
                 };
                 return Make(estimate, estimate.HasValue, charging, $"HID++ 1001，{millivolts} mV，标志 {voltage[6]:X2}");

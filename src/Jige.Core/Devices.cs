@@ -2,7 +2,7 @@ namespace Jige.Core;
 
 public enum DeviceKind { Mouse, Headset, Keyboard, Other }
 public enum LinkState { Online, Asleep, Offline, Busy, Unknown }
-public enum ChargingState { Unknown, NotCharging, Charging }
+public enum ChargingState { Unknown, NotCharging, Charging, Full }
 public enum ReadIssue { None, Timeout, AccessDenied, Busy, Disconnected, InvalidResponse, IoError }
 
 public sealed record DeviceIdentity(string Id, string Name, DeviceKind Kind);

@@ -1,6 +1,6 @@
 namespace Jige.Tray;
 
-internal enum PanelPage { Main, Settings, Devices, Notice }
+internal enum PanelPage { Main, Settings, Devices, Notice, Welcome }
 
 internal readonly record struct PanelRect(float X, float Y, float Width, float Height)
 {
@@ -28,7 +28,7 @@ internal static class PanelLayout
     {
         switch (page)
         {
-            case PanelPage.Notice: return new(NoticeHeight, 0);
+            case PanelPage.Notice or PanelPage.Welcome: return new(NoticeHeight, 0);
             case PanelPage.Settings: return new(SettingsHeight, 0);
             case PanelPage.Main when count == 0: return new(157, 0);
             case PanelPage.Main:

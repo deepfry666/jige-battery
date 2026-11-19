@@ -91,7 +91,7 @@ internal sealed partial class PopupScene
             {
                 SettingRow.Primary => primary is null ? "未选择设备" : model.Name(primary.Device),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
-                _ => settings.PollSeconds == 60 ? "60 秒" : Presentation.Interval(settings.PollSeconds)
+                _ => Presentation.Interval(settings.PollSeconds)
             };
             canvas.Text(value, SettingsPanel.Right - 164, rect.Y, 140, rect.Height, 13, colors.Muted,
                 align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
@@ -102,7 +102,7 @@ internal sealed partial class PopupScene
             SettingsPanel.CardWidth - 1, cardHeight - 1, 6.5f, colors.LayerStroke);
 
         float footer = layout.Height - 42;
-        DrawAbout(canvas, footer, error ?? $"几格 {ReleaseVersion.Current}");
+        DrawAbout(canvas, footer, DiagnosticExport.Label(diagnosticStatus) ?? error ?? $"几格 {ReleaseVersion.Current}");
         DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 10, 48, 20), "诊断信息");
         DrawLink(canvas, new(PopupAction.Updates, 279, footer + 10, 48, 20), "检查更新");
     }
@@ -315,7 +315,22 @@ internal sealed partial class PopupScene
                 2, thumb, 1, colors.Muted.WithAlpha(150));
         }
 
-        DrawAbout(canvas, DevicesFooter, error ?? "没看到你的设备？");
+        string unidentified = model.UnknownReceivers > 0
+            ? $"检测到 {model.UnknownReceivers} 个未识别的接收器 ·" : "没看到你的设备？";
+        float footerWidth = HasDiagnosticReport ? 177 : 230;
+        string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
+        if (model.UnknownReceivers > 0 && feedback is not null)
+        {
+            canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
+            canvas.Text(unidentified, 17, DevicesFooter + 3, footerWidth, 18, 12, colors.Muted, ellipsis: true);
+            canvas.Text(feedback, 17, DevicesFooter + 21, footerWidth, 17, 11,
+                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed ? colors.Low : colors.Muted,
+                ellipsis: true);
+        }
+        else
+            DrawAbout(canvas, DevicesFooter, feedback ?? unidentified, footerWidth);
+        if (HasDiagnosticReport)
+            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 201, DevicesFooter + 9, 48, 20), "查看报告");
         DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 9, 72, 20), "导出诊断信息");
     }
 
@@ -329,7 +344,9 @@ internal sealed partial class PopupScene
         if (hoverRow == index)
             canvas.Fill(5, y, 334, PanelLayout.DeviceRowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 17, y + 11.125f, 32, Dim(colors.Chip), Dim(colors.Secondary));
-        var name = new HitBox(new PopupTarget(PopupAction.Rename, DeviceId: id), new(55, y + 7, 192, 22.25f));
+        bool removable = model.CanRemove(id);
+        var name = new HitBox(new PopupTarget(PopupAction.Rename, DeviceId: id),
+            new(55, y + 7, removable ? 149 : 192, 22.25f));
         subButtons.Add(name);
         if (StringComparer.OrdinalIgnoreCase.Equals(editorId, id))
         {
@@ -341,7 +358,7 @@ internal sealed partial class PopupScene
             if (hover == name.Target)
                 canvas.Fill(name.X, name.Y, name.Width, name.Height, 4, Dim(colors.Chip));
             ButtonBackground(canvas, name, 4);
-            canvas.Text(model.Name(device.Device), 59, name.Y, 184, name.Height, 13.5f, Dim(colors.Ink), ellipsis: true);
+            canvas.Text(model.Name(device.Device), 59, name.Y, name.Width - 8, name.Height, 13.5f, Dim(colors.Ink), ellipsis: true);
         }
 
         bool verified = DeviceVerification.IsVerified(device.Device);
@@ -354,6 +371,14 @@ internal sealed partial class PopupScene
             Dim(verified ? colors.Charging : colors.Secondary), 600);
 
         float iconTop = y + 12.125f;
+        if (removable)
+        {
+            var remove = new HitBox(new PopupTarget(PopupAction.Remove, DeviceId: id), new(216, iconTop, 34, 30));
+            subButtons.Add(remove);
+            ButtonBackground(canvas, remove);
+            canvas.Text("移除", remove.X, remove.Y, remove.Width, remove.Height, 12, colors.Accent,
+                align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         var pin = new HitBox(new PopupTarget(PopupAction.Pin, DeviceId: id), new(PinX, iconTop, 30, 30));
         subButtons.Add(pin);
         ButtonBackground(canvas, pin);
@@ -380,10 +405,10 @@ internal sealed partial class PopupScene
             canvas.Ring(x, y, 2, ink, 1.3f);
     }
 
-    private void DrawAbout(Canvas canvas, float y, string label)
+    private void DrawAbout(Canvas canvas, float y, string label, float width = 190)
     {
         canvas.Line(1, y + .5f, Width - 1, y + .5f, colors.Border);
-        canvas.Text(label, 17, y + 10, 190, 18, 12, error is null ? colors.Muted : colors.Low);
+        canvas.Text(label, 17, y + 10, width, 18, 12, error is null ? colors.Muted : colors.Low, ellipsis: true);
     }
 
     private void DrawLink(Canvas canvas, HitBox box, string label)

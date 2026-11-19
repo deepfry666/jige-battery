@@ -7,7 +7,7 @@ namespace Jige.Tray.Windows;
 internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, PrimaryDevice, Threshold, PollInterval,
-    GameSilent, Autostart, Diagnostics, Updates, Rename, Pin, Visibility
+    GameSilent, Autostart, Diagnostics, Updates, Rename, Pin, Visibility, Remove, TaskbarSettings, OpenDiagnostics
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -41,10 +41,17 @@ internal sealed partial class PopupScene : IDisposable
     ];
     private static readonly HitBox[] NoticeButtons =
     [
-        new(PopupAction.Close, 306, 12, 24, 24),
         new(PopupAction.Later, 14, 97, 154, 32),
         new(PopupAction.Dismiss, 176, 97, 154, 32)
     ];
+
+    private static readonly HitBox[] WelcomeButtons =
+    [
+        new(PopupAction.TaskbarSettings, 14, 97, 154, 32),
+        new(PopupAction.Dismiss, 176, 97, 154, 32)
+    ];
+    private static readonly HitBox[] PanelButtonsWithReport =
+        [.. PanelButtons, new(PopupAction.OpenDiagnostics, 80, 12, 172, 32)];
 
     private readonly Composition composition;
     private readonly Palette colors;
@@ -63,6 +70,10 @@ internal sealed partial class PopupScene : IDisposable
     private ThumbMotion? gameMotion, autostartMotion;
     private SettingChoice[] primaryChoices = [];
     private string? error;
+    private DiagnosticStatus diagnosticStatus;
+    private bool diagnosticPreviewPending;
+    private bool HasDiagnosticReport => diagnosticStatus is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed;
+    private int Threshold => model.Settings.LowBatteryThreshold;
     private string? editorId;
     private DeviceStatus[] devices = [];
     private DeviceStatus? notice;
@@ -113,12 +124,13 @@ internal sealed partial class PopupScene : IDisposable
     public float DisplayHeight => Settings?.Height ?? height;
     public int SurfaceHeight => Settings?.SurfaceHeight ?? height;
     public Composition.Layer Visual => frame;
-    private bool IsNotice => Page == PanelPage.Notice;
+    private bool IsNotice => Page is PanelPage.Notice or PanelPage.Welcome;
     private bool IsSubPage => Page is PanelPage.Settings or PanelPage.Devices;
     private IReadOnlyList<HitBox> Buttons => Page switch
     {
         PanelPage.Notice => NoticeButtons,
-        PanelPage.Main => PanelButtons,
+        PanelPage.Welcome => WelcomeButtons,
+        PanelPage.Main => diagnosticPreviewPending ? PanelButtonsWithReport : PanelButtons,
         _ => subButtons
     };
     private int MaxOffset => Page switch
@@ -132,7 +144,7 @@ internal sealed partial class PopupScene : IDisposable
         ? item with { Rect = item.Rect with { Y = height - 37 } }
         : item;
 
-    public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing)
+    public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing, DiagnosticStatus diagnostics, bool previewPending)
     {
         devices = Page == PanelPage.Main ? model.PanelDevices() : model.OrderedDevices(primaryFirst: false);
         primary = IsSubPage ? model.PrimaryDevice : null;
@@ -143,6 +155,8 @@ internal sealed partial class PopupScene : IDisposable
             settings.SetDeviceCount(primaryChoices.Length);
         }
         error = settingsError;
+        diagnosticStatus = diagnostics;
+        diagnosticPreviewPending = previewPending;
         editorId = editing;
         notice = devices.FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
         now = time;
@@ -158,12 +172,12 @@ internal sealed partial class PopupScene : IDisposable
         if (refresh is not null)
             refresh.Draw(DrawRefresh);
         if (Page == PanelPage.Main && devices.Length > 0 && devices[0].IsCharging)
-            AddPulse(frame, devices[0], 165, 120, 13, 22, 3, 10);
+            AddPulse(frame, devices[0], 172, 120, 12, 22, 3, 10);
         for (int i = 0; i < rows.Length; i++)
         {
             var row = devices[1 + offset + i];
             if (row.IsCharging)
-                AddPulse(rows[i], row, 221, 17, 5, 14, 1.5f, 5);
+                AddPulse(rows[i], row, 217, 17, 5, 14, 1.5f, 5);
         }
     }
 
@@ -308,10 +322,13 @@ internal sealed partial class PopupScene : IDisposable
 
         canvas.BrandIcon(15, 18, 20);
         canvas.Text("几格", 40, 12, 38, 32, 14, colors.Ink, 600);
-        var updated = error ?? Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
-        canvas.Text(updated, 80, 12, 172, 32, 12, colors.Muted, align: DWRITE_TEXT_ALIGNMENT_TRAILING);
-        foreach (var button in PanelButtons)
+        var updated = diagnosticPreviewPending ? "查看诊断报告" :
+            (diagnosticStatus == DiagnosticStatus.Ready ? null : DiagnosticExport.Label(diagnosticStatus)) ??
+            error ?? Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
+        foreach (var button in Buttons)
             ButtonBackground(canvas, Box(button));
+        canvas.Text(updated, 80, 12, 172, 32, 12, diagnosticPreviewPending ? colors.Accent : colors.Muted,
+            align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
         DrawSettings(canvas);
         if (devices.Length > 0)
             DrawHero(canvas, devices[0]);
@@ -345,31 +362,33 @@ internal sealed partial class PopupScene : IDisposable
         DrawPin(canvas, 70, 88);
         canvas.Text("固定在托盘", 83, 86, 190, 18, 11.5f, colors.Accent);
 
-        var tone = Presentation.Tone(device);
+        var tone = Presentation.Tone(device, Threshold);
         var ink = tone switch
         {
-            BatteryTone.Low => colors.Low,
+            BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging => colors.Status(tone),
             BatteryTone.Idle => colors.Muted,
             _ => colors.Ink
         };
-        DrawNumber(canvas, device, 23, 109, 134, 52, 46, 18, 24, ink, false);
-        DrawCells(canvas, device, 165, 120, 13, 22, 3, 10);
+        DrawNumber(canvas, device, 23, 109, 145, 52, 44, 18, 24, ink, false);
+        DrawCells(canvas, device, 172, 120, 12, 22, 3, 10);
         canvas.Dot(26, 172, 3, colors.Status(tone));
-        canvas.Text(Presentation.Status(device, now), 35, 162, 284, 22, 12, colors.Secondary, ellipsis: true);
+        canvas.Text(Presentation.Status(device, now, Threshold), 35, 162, 284, 22, 12,
+            tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Secondary,
+            ellipsis: true);
     }
 
     private void DrawRow(int index) => rows[index].Draw(canvas =>
     {
         var device = devices[1 + offset + index];
-        var tone = Presentation.Tone(device);
+        var tone = Presentation.Tone(device, Threshold);
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
-        string status = Presentation.Status(device, now);
+        string status = Presentation.Status(device, now, Threshold);
         int split = status.IndexOf(" · 上次读数", StringComparison.Ordinal);
         canvas.Text(model.Name(device.Device), 56, split < 0 ? 5 : 1, 153, 19, 13.5f,
             tone == BatteryTone.Idle ? colors.Muted : colors.Ink, ellipsis: true);
-        var statusColor = tone is BatteryTone.Low or BatteryTone.Charging ? colors.Status(tone) : colors.Muted;
+        var statusColor = tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Muted;
         if (split < 0)
             canvas.Text(status, 56, 23, 161, 19, 12, statusColor, ellipsis: true);
         else
@@ -378,14 +397,14 @@ internal sealed partial class PopupScene : IDisposable
             canvas.Text(status[(split + 3)..], 56, 32, 161, 15, 12, statusColor, ellipsis: true);
         }
 
-        DrawCells(canvas, device, 221, 17, 5, 14, 1.5f, 5);
+        DrawCells(canvas, device, 217, 17, 5, 14, 1.5f, 5);
         var ink = tone switch
         {
-            BatteryTone.Low => colors.Low,
+            BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging => colors.Status(tone),
             BatteryTone.Idle => colors.Muted,
             _ => colors.Ink
         };
-        DrawNumber(canvas, device, 265, 7, 59, 34, 20, 12, 11, ink, true);
+        DrawNumber(canvas, device, 260, 7, 64, 34, 20, 12, 11, ink, true);
     });
 
     private void DrawNumber(Canvas canvas, DeviceStatus device, float x, float y, float width, float height,
@@ -394,23 +413,24 @@ internal sealed partial class PopupScene : IDisposable
         string value = device.Percentage?.ToString() ?? "–";
         string prefix = device.Last?.IsEstimated == true ? "≈" : "";
         string suffix = device.Percentage is null ? "" : "%";
-        float offsetX = rightAlign
-            ? width - canvas.Measure(value, numberSize, 600, true) -
-                canvas.Measure(prefix, approxSize, 500) - canvas.Measure(suffix, percentSize, 600) - 3
-            : 0;
+        float prefixWidth = prefix.Length == 0 ? 0 : canvas.Measure(prefix, approxSize, 500) + 2;
+        float numberWidth = canvas.Measure(value, numberSize, 600, true) + 1;
+        float suffixWidth = suffix.Length == 0 ? 0 : canvas.Measure(suffix, percentSize, 600) + 2;
+        float offsetX = rightAlign ? Math.Max(0, width - prefixWidth - numberWidth - suffixWidth) : 0;
 
-        // 各部分使用不同字级，百分号贴近数字基线，估算号略抬高。
-        offsetX += canvas.Text(prefix, x + offsetX, y + (rightAlign ? 2 : 0), width, height, approxSize, colors.Muted, 500);
-        offsetX += prefix.Length > 0 ? 2 : 0;
-        offsetX += canvas.Text(value, x + offsetX, y, width, height, numberSize, ink, 600, true);
-        canvas.Text(suffix, x + offsetX + 1, y + (rightAlign ? 3 : 8), width, height, percentSize,
-            rightAlign ? colors.Muted : colors.Secondary, 600);
+        // 给每段实际测得的宽度，避免 DirectWrite 在百分号或估算号前折行。
+        if (prefixWidth > 0)
+            canvas.Text(prefix, x + offsetX, y + (rightAlign ? 2 : 0), prefixWidth, height, approxSize, colors.Muted, 500);
+        canvas.Text(value, x + offsetX + prefixWidth, y, numberWidth, height, numberSize, ink, 600, true);
+        if (suffixWidth > 0)
+            canvas.Text(suffix, x + offsetX + prefixWidth + numberWidth, y + (rightAlign ? 3 : 8),
+                suffixWidth, height, percentSize, ink, 600);
     }
 
     private void DrawCells(Canvas canvas, DeviceStatus device, float x, float y, float w, float h, float radius, int count)
     {
         int filled = Presentation.FilledCells(device.Percentage, count);
-        var ink = colors.Status(Presentation.Tone(device));
+        var ink = colors.Status(Presentation.Tone(device, Threshold));
         for (int i = 0; i < count; i++)
         {
             if (i == filled && device.IsCharging)
@@ -438,12 +458,16 @@ internal sealed partial class PopupScene : IDisposable
 
     private void DrawNotice(Canvas canvas)
     {
-        canvas.Battery(14, 16, 1, colors.Low);
-        canvas.Text("几格", 38, 12, 220, 24, 12, colors.Secondary);
-        var close = NoticeButtons[0];
-        ButtonBackground(canvas, close);
-        canvas.Line(314, 20, 322, 28, colors.Secondary, 1.3f);
-        canvas.Line(322, 20, 314, 28, colors.Secondary, 1.3f);
+        canvas.BrandIcon(14, 15, 20);
+        canvas.Text("几格", 40, 12, 220, 24, 12, colors.Secondary);
+        if (Page == PanelPage.Welcome)
+        {
+            canvas.Text("几格在这里。", 16, 40, 312, 22, 14, colors.Ink, 600);
+            canvas.Text("把图标拖到时钟旁，就能一直看到电量", 16, 63, 312, 21, 13, colors.Secondary);
+            DrawNoticeButton(canvas, WelcomeButtons[0], "打开任务栏设置", false);
+            DrawNoticeButton(canvas, WelcomeButtons[1], "知道了", true);
+            return;
+        }
         if (notice is null)
             return;
         DeviceIcon(canvas, notice.Device.Kind, 14, 46, 36, colors.Low.WithAlpha(36), colors.Low);
@@ -454,8 +478,8 @@ internal sealed partial class PopupScene : IDisposable
         float nameWidth = canvas.Text(model.Name(notice.Device), 62, 64, available, 20, 13, colors.Secondary,
             ellipsis: true);
         canvas.Text(value, 62 + Math.Min(nameWidth, available), 64, valueWidth, 20, 13, colors.Secondary);
-        DrawNoticeButton(canvas, NoticeButtons[1], "1 小时后提醒", false);
-        DrawNoticeButton(canvas, NoticeButtons[2], "知道了", true);
+        DrawNoticeButton(canvas, NoticeButtons[0], "1 小时后提醒", false);
+        DrawNoticeButton(canvas, NoticeButtons[1], "知道了", true);
     }
 
     private void DrawNoticeButton(Canvas canvas, HitBox box, string label, bool primary)

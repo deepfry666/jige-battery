@@ -34,8 +34,8 @@ internal static class NativeCheck
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
-            return Fail(error.ToString());
+            Desktop.Log("原生启动自检失败", error);
+            return Fail(TrayLog.Describe("原生启动自检失败", error));
         }
         finally
         {

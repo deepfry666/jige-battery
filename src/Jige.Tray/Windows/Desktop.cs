@@ -34,7 +34,7 @@ internal static unsafe class Desktop
         }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
-            Log(error.Message);
+            Log("读取系统设置失败", error);
             return null;
         }
     }
@@ -89,31 +89,50 @@ internal static unsafe class Desktop
         return PInvoke.DwmExtendFrameIntoClientArea(hwnd, in margins).Succeeded && acrylic;
     }
 
-    public static GameMode GameMode(HWND foreground, bool gameSilent)
+    public static GameMode GameMode(HWND foreground, TraySettings settings)
     {
         var result = PInvoke.SHQueryUserNotificationState(out var state);
-        return Jige.Tray.GameMode.Evaluate(result.Succeeded ? (int)state : 0, CoversMonitor(foreground), gameSilent);
+        int notificationState = result.Succeeded ? (int)state : 0;
+        bool foregroundGame = settings.GameSilent && notificationState is not (2 or 3 or 4) &&
+            IsGameWindow(foreground, settings.GameProcessNames);
+        return Jige.Tray.GameMode.Evaluate(notificationState, foregroundGame, settings.GameSilent);
     }
 
-    private static bool CoversMonitor(HWND foreground)
+    private static bool IsGameWindow(HWND foreground, string[] gameProcessNames)
     {
-        if (foreground.IsNull || foreground == PInvoke.GetShellWindow() || foreground == PInvoke.GetDesktopWindow() ||
-            !PInvoke.IsWindowVisible(foreground))
-            return false;
-        uint process;
-        PInvoke.GetWindowThreadProcessId(foreground, &process);
-        if (process == (uint)Environment.ProcessId || ShellClasses.Contains(ClassOf(foreground)))
+        var kind = Classify(foreground, out uint processId);
+        if (kind != ForegroundKind.Other || !PInvoke.IsWindowVisible(foreground))
             return false;
 
+        if (gameProcessNames.Length > 0 && ProcessMatches(processId, gameProcessNames))
+            return true;
         RECT frame;
         if (PInvoke.DwmGetWindowAttribute(foreground, DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS,
             &frame, (uint)sizeof(RECT)).Failed && !PInvoke.GetWindowRect(foreground, out frame))
             return false;
         var monitor = Monitor(PInvoke.MonitorFromWindow(foreground, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST));
-        var screen = monitor.rcMonitor;
-        const int tolerance = 2;
-        return screen.Width > 0 && frame.left <= screen.left + tolerance && frame.top <= screen.top + tolerance &&
-            frame.right >= screen.right - tolerance && frame.bottom >= screen.bottom - tolerance;
+        const int styleIndex = -16; // GWL_STYLE
+        const int caption = 0x00C00000; // WS_CAPTION
+        bool hasCaption = (PInvoke.GetWindowLong(foreground, (WINDOW_LONG_PTR_INDEX)styleIndex) & caption) == caption;
+        return Jige.Tray.GameMode.IsGameWindow(kind, ToBounds(frame), ToBounds(monitor.rcMonitor),
+            ToBounds(monitor.rcWork), hasCaption, knownGame: false);
+    }
+
+    private static Bounds ToBounds(RECT rect) => new(rect.left, rect.top, rect.right, rect.bottom);
+
+    private static bool ProcessMatches(uint id, string[] names)
+    {
+        try
+        {
+            using var process = Process.GetProcessById((int)id);
+            return names.Contains(process.ProcessName, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception error) when (error is ArgumentException or InvalidOperationException
+            or System.ComponentModel.Win32Exception)
+        {
+            // 前台进程可能已退出，继续使用窗口几何。
+            return false;
+        }
     }
 
     public static MONITORINFO Monitor(HMONITOR monitor)
@@ -152,56 +171,28 @@ internal static unsafe class Desktop
         return RECT.FromXYWH(cursor.X, cursor.Y, 1, 1);
     }
 
-    private static readonly object LogGate = new();
-    private static readonly string LogPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jige", "jige.log");
-    private const long LogLimit = 1024 * 1024;
+    private static readonly TrayLog EventLog = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jige", "jige.log"));
 
-    /// <summary>
-    /// 本地日志：最多两个文件（jige.log 与 jige.log.1），各 1 MB，超出即轮换，绝不无限增长。
-    /// 只记录几格自身事件；用户目录替换为 %USERPROFILE%。仅在用户导出诊断信息时附带末尾若干行。
-    /// </summary>
-    public static void Log(string message)
+    public static void Log(string message) => EventLog.Write(message);
+    public static void Log(string message, Exception error) => Log(TrayLog.Describe(message, error));
+    public static string RecentLog(int lines) => EventLog.Recent(lines);
+
+    public static ForegroundKind Classify(HWND window, out uint process)
     {
-        Debug.WriteLine(message);
-        fixed (char* native = $"几格 {message}\n")
-            PInvoke.OutputDebugString(new PCWSTR(native));
-        try
-        {
-            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (profile.Length > 0)
-                message = message.Replace(profile, "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);
-            string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message.ReplaceLineEndings(" ")}{Environment.NewLine}";
-            lock (LogGate)
-            {
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(LogPath)!);
-                var info = new FileInfo(LogPath);
-                if (info.Exists && info.Length > LogLimit)
-                    File.Move(LogPath, LogPath + ".1", overwrite: true);
-                File.AppendAllText(LogPath, line);
-            }
-        }
-        catch (IOException) { }
-        catch (UnauthorizedAccessException) { }
+        process = 0;
+        if (window.IsNull || window == PInvoke.GetShellWindow() || window == PInvoke.GetDesktopWindow())
+            return ForegroundKind.System;
+        uint id = 0;
+        PInvoke.GetWindowThreadProcessId(window, &id);
+        process = id;
+        if (process == (uint)Environment.ProcessId)
+            return ForegroundKind.Own;
+        string windowClass = ClassOf(window);
+        bool shell = process == 0 || ShellClasses.Contains(windowClass) ||
+            windowClass == "Windows.UI.Core.CoreWindow" && ProcessMatches(process, XamlShellProcesses);
+        return shell ? ForegroundKind.System : ForegroundKind.Other;
     }
-
-    public static string RecentLog(int lines)
-    {
-        try
-        {
-            lock (LogGate)
-            {
-                if (!File.Exists(LogPath))
-                    return "";
-                var all = File.ReadAllLines(LogPath);
-                return string.Join(Environment.NewLine, all.Skip(Math.Max(0, all.Length - lines))) + Environment.NewLine;
-            }
-        }
-        catch (IOException) { return ""; }
-        catch (UnauthorizedAccessException) { return ""; }
-    }
-
-    public static string ForegroundClass() => ClassOf(PInvoke.GetForegroundWindow());
 
     private static string ClassOf(HWND window)
     {
@@ -219,7 +210,10 @@ internal static unsafe class Desktop
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
     {
         "WorkerW", "Progman", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
-        "TopLevelWindowForOverflowXamlIsland", "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow",
+        "TopLevelWindowForOverflowXamlIsland", "XamlExplorerHostIslandWindow",
         "ForegroundStaging", "MultitaskingViewFrame", "TaskListThumbnailWnd"
     };
+
+    private static readonly string[] XamlShellProcesses =
+        ["ShellExperienceHost", "StartMenuExperienceHost", "SearchHost", "SearchApp", "TextInputHost", "LockApp"];
 }

@@ -65,7 +65,7 @@ internal static class RazerFeatureProtocol
 
     public static int Percentage(byte value) => (value * 100 + 127) / 255;
 
-    private static byte Checksum(ReadOnlySpan<byte> frame)
+    internal static byte Checksum(ReadOnlySpan<byte> frame)
     {
         byte crc = 0;
         foreach (byte value in frame[3..89])

@@ -80,7 +80,7 @@ internal static class RazerHeadsetProtocol
         return query == RazerHeadsetQuery.Charging || value <= 100;
     }
 
-    private static byte Checksum(ReadOnlySpan<byte> frame, int start)
+    internal static byte Checksum(ReadOnlySpan<byte> frame, int start)
     {
         byte sum = 0;
         foreach (byte value in frame[start..62])

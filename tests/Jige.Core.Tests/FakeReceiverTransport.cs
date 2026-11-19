@@ -23,7 +23,7 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         token.ThrowIfCancellationRequested();
         CheckError(Next(endpoint.Path, DiagnosticOperation.OpenHid));
         Interlocked.Increment(ref activeSessions);
-        return new Session(this, endpoint.Path);
+        return new Session(this, endpoint.Path, endpoint);
     }
 
     public ISerialSession OpenSerial(UsbSerialPort endpoint, int baudRate, CancellationToken token)
@@ -59,8 +59,11 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             throw new TransportException(step.Issue, "模拟传输错误", nativeCode: step.Code);
     }
 
-    private sealed class Session(FakeReceiverTransport owner, string path) : IHidSession, ISerialSession
+    private sealed class Session(FakeReceiverTransport owner, string path, HidInterface? hid = null) : IHidSession, ISerialSession
     {
+        private byte[]? recordedRequest;
+        private byte[]? liveRequest;
+
         public ValueTask WriteOutputAsync(byte[] buffer, CancellationToken token) =>
             Write(DiagnosticOperation.HidOutput, buffer, token);
 
@@ -83,7 +86,29 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         {
             token.ThrowIfCancellationRequested();
             var step = owner.Next(path, op);
-            Assert.Equal(step.Hex, Convert.ToHexString(buffer));
+            var expected = Convert.FromHexString(step.Hex);
+            recordedRequest = null;
+            liveRequest = null;
+            if (op == DiagnosticOperation.HidOutput && hid is not null)
+            {
+                var rebased = expected.ToArray();
+                if (hid is { VendorId: 0x046D, UsagePage: 0xFF00 } && expected.Length == 20 &&
+                    expected[2] == 0 && expected[3] == 0x1A)
+                    rebased[6] = buffer[6];
+                else if (hid is { VendorId: 0x1532, ProductId: 0x0565, UsagePage: 0xFF14 } &&
+                    expected.Length == 64 && expected[62] == RazerHeadsetProtocol.Checksum(expected, 0))
+                {
+                    rebased[2] = (byte)(expected[2] & 0xE0 | buffer[2] & 0x1F);
+                    rebased[62] = RazerHeadsetProtocol.Checksum(rebased, 0);
+                }
+                if (!expected.AsSpan().SequenceEqual(rebased))
+                {
+                    recordedRequest = expected;
+                    liveRequest = rebased;
+                    expected = rebased;
+                }
+            }
+            Assert.Equal(expected, buffer);
             await Apply(step, token);
         }
 
@@ -93,6 +118,18 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             var step = owner.Next(path, op, arg);
             await Apply(step, token);
             var data = step.Hex == "-" ? [] : Convert.FromHexString(step.Hex);
+            // 仅替换已通过原始事务校验的回显。其余字段和输入长度仍来自报告。
+            if (op == DiagnosticOperation.HidInput && recordedRequest is { } recorded && liveRequest is { } live)
+            {
+                if (hid!.VendorId == 0x046D && LogitechHidppProtocol.Matches(data, recorded) &&
+                    LogitechHidppProtocol.IsSuccess(data))
+                    data[6] = live[6];
+                if (hid.VendorId == 0x1532 && RazerHeadsetProtocol.TryMediaTek(data, recorded, 0x0565, out _))
+                {
+                    data[2] = live[2];
+                    data[62] = RazerHeadsetProtocol.Checksum(data, 1);
+                }
+            }
             data.CopyTo(buffer, 0);
             return data.Length;
         }

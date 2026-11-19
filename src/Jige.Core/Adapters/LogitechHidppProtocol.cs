@@ -1,6 +1,6 @@
 namespace Jige.Core.Adapters;
 
-internal enum HidppFeature : ushort { DeviceName = 0x0005, Battery = 0x1000, Voltage = 0x1001, Unified = 0x1004 }
+internal enum HidppFeature : ushort { DeviceInfo = 0x0003, DeviceName = 0x0005, Battery = 0x1000, Voltage = 0x1001, Unified = 0x1004 }
 
 internal static class LogitechHidppProtocol
 {
@@ -11,7 +11,7 @@ internal static class LogitechHidppProtocol
 
     public static byte[] GetFeature(byte slot, HidppFeature feature)
     {
-        if (feature is not (HidppFeature.DeviceName or HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Unified))
+        if (feature is not (HidppFeature.DeviceInfo or HidppFeature.DeviceName or HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Unified))
             throw new ArgumentOutOfRangeException(nameof(feature));
         // Root 回复不回显 feature ID。不同查表请求使用不同 software ID，隔离超时后的迟到回复。
         byte softwareId = feature switch
@@ -19,6 +19,7 @@ internal static class LogitechHidppProtocol
             HidppFeature.Unified => 0x0A,
             HidppFeature.DeviceName => 0x0B,
             HidppFeature.Battery => 0x0C,
+            HidppFeature.DeviceInfo => 0x0E,
             _ => 0x0D
         };
         return Encode(slot, 0, 0, (byte)((ushort)feature >> 8), (byte)feature, softwareId: softwareId);
@@ -31,7 +32,7 @@ internal static class LogitechHidppProtocol
         {
             HidppFeature.DeviceName => function == 1 ? offset != byte.MaxValue : function is 0 or 2 && offset == 0,
             HidppFeature.Unified => function <= 1 && offset == 0,
-            HidppFeature.Battery or HidppFeature.Voltage => function == 0 && offset == 0,
+            HidppFeature.DeviceInfo or HidppFeature.Battery or HidppFeature.Voltage => function == 0 && offset == 0,
             _ => false
         };
         if (!allowed || !IsFeatureIndex(index))
@@ -103,7 +104,8 @@ internal static class LogitechHidppProtocol
 
     public static ChargingState Charging(byte status, bool legacy = false) => status switch
     {
-        0 or 3 => ChargingState.NotCharging,
+        0 => ChargingState.NotCharging,
+        3 => ChargingState.Full,
         1 or 2 => ChargingState.Charging,
         4 when legacy => ChargingState.Charging,
         _ => ChargingState.Unknown

@@ -9,11 +9,12 @@ public sealed class PresentationTests
     [InlineData(31, false, (int)BatteryTone.Normal, 0x1b1b1bu)]
     [InlineData(30, false, (int)BatteryTone.Warning, 0x9d5d00u)]
     [InlineData(16, true, (int)BatteryTone.Warning, 0xfce100u)]
-    [InlineData(15, true, (int)BatteryTone.Low, 0xff99a4u)]
+    [InlineData(15, true, (int)BatteryTone.Warning, 0xfce100u)]
+    [InlineData(14, true, (int)BatteryTone.Low, 0xff99a4u)]
     [InlineData(0, false, (int)BatteryTone.Low, 0xc42b1cu)]
     public void TrayColorsFollowPrototype(int percent, bool dark, int tone, uint rgb)
     {
-        var icon = Presentation.Icon(Device(percent), dark);
+        var icon = Presentation.Icon(Device(percent), dark, 15);
         Assert.Equal((BatteryTone)tone, icon.Tone);
         Assert.Equal(new Color(rgb), icon.Ink);
     }
@@ -22,16 +23,29 @@ public sealed class PresentationTests
     public void ChargingOverridesLowAndCachedValueUsesFadedTaskbarInk()
     {
         var charging = Device(5) with { Charging = ChargingState.Charging };
-        var lit = Presentation.Icon(charging, true);
+        var lit = Presentation.Icon(charging, true, 15);
         Assert.Equal(new Color(0x6ccb5f), lit.Ink);
         Assert.True(lit.Underline);
 
-        var stale = Presentation.Icon(charging with { Fresh = false }, true);
+        var stale = Presentation.Icon(charging with { Fresh = false }, true, 15);
         Assert.Equal(new Color(0xf3f3f3, 140), stale.Ink);
         Assert.False(stale.Underline);
 
-        Assert.True(Presentation.Icon(Device(100), false).Full);
-        Assert.Null(Presentation.Icon(null, false).Percentage);
+        Assert.True(Presentation.Icon(Device(100), false, 15).Full);
+        Assert.Null(Presentation.Icon(null, false, 15).Percentage);
+    }
+
+    [Theory]
+    [InlineData(29, 30, (int)BatteryTone.Low, "电量低，该充电了")]
+    [InlineData(30, 30, (int)BatteryTone.Warning, "电量偏低")]
+    [InlineData(45, 30, (int)BatteryTone.Warning, "电量偏低")]
+    [InlineData(46, 30, (int)BatteryTone.Normal, "2.4G 已连接")]
+    [InlineData(12, 10, (int)BatteryTone.Warning, "电量偏低")]
+    public void CustomThresholdControlsBothTrayToneAndPanelStatus(int percent, int threshold, int tone, string label)
+    {
+        var device = Device(percent);
+        Assert.Equal((BatteryTone)tone, Presentation.Icon(device, false, threshold).Tone);
+        Assert.Equal(label, Presentation.Status(device, DateTimeOffset.UnixEpoch, threshold));
     }
 
     [Fact]

@@ -25,9 +25,10 @@ internal sealed class TrayApp : IDisposable
     private const uint ResultMessage = 0x8002;
     private const uint ForegroundMessage = 0x8003;
     private const uint MoveMessage = 0x8004;
+    private const uint DiagnosticMessage = 0x8005;
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
-    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4;
+    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4, IconRetryTimer = 5;
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
     private enum TrayAction { Panel, Menu }
     private static TrayApp? current;
@@ -35,6 +36,7 @@ internal sealed class TrayApp : IDisposable
     private readonly TrayFiles files = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jige"));
     private readonly TrayModel model;
+    private readonly DiagnosticExport diagnostics;
     private readonly PollSchedule schedule = new(DateTimeOffset.UtcNow);
     private readonly DevicePoll poll = new();
     private readonly ConcurrentQueue<PollResult?> results = new();
@@ -48,7 +50,12 @@ internal sealed class TrayApp : IDisposable
     private bool foregroundPosted, locationPosted;
     private PopupWindow? popup;
     private GameMode game;
-    private (TrayAction Action, Point Anchor)? pendingUi;
+    private bool welcomePending;
+    private bool iconRetryArmed;
+    private int iconFailures;
+    private DateTimeOffset? nextWelcomeAttempt;
+    private DateTimeOffset? welcomeExpires;
+    private readonly CancellationTokenSource diagnosticCancellation = new();
     private DateTimeOffset? nextPopupAttempt;
     private DateTimeOffset? textDue;
     private long lastTraySelect = long.MinValue / 2;
@@ -69,7 +76,9 @@ internal sealed class TrayApp : IDisposable
     {
         instance = (HINSTANCE)PInvoke.GetModuleHandle(default(PCWSTR));
         taskbarCreated = PInvoke.RegisterWindowMessage("TaskbarCreated");
-        configLoaded = files.TryLoadSettings(out var settings);
+        configLoaded = files.TryLoadSettings(out var settings, Desktop.Log);
+        welcomePending = settings.WelcomeShown == false;
+        diagnostics = new(files.DiagnosticsPath);
         model = new(settings, files.LoadState());
         darkTaskbar = Desktop.DarkTaskbar;
 
@@ -103,7 +112,7 @@ internal sealed class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
+            Desktop.Log("托盘启动失败", error);
             return 1;
         }
         finally
@@ -116,10 +125,11 @@ internal sealed class TrayApp : IDisposable
     private unsafe int Loop()
     {
         CleanupUpdates();
-        if (configLoaded)
-            UpdateAutostart(model.Settings.StartWithWindows);
-        else if (!File.Exists(files.ConfigPath))
-            SaveSettings(model.Settings);
+        if (configLoaded || !File.Exists(files.ConfigPath))
+        {
+            if (configLoaded || SaveSettings(model.Settings))
+                UpdateAutostart(model.Settings.StartWithWindows);
+        }
         else
             settingsError = "配置读取失败";
         foregroundHook = InstallHook(ForegroundEvent);
@@ -186,10 +196,8 @@ internal sealed class TrayApp : IDisposable
     {
         foreground = PInvoke.GetForegroundWindow();
         uint process = 0, thread = 0;
-        if (!foreground.IsNull && foreground != PInvoke.GetShellWindow() && foreground != PInvoke.GetDesktopWindow())
+        if (model.Settings.GameSilent && Desktop.Classify(foreground, out _) == ForegroundKind.Other)
             thread = PInvoke.GetWindowThreadProcessId(foreground, &process);
-        if (process == (uint)Environment.ProcessId)
-            process = thread = 0;
         if (locationProcess == process && locationThread == thread)
             return;
         if (!locationHook.IsNull)
@@ -209,7 +217,7 @@ internal sealed class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
+            Desktop.Log("处理托盘消息失败", error);
             current?.ArmTimer(WorkTimer, 5_000);
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
@@ -235,6 +243,8 @@ internal sealed class TrayApp : IDisposable
             {
                 if (message == 0x0021 && active.IsNotice)
                     return (LRESULT)3; // MA_NOACTIVATE
+                if (message == 0x0020 && (ushort)lParam.Value == 1 && active.UpdateCursor())
+                    return (LRESULT)1; // WM_SETCURSOR / HTCLIENT
                 if (message == 0x0133 && active.IsEditor((HWND)lParam.Value)) // WM_CTLCOLOREDIT
                     return active.EditColors((HDC)wParam.Value);
                 if (app.HandlePopup(active, message, wParam, lParam))
@@ -243,7 +253,7 @@ internal sealed class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
+            Desktop.Log("处理面板消息失败", error);
             current?.DestroyPopup();
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
@@ -254,7 +264,9 @@ internal sealed class TrayApp : IDisposable
         if (message == taskbarCreated && taskbarCreated != 0)
         {
             icon.Recover();
+            StopIconRetry();
             RefreshDesktop();
+            ProcessWork();
             return true;
         }
 
@@ -266,16 +278,20 @@ internal sealed class TrayApp : IDisposable
             case ResultMessage:
                 CompletePoll();
                 return true;
+            case DiagnosticMessage:
+                CompleteDiagnostics();
+                return true;
             case ForegroundMessage:
                 foregroundPosted = false;
                 SetForegroundTracking();
-                ReadGameMode();
                 // 再验证一次，给 Explorer 和 DWM 留出更新全屏状态的时间。
                 ArmTimer(GameSettleTimer, 750);
                 ProcessWork();
                 return true;
             case MoveMessage:
                 locationPosted = false;
+                if (popup?.IsNotice == true)
+                    ReadGameMode();
                 ArmTimer(GameSettleTimer, 350);
                 return true;
             case 0x0113: // WM_TIMER
@@ -284,6 +300,11 @@ internal sealed class TrayApp : IDisposable
                 {
                     CleanupUpdates();
                     return true;
+                }
+                if (wParam.Value == IconRetryTimer)
+                {
+                    iconRetryArmed = false;
+                    RefreshIcon();
                 }
                 if (wParam.Value == CloseTimer && popup?.Closing == true)
                     DestroyPopup();
@@ -333,16 +354,37 @@ internal sealed class TrayApp : IDisposable
 
     private void RefreshIcon()
     {
+        if (iconRetryArmed && !icon.Registered)
+            return;
         bool hasLocation = icon.TryGetRect(out var bounds);
         if (!hasLocation)
             bounds = Desktop.TaskbarAnchor();
-        var appearance = Presentation.Icon(model.PrimaryDevice, darkTaskbar);
+        var appearance = Presentation.Icon(model.PrimaryDevice, darkTaskbar, model.Settings.LowBatteryThreshold);
         var tip = game.BlockPopups ? "" : Presentation.Tooltip(model);
         int size = IconSize(bounds);
         icon.Update(appearance, size, tip);
         // 首次注册前 Explorer 没有图标位置。注册后用实际位置校正一次 DPI。
         if (!hasLocation && icon.TryGetRect(out var registeredBounds))
             icon.Update(appearance, IconSize(registeredBounds), tip);
+        if (icon.Registered)
+            StopIconRetry();
+        else
+        {
+            if (iconFailures == 0)
+                Desktop.Log("托盘图标注册失败，将重试");
+            uint delay = iconFailures switch { 0 => 2_000u, 1 => 5_000u, 2 => 10_000u, _ => 60_000u };
+            iconFailures = Math.Min(3, iconFailures + 1);
+            iconRetryArmed = true;
+            ArmTimer(IconRetryTimer, delay);
+        }
+    }
+
+    private void StopIconRetry()
+    {
+        if (iconRetryArmed)
+            PInvoke.KillTimer(host, IconRetryTimer);
+        iconRetryArmed = false;
+        iconFailures = 0;
     }
 
     private static int IconSize(RECT bounds)
@@ -353,17 +395,17 @@ internal sealed class TrayApp : IDisposable
 
     private void ReadGameMode()
     {
-        var next = Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings.GameSilent);
+        var next = Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings);
         bool changed = next.BlockPopups != game.BlockPopups;
         bool enteredGame = next.Game && !game.Game;
         game = next;
-        if (enteredGame && schedule.Running && !startedInGame)
+        if (enteredGame && schedule.Running && !startedInGame && !schedule.StartedByUser)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
-        // 进入游戏只收起几格主动弹出的低电量提醒；用户自己打开的面板和菜单不在这里关闭。
+        // 进入游戏只收起自动提示，用户自己打开的面板和菜单交给正常焦点处理。
         if (game.BlockPopups && popup is { IsNotice: true })
         {
-            Desktop.Log("游戏中，收起低电量提醒");
+            Desktop.Log("游戏中，收起自动提示");
             DestroyPopup();
         }
         if (changed)
@@ -374,20 +416,25 @@ internal sealed class TrayApp : IDisposable
     {
         ReadGameMode();
         var now = DateTimeOffset.UtcNow;
+        if (model.ExpireReadings(now))
+        {
+            RefreshIcon();
+            RenderPopup();
+        }
         if (schedule.Due(model.Settings, now, game.Game) <= now)
             StartPoll(now);
         if (textDue <= now)
             RenderPopup();
 
-        if (!game.BlockPopups && !menuOpen && updateDialog is null)
+        if (welcomeExpires <= now || popup?.NoticeId is { } id && !model.ReminderIsDue(id, now))
+            DestroyPopup();
+
+        if (!game.BlockPopups && !menuOpen && updateDialog is null && popup is null)
         {
-            if (pendingUi is { } waiting)
-            {
-                pendingUi = null;
-                ExecuteTrayAction(waiting.Action, waiting.Anchor);
-            }
-            if (popup is null && !schedule.Running &&
-                (nextPopupAttempt is null || nextPopupAttempt <= now) && model.ReadyReminder(now, false) is { } ready)
+            if (welcomePending && icon.Registered && !(nextWelcomeAttempt > now))
+                ShowWelcome();
+            else if (!schedule.Running && !(nextPopupAttempt > now) &&
+                model.ReadyReminder(now, false) is { } ready)
                 ShowPopup(ready.Device.Id, null);
         }
         ScheduleWork(now);
@@ -396,16 +443,23 @@ internal sealed class TrayApp : IDisposable
     private void ScheduleWork(DateTimeOffset now)
     {
         DateTimeOffset? due = schedule.Due(model.Settings, now, game.Game);
-        if (popup is null && !menuOpen && updateDialog is null && !schedule.Running && model.NextReminder is { } reminder)
+        if (popup?.NoticeId is { } id)
+            due = Earlier(due, model.ReminderExpires(id));
+        if (popup is null && !menuOpen && updateDialog is null)
         {
-            // 有待办提醒时，也处理没有伴随前台事件的系统状态变化。
-            due = Earlier(due, game.BlockPopups
-                ? Earlier(reminder > now ? reminder : null, now + GameRecheck)
-                : nextPopupAttempt is { } retry && retry > reminder ? retry : reminder);
+            if (!schedule.Running && model.NextReminder(now) is { } reminder)
+            {
+                // 有待办提醒时，兼顾没有伴随前台事件的系统状态变化。
+                due = Earlier(due, game.BlockPopups
+                    ? Earlier(reminder > now ? reminder : null, now + GameRecheck)
+                    : nextPopupAttempt is { } retry && retry > reminder ? retry : reminder);
+            }
+            if (welcomePending && icon.Registered)
+                due = Earlier(due, game.BlockPopups ? now + GameRecheck : nextWelcomeAttempt ?? now);
         }
-        if (game.BlockPopups && pendingUi is not null)
+        if (popup?.IsNotice == true)
             due = Earlier(due, now + GameRecheck);
-        due = Earlier(due, textDue);
+        due = Earlier(Earlier(due, textDue), welcomeExpires);
         if (due is { } time)
             ArmTimer(WorkTimer, (uint)Math.Clamp(Math.Ceiling((time - now).TotalMilliseconds), 10, int.MaxValue));
         else
@@ -413,7 +467,7 @@ internal sealed class TrayApp : IDisposable
     }
 
     private static DateTimeOffset? Earlier(DateTimeOffset? a, DateTimeOffset? b) =>
-        a is null || b < a ? b : a;
+        a is null || b is not null && b < a ? b : a;
 
     private unsafe void ArmTimer(nuint id, uint milliseconds)
     {
@@ -443,7 +497,7 @@ internal sealed class TrayApp : IDisposable
             }
             catch (Exception error)
             {
-                Desktop.Log(error.Message);
+                Desktop.Log("查询设备失败", error);
                 result = new([], true);
             }
             results.Enqueue(result);
@@ -462,11 +516,11 @@ internal sealed class TrayApp : IDisposable
         cancellation = null;
         schedule.Complete();
         if (cancelled && !startedInGame)
-            schedule.Request();
+            schedule.Request(userInitiated: false);
 
         if (result is not null && !cancelled)
         {
-            if (model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow))
+            if (model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow, result.UnknownReceivers))
                 SaveState();
             RefreshIcon();
         }
@@ -499,7 +553,7 @@ internal sealed class TrayApp : IDisposable
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
-                Desktop.Log(error.Message);
+                Desktop.Log("保存电量记录失败", error);
             }
         });
     }
@@ -515,7 +569,7 @@ internal sealed class TrayApp : IDisposable
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
         {
             settingsError = "设置保存失败";
-            Desktop.Log(error.Message);
+            Desktop.Log("保存设置失败", error);
             return false;
         }
     }
@@ -530,35 +584,43 @@ internal sealed class TrayApp : IDisposable
         catch (Exception error) when (error is UnauthorizedAccessException or IOException or System.Security.SecurityException)
         {
             settingsError = "设置保存失败";
-            Desktop.Log(error.Message);
+            Desktop.Log("设置开机自启失败", error);
             return false;
         }
     }
 
-    private void ChangeSettings(TraySettings settings)
+    private void ChangeSettings(TraySettings settings) => TryChangeSettings(settings);
+
+    private bool TryChangeSettings(TraySettings settings, string? remove = null)
     {
         if (settings == model.Settings)
-            return;
+            return false;
         settings = settings.Normalize();
         bool autostartChanged = settings.StartWithWindows != model.Settings.StartWithWindows;
         if (autostartChanged && !UpdateAutostart(settings.StartWithWindows))
         {
             RenderPopup();
-            return;
+            return false;
         }
         if (!SaveSettings(settings))
         {
             if (autostartChanged)
                 UpdateAutostart(model.Settings.StartWithWindows);
             RenderPopup();
-            return;
+            return false;
         }
 
+        bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
+        if (remove is not null)
+            model.RemoveOffline(remove);
+        if (gameSettingChanged)
+            SetForegroundTracking();
         SaveState();
         RefreshIcon();
         RenderPopup();
         ProcessWork();
+        return true;
     }
 
     private void HandleTray(WPARAM wParam, LPARAM lParam)
@@ -613,36 +675,46 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void ShowPopup(string? noticeId, Point? point, PanelPage page = PanelPage.Main)
+    private void ShowWelcome()
     {
-        bool notice = noticeId is not null;
+        if (!ShowPopup(null, null, PanelPage.Welcome))
+        {
+            nextWelcomeAttempt = DateTimeOffset.UtcNow.AddSeconds(60);
+            return;
+        }
+        welcomePending = false;
+        welcomeExpires = DateTimeOffset.UtcNow.AddSeconds(20);
+        var settings = model.Settings with { WelcomeShown = true };
+        SaveSettings(settings);
+        model.ApplySettings(settings, DateTimeOffset.UtcNow);
+    }
+
+    private bool ShowPopup(string? noticeId, Point? point, PanelPage page = PanelPage.Main)
+    {
+        bool automatic = noticeId is not null || page == PanelPage.Welcome;
         try
         {
             var extra = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
-            if (notice)
+            if (automatic)
                 extra |= WS_EX_NOACTIVATE;
             var anchor = Anchor(point);
             HWND window = MakeWindow(PopupClass, extra, WS_POPUP | WS_THICKFRAME);
             popup = new(window, model, noticeId, anchor, page);
             RenderPopup();
             ReadGameMode();
-            if (popup is { } active)
-            {
-                active.Show();
-                Desktop.Log(notice ? "显示低电量提醒" : "显示面板");
-                if (noticeId is not null)
-                {
-                    model.SetReminder(noticeId, null);
-                    SaveState();
-                }
-            }
+            if (popup is not { } active)
+                return false;
+            active.Show();
+            Desktop.Log(page == PanelPage.Welcome ? "显示首次使用引导" : automatic ? "显示低电量提醒" : "显示面板");
+            return true;
         }
         catch (Exception error)
         {
             DestroyPopup();
-            Desktop.Log(error.Message);
-            if (notice)
+            Desktop.Log("显示提示或面板失败", error);
+            if (noticeId is not null)
                 nextPopupAttempt = DateTimeOffset.UtcNow.AddSeconds(60);
+            return false;
         }
     }
 
@@ -650,21 +722,21 @@ internal sealed class TrayApp : IDisposable
     {
         if (popup is not { Closing: false } active)
             return;
-        if (active.NoticeId is { } id && !model.IsLow(id))
+        var now = DateTimeOffset.UtcNow;
+        if (active.NoticeId is { } id && !model.ReminderIsDue(id, now))
         {
             DestroyPopup();
             return;
         }
-        var now = DateTimeOffset.UtcNow;
         try
         {
-            active.Render(now, schedule.Running, settingsError, reset);
+            active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, reset);
             textDue = active.IsNotice ? null : now.AddMinutes(1);
         }
         catch (Exception error)
         {
             DestroyPopup();
-            Desktop.Log(error.Message);
+            Desktop.Log("刷新面板失败", error);
             if (active.IsNotice)
                 nextPopupAttempt = now.AddSeconds(60);
         }
@@ -680,12 +752,15 @@ internal sealed class TrayApp : IDisposable
             case 0x0008 when !active.IsNotice: // WM_KILLFOCUS
                 if (menuOpen || (message == 0x0008 && active.IsEditor((HWND)wParam.Value)))
                     return true;
-                if (active.TryReclaimFocus())
+                var nextWindow = message == 0x0006 ? (HWND)lParam.Value : (HWND)wParam.Value;
+                var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
+                string category = TrayLog.Foreground(kind);
+                if (kind == ForegroundKind.System && active.TryReclaimFocus())
                 {
-                    Desktop.Log($"面板刚显示即失焦（{Desktop.ForegroundClass()}），重新激活");
+                    Desktop.Log($"面板刚显示即失焦（{category}），重新激活");
                     return true;
                 }
-                Desktop.Log($"面板失焦关闭（msg=0x{message:X4}，前台 {Desktop.ForegroundClass()}）");
+                Desktop.Log($"面板失焦关闭（msg=0x{message:X4}，前台 {category}）");
                 if (icon.TryGetRect(out var bounds) && PInvoke.GetCursorPos(out var cursor) &&
                     cursor.X >= bounds.left && cursor.X < bounds.right && cursor.Y >= bounds.top && cursor.Y < bounds.bottom)
                     lostFocusByTray = Environment.TickCount64;
@@ -694,8 +769,12 @@ internal sealed class TrayApp : IDisposable
             case 0x0010: // WM_CLOSE
                 PopupCommand(active, PopupAction.Close);
                 return true;
-            case 0x8010: // 面板刚显示即被收回前台时，重新激活一次
-                PInvoke.SetForegroundWindow(active.Handle);
+            case 0x8010: // 托盘刚收回焦点时，确认前台仍是系统窗口才重新激活。
+                var foregroundNow = PInvoke.GetForegroundWindow();
+                if (Desktop.Classify(foregroundNow, out _) == ForegroundKind.System)
+                    PInvoke.SetForegroundWindow(active.Handle);
+                else if (foregroundNow != active.Handle)
+                    ClosePopup();
                 return true;
             case 0x0200: active.PointerMove(lParam); return true;
             case 0x02A3: active.PointerLeave(); return true;
@@ -733,11 +812,25 @@ internal sealed class TrayApp : IDisposable
             return;
         if (active.NoticeId is { } id)
         {
-            model.SetReminder(id, action == PopupAction.Later ? DateTimeOffset.UtcNow.AddHours(1) : null);
-            nextPopupAttempt = null;
-            SaveState();
+            if (action is PopupAction.Dismiss or PopupAction.Later)
+            {
+                model.SetReminder(id, action == PopupAction.Later ? DateTimeOffset.UtcNow.AddHours(1) : null);
+                nextPopupAttempt = null;
+                SaveState();
+            }
+            else
+                nextPopupAttempt = DateTimeOffset.UtcNow.AddSeconds(60);
             DestroyPopup();
             ProcessWork();
+            return;
+        }
+
+        if (active.IsWelcome)
+        {
+            DestroyPopup();
+            if (action == PopupAction.TaskbarSettings)
+                OpenTaskbarSettings();
+            ArmTimer(WorkTimer, 50);
             return;
         }
 
@@ -786,13 +879,19 @@ internal sealed class TrayApp : IDisposable
                 catch (Exception error) when (error is Win32Exception or InvalidOperationException)
                 {
                     settingsError = "无法打开改名输入框";
-                    Desktop.Log(error.Message);
+                    Desktop.Log("打开改名输入框失败", error);
                     RenderPopup();
                 }
                 break;
+            case PopupAction.Remove when target.DeviceId is { } removed && model.CanRemove(removed):
+                TryChangeSettings(model.Settings.WithoutDevice(removed), removed);
+                break;
             case PopupAction.Diagnostics:
-                ClosePopup();
                 ShowDiagnostics();
+                break;
+            case PopupAction.OpenDiagnostics:
+                OpenDiagnostics();
+                RenderPopup();
                 break;
             case PopupAction.Updates:
                 DestroyPopup();
@@ -836,7 +935,7 @@ internal sealed class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
+            Desktop.Log("关闭面板失败", error);
         }
         DestroyPopup();
         // 等本次焦点切换或托盘事件结束后再显示待办提醒。
@@ -849,18 +948,12 @@ internal sealed class TrayApp : IDisposable
         var previous = popup;
         popup = null;
         textDue = null;
+        welcomeExpires = null;
         previous?.Dispose();
     }
 
     private unsafe void ShowMenu(Point point)
     {
-        ReadGameMode();
-        if (game.BlockPopups)
-        {
-            pendingUi = (TrayAction.Menu, point);
-            return;
-        }
-
         var menu = PInvoke.CreatePopupMenu();
         if (menu.IsNull)
             return;
@@ -926,12 +1019,14 @@ internal sealed class TrayApp : IDisposable
             updateDialog = null;
             if (exitRequested)
                 PInvoke.PostQuitMessage(0);
+            else
+                ArmTimer(WorkTimer, 50);
         }
     }
 
     private bool InGameForInstall() =>
-        Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings.GameSilent).Game ||
-        Desktop.GameMode(foreground, model.Settings.GameSilent).Game;
+        Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings).Game ||
+        Desktop.GameMode(foreground, model.Settings).Game;
 
     private void CleanupUpdates()
     {
@@ -951,46 +1046,92 @@ internal sealed class TrayApp : IDisposable
             if (++cleanupAttempts < 24)
                 ArmTimer(UpdateCleanupTimer, 5_000);
             else
-                Desktop.Log($"更新目录清理失败：{error.Message}");
+                Desktop.Log("清理更新目录失败", error);
         }
     }
 
-    /// <summary>
-    /// 用户点击后才生成诊断报告：后台枚举与查询，写入本地文本文件，再用记事本完整打开，
-    /// 由用户检查后自行复制发送。诊断流程只在本机执行，内容说明见 PRIVACY.md。
-    /// </summary>
     private void ShowDiagnostics()
     {
-        string path = files.DiagnosticsPath;
-        _ = Task.Run(async () =>
+        var token = diagnosticCancellation.Token;
+        if (diagnostics.Start(() => GenerateDiagnosticsAsync(token)))
         {
-            try
+            var destination = host;
+            _ = diagnostics.Work!.ContinueWith(_ => PInvoke.PostMessage(destination, DiagnosticMessage, default, default),
+                CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        }
+        if (popup is null)
+            ShowPopup(null, null, PanelPage.Devices);
+        RenderPopup();
+    }
+
+    private async Task<bool> GenerateDiagnosticsAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(30));
+            string report = await Jige.Core.Diagnostics.DiagnosticReport
+                .GenerateWindowsAsync(timeout.Token).ConfigureAwait(false);
+            report += "\r\n# 请先完整检查报告，再自行决定是否复制、发送。几格不会上传。\r\n";
+            string log = Desktop.RecentLog(80);
+            if (log.Length > 0)
+                report += "\r\n# 托盘日志（最多 80 行）\r\n" + log;
+            await diagnostics.WriteAsync(report, timeout.Token).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception error)
+        {
+            if (!token.IsCancellationRequested)
+                Desktop.Log("诊断信息导出失败", error);
+            return false;
+        }
+    }
+
+    private void CompleteDiagnostics()
+    {
+        if (!diagnostics.Complete())
+            return;
+        // 先在主线程重新检查前台；游戏中只保留面板里的查看入口。
+        ReadGameMode();
+        if (!exitRequested && !game.BlockPopups && !menuOpen && updateDialog is null &&
+            diagnostics.Status == DiagnosticStatus.Ready)
+            OpenDiagnostics();
+        RenderPopup();
+        ScheduleWork(DateTimeOffset.UtcNow);
+    }
+
+    private void OpenDiagnostics()
+    {
+        try
+        {
+            using var editor = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                string report = await Jige.Core.Diagnostics.DiagnosticReport
-                    .GenerateWindowsAsync(timeout.Token).ConfigureAwait(false);
-                const string notice =
-                    "# 这份诊断报告只保存在你的电脑上，几格不会上传。\r\n" +
-                    "# 请先完整检查内容，确认无误后再自行复制，发到 GitHub Issue 或发给开发者。\r\n" +
-                    "# 收集了什么、没收集什么：https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md\r\n\r\n";
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-                string log = Desktop.RecentLog(80);
-                if (log.Length > 0)
-                    report += "\r\n# 托盘日志（最近 80 行，仅几格自身事件，不含设备数据以外的个人信息）\r\n" + log;
-                await File.WriteAllTextAsync(path, notice + report, timeout.Token).ConfigureAwait(false);
-                using var editor = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "notepad.exe",
-                    ArgumentList = { path },
-                    UseShellExecute = false,
-                });
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException
-                or OperationCanceledException or System.ComponentModel.Win32Exception)
+                FileName = "notepad.exe",
+                ArgumentList = { files.DiagnosticsPath },
+                UseShellExecute = false,
+            });
+            diagnostics.PreviewOpened();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception)
+        {
+            diagnostics.EditorFailed();
+            Desktop.Log("打开诊断报告失败", error);
+        }
+    }
+
+    private static void OpenTaskbarSettings()
+    {
+        try
+        {
+            using var settings = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:taskbar")
             {
-                Desktop.Log($"诊断信息生成失败：{error.Message}");
-            }
-        });
+                UseShellExecute = true
+            });
+        }
+        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
+        {
+            Desktop.Log("打开任务栏设置失败", error);
+        }
     }
 
     public void Dispose()
@@ -1009,6 +1150,9 @@ internal sealed class TrayApp : IDisposable
             _ = DisposeCancellation(active, active.IsCancellationRequested ? cancelWork : active.CancelAsync());
             cancellation = null;
         }
+        diagnosticCancellation.Cancel();
+        diagnostics.Work?.GetAwaiter().GetResult();
+        diagnosticCancellation.Dispose();
         stateWrite.GetAwaiter().GetResult();
     }
 }

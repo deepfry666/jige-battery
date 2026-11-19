@@ -1,6 +1,6 @@
 # 设备读取协议
 
-本仓库的全部协议均**未在实机验证**。下文的社区实机记录与本项目的离线测试是两类证据。C# 实现依据公开报文和协议说明独立编写，其中 openinzone 仅用于核对协议字段。
+几格已在 Windows 11 实机读到 Sony INZONE H9 一代和游狼 HTX Ultra 8K 的电量。其余条目按公开协议、社区样本和离线回放适配，实机状态见各节。C# 实现依据公开协议与报文独立编写，其中 openinzone 用于核对字段。
 
 ## Finalmouse UltralightX
 
@@ -24,7 +24,7 @@
 
 接收器必须处于 PC 档。仅匹配 USB 硬件 ID 的 `VID_054C&PID_0E53` 和明确的 `MI_06`。H7 可能使用相同接收器，本阶段以 H9 一代接收器显示，尚未据型号回复区分耳机，H7 兼容性未核实。
 
-默认选择 InZoneH9Tray 所用的 115200；也可选 openinzone 和 inzone-h9-mac 记录的 460800。两档均为 8N1、无流控、DTR/RTS 置位。接收器端实际采用哪个波特率，以及打开端口会否影响音频或休眠，均未在实机验证。
+默认选择 InZoneH9Tray 所用的 115200；也可选 openinzone 和 inzone-h9-mac 记录的 460800。两档均为 8N1、无流控、DTR/RTS 置位。几格已用 115200 在 Windows 11 实机读到 50%、未充电，报告已纳入离线回放。实际音频与休眠表现仍待验证。
 
 | 顺序 | 查询 | 完整白名单帧 |
 | --- | --- | --- |
@@ -36,7 +36,7 @@
 
 事件头为 `04 FF`，第三字节加 3 是整帧长度；按流重组分段回复。校验值为从第 4 字节到校验值之前各字节的和取低 8 位。电量只接受 14 字节的 `14 04 10 01 00` 地址、事件、回复类型和事务号组合，校验保留位和 `96 C3` 键值。载荷为 0 或 1 的充电字节以及 0–100 的百分比。
 
-社区文档的完整记录 `04 FF 0B 00 96 C3 14 04 10 01 00 00 32 B4` 对应 50%、未充电，并用于离线测试。充电状态的实机变化、两档波特率对同一接收器的表现、Hub 的占用错误码、拔插和取消后的句柄释放均未在实机验证。
+社区文档的完整记录 `04 FF 0B 00 96 C3 14 04 10 01 00 00 32 B4` 对应 50%、未充电，并用于离线测试。几格实机样本见 [H9 回放记录](../tests/fixtures/h9-gen1-real-2026-11-19.txt)。充电状态的实机变化、两档波特率对同一接收器的表现、Hub 的占用错误码、拔插和取消后的句柄释放均未在实机验证。
 
 - InZoneH9Tray，README 声明 MIT，仓库的 `LICENSE` 链接未找到对应文件。参考其 115200、三条 GET 报文和电量字段记录。[仓库](https://github.com/janit88/InZoneH9Tray) · [报文记录](https://github.com/janit88/InZoneH9Tray/blob/main/inzone_tray.py)
 - openinzone，GPL-3.0。核对一代串口设置、事件类型、地址、长度及校验和。[协议文档](https://github.com/penguinwokrs/openinzone/blob/main/docs/PROTOCOL.md) · [许可证](https://github.com/penguinwokrs/openinzone/blob/main/LICENSE)
@@ -45,7 +45,7 @@
 
 ## ATK 与游狼鼠标
 
-以下协议全部**未在实机验证**。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合一律跳过。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
+游狼 HTX Ultra 8K 已由几格在 Windows 11 实机读到电量，其他接收器待验证。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合一律跳过。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
 
 | 家族 | 白名单请求与传输 | 运行状态 | 证据等级 |
 | --- | --- | --- | --- |
@@ -53,7 +53,7 @@
 | Compx-FEAT | 同一 17 字节 Compx 请求，SetFeature 发，Input 收 | ATK `111A` 在 `FF04` 的精确 Usage 未核实，仍禁止查询 | 单一来源 |
 | BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155` 匹配 `FF05:0001` 时允许查询。星闪接收器及分流未核实条目仅登记 | ZERO 无线路径多方开源实现一致 |
 | XVI-OLD | `00 00 02 8F 01 00×60`，65 字节 SetFeature / GetFeature | 启用 `33E4:2717` 的 `MI_02 / FFFF:0000`；其他候选仅登记 | 单一来源 |
-| XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 启用 `33E4:3617` 的 `MI_02 / FFFF:0000`；`3517` 存在两代协议证据，始终跳过 | `3617` 单一来源，`3517` 自动分流未核实 |
+| XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 启用 `33E4:3617`（Fenrir Pro 8K）和 `33E4:5617`（HTX Ultra 8K）的 `MI_02 / FFFF:0000`；`3517` 存在两代协议证据，始终跳过 | `5617` 已实机验证，`3617` 单一来源，`3517` 自动分流未核实 |
 
 Compx 回复核对 ID、命令、状态、地址、载荷长度及校验字节。校验为 `0x55` 减去前 16 字节之和后取低 8 位。只解析声明范围内的百分比及充电字节。游狼 Receiver RS 的公开回复尾字节与此校验式不一致，需复核完整原始帧后再考虑启用。离线测试使用 OpenMouse 的 X1 Pro Max 无线完整抓包核对 Compx 帧。Compx-FEAT 与其共享协议编解码，A9 Ultra 用同通道的真实版本回复核验校验和及电量解码对非电量命令的拒绝，独立电量抓包待补。[Compx-OUT 抓包](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/captures/atk-x1-pro-max/receiver.json) · [A9 Ultra 协议](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md#compx-a9-ultra-compatibility) · [A9 Ultra 版本回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/CompxTests.swift) · [Receiver RS 回复记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#6-the-compx-family)
 
@@ -68,11 +68,12 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 | 只读请求 | 发送约束与结果 |
 | --- | --- |
 | IRoot Ping `f1` | `11 槽 00 1A 00 00 标记` 后补零。匹配槽、事务及回显标记，要求主版本至少为 2 |
-| IRoot GetFeature `f0` | 仅查 `0005`、`1004`、`1000`、`1001`。各查询使用不同 software ID，迟到的查表回复无法用于其他 feature。动态索引排除 HID++ 1.0 寄存器命令范围。索引在当前物理接收器会话的对应槽内缓存，关闭句柄即失效 |
+| IRoot GetFeature `f0` | 仅查 `0003`、`0005`、`1004`、`1000`、`1001`。各查询使用不同 software ID，迟到的查表回复无法用于其他 feature。动态索引排除 HID++ 1.0 寄存器命令范围。索引在当前物理接收器会话的对应槽内缓存，关闭句柄即失效 |
+| `0003/f0` | 只读设备身份。Unit ID 与型号 ID 组合做本机散列。报告遮蔽 Unit ID。缺少有效 Unit ID 时按名称和类型区分，无法区分返回相同元数据的两台设备。[字段定义](https://openlogi.org/hidpp/features/x0003-device-information) |
 | `0005/f0–2` | 读 UTF-8 名称长度、名称片段和设备种类，按类型映射键盘、鼠标。无有效名称时显示槽编号 |
 | `1004/f0–1` | 先读能力。仅能力字节 bit1 确认支持 SoC 才读取百分比，接受 0–100。bit0 未标为可充电时保持充电未知 |
 | `1000/f0` | 接受 1–100，并排除明确的电池无效、温度错误状态 |
-| `1001/f0` | 大端毫伏，3.5–4.2 V 按单节锂电工作区间线性映射到 0–100%，标为电压估算并保留 mV。超出区间只报告 mV，低三位充电子状态 3–7 保持未知 |
+| `1001/f0` | 大端毫伏，3.5–4.2 V 按单节锂电工作区间线性映射到 0–100%，标为电压估算并保留 mV。超出区间只报告 mV，外部供电时，低三位状态 1 标记已充满、3–7 保持未知 |
 | HID++ 1.0 `83 B5` | 仅 Bolt/Unifying 在具备唯一短报告集合（`FF00:0001`、7 字节、Output ID `10`）且槽无应答或明确不可达时使用。向接收器地址 `FF` 读指定槽的配对表，长回复需回显选择字节 |
 
 明确不可达或确认已配对但 Ping 无回复的槽显示“离线”。明确空槽和无法确认配对的静默槽不生成设备。未知 `046D` PID 只有产品字符串表明是接收器且匹配长报告描述符时才对槽 1 发送一次 Ping，应答有效后最多再查一次 Root `1004`，输出探测结果。地址 `FF` 仅用于允许的配对表读。寄存器写 `80/82`、配对控制、通知开关、DFU 及配置均不在白名单中。
@@ -148,4 +149,4 @@ V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机
 
 ## 本阶段验收
 
-macOS arm64 使用 .NET SDK 10.0.404 构建通过，0 个警告、0 个错误。合并 ATK/游狼、罗技/雷蛇与托盘后共 101 项测试（核心库 74、托盘 27），覆盖公开实机样本回放、完整请求白名单、模拟设备与多槽拔插、诊断脱敏与报告回放、托盘调度与提醒逻辑。win-x64 托管编译通过。Windows NativeAOT 无法在 macOS 上跨系统发布，由 CI 在 windows-latest 上发布。Windows 11 实机上的设备访问、读数、休眠、官方驱动共存及托盘表现均待验证。
+0.2.1 在 macOS 上通过托管构建与离线测试，覆盖已有实机样本、只读请求、罗技长短通道和雷蛇诊断回放，以及托盘提醒、设置和数据恢复。Windows NativeAOT 产物、原生启动自检、安装升级和新增托盘交互需在 Windows 验收。

@@ -17,13 +17,13 @@ public static class WindowsDeviceDiscovery
     };
 
     public static Task<DeviceInventory> ScanAsync(
-        CancellationToken cancellationToken, Func<ushort?, ushort?, bool>? inspectHid = null) =>
+        CancellationToken cancellationToken, Func<ushort?, ushort?, bool>? inspectHid = null, bool includeUnknownHid = false) =>
         OperationDeadline.RunAsync(async token =>
         {
             await ScanGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                return Scan(inspectHid, token);
+                return Scan(inspectHid, includeUnknownHid, token);
             }
             finally
             {
@@ -31,7 +31,7 @@ public static class WindowsDeviceDiscovery
             }
         }, TimeSpan.FromSeconds(10), cancellationToken);
 
-    private static unsafe DeviceInventory Scan(Func<ushort?, ushort?, bool>? inspectHid, CancellationToken token)
+    private static unsafe DeviceInventory Scan(Func<ushort?, ushort?, bool>? inspectHid, bool includeUnknownHid, CancellationToken token)
     {
         List<HidInterface> hid = [];
         List<UsbSerialPort> serial = [];
@@ -44,8 +44,10 @@ public static class WindowsDeviceDiscovery
             var nodeId = ReadInstanceId(node.DevInst);
             var vid = ReadHexTag(path, "VID_", 4) ?? ReadHexTag(nodeId, "VID_", 4);
             var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4);
-            if (inspectHid is null || inspectHid(vid, pid))
-                hid.Add(InspectHid(set, node, path, nodeId, vid, pid, token));
+            bool known = inspectHid is null || inspectHid(vid, pid);
+            if ((known || includeUnknownHid) &&
+                InspectHid(set, node, path, nodeId, vid, pid, known, token) is { } endpoint)
+                hid.Add(endpoint);
         }, warnings, token);
 
         ScanInterfaces(ComInterface, (set, node, path) =>
@@ -143,10 +145,9 @@ public static class WindowsDeviceDiscovery
             warnings.Add(WindowsErrors.FromCode(error, operation).Message);
     }
 
-    private static unsafe HidInterface InspectHid(nint set, Native.DeviceData node, string path,
-        string nodeId, ushort? vid, ushort? pid, CancellationToken token)
+    private static unsafe HidInterface? InspectHid(nint set, Native.DeviceData node, string path,
+        string nodeId, ushort? vid, ushort? pid, bool readProduct, CancellationToken token)
     {
-        var receiver = ReadReceiverId(set, node, nodeId, path);
         var number = ReadHexTag(path, "MI_", 2) ?? ReadHexTag(nodeId, "MI_", 2);
         byte? interfaceNumber = number.HasValue ? (byte)number.Value : null;
         string? product = null;
@@ -154,21 +155,27 @@ public static class WindowsDeviceDiscovery
         {
             using var handle = WindowsReceiverTransport.OpenMetadata(path);
             token.ThrowIfCancellationRequested();
+            var caps = WindowsReceiverTransport.ReadCaps(handle);
+            if (!readProduct && caps.UsagePage < 0xFF00)
+                return null;
             var attributes = WindowsReceiverTransport.ReadAttributes(handle);
             vid = attributes.VendorId;
             pid = attributes.ProductId;
-            char* chars = stackalloc char[126];
-            if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
-                product = new string(chars);
+            if (readProduct)
+            {
+                char* chars = stackalloc char[126];
+                if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
+                    product = new string(chars);
+            }
             token.ThrowIfCancellationRequested();
-            var caps = WindowsReceiverTransport.ReadCaps(handle);
+            var receiver = ReadReceiverId(set, node, nodeId, path);
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,
                 caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber);
         }
         catch (TransportException error)
         {
-            return new(receiver, path, vid, pid, product, null, null, null, null, null,
-                interfaceNumber, error.Issue, error.Message);
+            return readProduct ? new(ReadReceiverId(set, node, nodeId, path), path, vid, pid, product,
+                null, null, null, null, null, interfaceNumber, error.Issue, error.Message) : null;
         }
     }
 

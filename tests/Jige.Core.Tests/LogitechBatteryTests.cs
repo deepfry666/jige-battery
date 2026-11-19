@@ -47,6 +47,12 @@ public sealed class LogitechBatteryTests
         Assert.Equal(3, first.Select(item => item.Device.Id).Distinct().Count());
         Assert.Equal(first.Select(item => item.Device.Id), second.Select(item => item.Device.Id));
         Assert.Equal(94, second[0].Percentage);
+        var replacementSession = new BatteryHidStub(request => Reply(request, mouseIndex: 6, "55667788"));
+        var replacement = await registry.ReadDevicesAsync(target, new BatteryTransportStub(_ => replacementSession),
+            null, CancellationToken.None);
+        Assert.NotEqual(first[0].Device.Id, replacement[0].Device.Id);
+        Assert.DoesNotContain("11223344", first[0].Device.Id);
+        Assert.Equal(first[0].Device.Name, replacement[0].Device.Name);
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, firstSession.Writes.Where(IsPing).Select(request => request[1]));
         Assert.Single(firstSession.Writes, request => request.AsSpan(1, 5).SequenceEqual(new byte[] { 1, 0, 0x0B, 0, 5 }));
         Assert.Single(firstSession.Writes, request => request.AsSpan(1, 5).SequenceEqual(new byte[] { 1, 0, 0x0A, 0x10, 4 }));
@@ -55,13 +61,16 @@ public sealed class LogitechBatteryTests
         Assert.True(firstSession.Closed && secondSession.Closed);
         Assert.Equal((byte?)0x11, Assert.Single(transport.Opened).RequiredOutputReportId);
 
-        byte[][] Reply(byte[] request, byte mouseIndex)
+        byte[][] Reply(byte[] request, byte mouseIndex, string unit = "11223344")
         {
             var reply = (request[1], request[2], request[3]) switch
             {
                 (1 or 2, 0, 0x1A) when IsPing(request) => Frame($"11{request[1]:X2}001A0402{request[6]:X2}", 20),
                 (3, 0, 0x1A) => Frame("10038F001A09", 7),
                 (_, 0, 0x1A) => Frame($"10{request[1]:X2}8F001A08", 7),
+                (1, 0, 0x0E) => Frame("1101000E09", 20),
+                (1, 9, 0x0A) => Frame($"1101090A01{unit}000140A900000000", 20),
+                (2, 0, 0x0E) => Frame("1102000E00", 20),
                 (1, 0, 0x0B) => Frame("1101000B05", 20),
                 (1, 5, 0x0A) => Frame("1101050A07", 20),
                 (1, 5, 0x1A) => Frame("1101051A50524F20582032", 20),
@@ -138,6 +147,7 @@ public sealed class LogitechBatteryTests
             (_, 0, 0x1A) => [Frame($"10{request[1]:X2}8F001A08", 7)],
             (1, 0, 0x0A) => [Frame("1101000A00", 20)],
             (1, 0, 0x0B) => [Frame("1101000B00", 20)],
+            (1, 0, 0x0E) => [Frame("1101000E00", 20)],
             (1, 0, 0x0C) => [Frame("1101000C03", 20)],
             (1, 3, 0x0A) => [Frame("1101030A000000", 20)],
             (1, 0, 0x0D) => [Frame("1101000D09", 20)],
@@ -161,6 +171,7 @@ public sealed class LogitechBatteryTests
         {
             (1, 0, 0x1A) => [Frame($"1101001A0201{request[6]:X2}", 20)],
             (1, 0, 0x0B) => [Frame("1101000B00", 20)],
+            (1, 0, 0x0E) => [Frame("1101000E00", 20)],
             (1, 0, 0x0A) => [Frame("1101000A04", 20)],
             (1, 4, 0x0A) => [Frame("1101040A0F03", 20)],
             (1, 4, 0x1A) => [Frame("1101041A00010000", 20)],

@@ -149,7 +149,7 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
                 cancellation.Cancel();
                 // 等待已取消的任务清理文件，避免下一次下载与上一次重叠。
                 try { task.GetAwaiter().GetResult(); }
-                catch (Exception error) { Desktop.Log(error.Message); }
+                catch (Exception error) { Desktop.Log("更新窗口处理失败", error); }
             }
         }
     }
@@ -220,7 +220,7 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
         }
         catch (Exception error)
         {
-            Desktop.Log(error.Message);
+            Desktop.Log("更新窗口处理失败", error);
         }
         return default;
     }

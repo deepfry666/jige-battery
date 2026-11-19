@@ -7,16 +7,19 @@ internal sealed record DeviceStatus(DeviceIdentity Device, LinkState Link, ReadI
 {
     public int? Percentage => Last?.Percentage;
     public bool IsCharging => Fresh && Charging == ChargingState.Charging;
+    public bool IsFull => Fresh && (Charging == ChargingState.Full || Percentage == 100);
 }
 
 internal sealed class TrayModel
 {
     private readonly Dictionary<string, DeviceStatus> devices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SavedReminder> reminders = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> removedOffline = new(StringComparer.OrdinalIgnoreCase);
 
     public TrayModel(TraySettings settings, TrayState saved)
     {
         Settings = settings;
+        removedOffline.UnionWith((saved.RemovedOfflineDevices ?? []).Where(id => !string.IsNullOrWhiteSpace(id)));
         foreach (var (id, reading) in saved.Readings ?? [])
         {
             if (reading?.Device is not { } device || string.IsNullOrWhiteSpace(device.Name) ||
@@ -28,7 +31,7 @@ internal sealed class TrayModel
         foreach (var (id, reminder) in saved.Reminders ?? [])
         {
             if (reminder is not null && devices.TryGetValue(id, out var device) &&
-                device.Percentage <= Settings.LowBatteryThreshold)
+                device.Percentage < Settings.LowBatteryThreshold)
                 reminders[id] = reminder;
         }
     }
@@ -36,6 +39,33 @@ internal sealed class TrayModel
     public TraySettings Settings { get; private set; }
     public DateTimeOffset? UpdatedAt { get; private set; }
     public bool ScanFailed { get; private set; }
+    public int UnknownReceivers { get; private set; }
+
+    public bool ExpireReadings(DateTimeOffset now)
+    {
+        bool changed = false;
+        foreach (var (id, device) in devices)
+        {
+            if (device is { Fresh: true, Last: { } last } && IsExpired(last, now))
+            {
+                devices[id] = device with { Fresh = false };
+                changed = true;
+            }
+        }
+        return changed;
+    }
+
+    public bool CanRemove(string id) => devices.TryGetValue(id, out var device) && device.Link == LinkState.Offline;
+
+    public void RemoveOffline(string id)
+    {
+        if (CanRemove(id))
+        {
+            devices.Remove(id);
+            reminders.Remove(id);
+            removedOffline.Add(id);
+        }
+    }
 
     public DeviceStatus[] OrderedDevices(bool primaryFirst = true) => devices.Values
         .OrderByDescending(item => primaryFirst && StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, Settings.PrimaryDeviceId))
@@ -79,23 +109,30 @@ internal sealed class TrayModel
 
         foreach (var device in devices.Values)
         {
-            if (device.Percentage > settings.LowBatteryThreshold)
+            if (device.Percentage >= settings.LowBatteryThreshold)
                 reminders.Remove(device.Device.Id);
             else if (device.Fresh)
                 UpdateReminder(device, now);
         }
     }
 
-    public bool ApplyPoll(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now)
+    public bool ApplyPoll(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now, int unknownReceivers = 0)
     {
-        UpdatedAt = now;
         ScanFailed = scanFailed;
+        if (!scanFailed || unknownReceivers > 0)
+            UnknownReceivers = unknownReceivers;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool anyFresh = false;
+        bool anyFresh = false, removedChanged = false;
         foreach (var reading in readings)
         {
             var device = reading.Device;
             seen.Add(device.Id);
+            if (removedOffline.Contains(device.Id))
+            {
+                if (reading.Link != LinkState.Online)
+                    continue;
+                removedChanged |= removedOffline.Remove(device.Id);
+            }
             var last = devices.GetValueOrDefault(device.Id)?.Last;
             bool fresh = reading is { Link: LinkState.Online, Percentage: not null };
             if (fresh)
@@ -117,28 +154,50 @@ internal sealed class TrayModel
                 Fresh = false,
                 Charging = ChargingState.Unknown
             };
-        return anyFresh;
+        if (anyFresh)
+            UpdatedAt = now;
+        // 移除后已消失的设备无需继续保留标记。再次识别时重新出现。
+        if (!scanFailed)
+            removedChanged |= removedOffline.RemoveWhere(id => !seen.Contains(id)) > 0;
+        return anyFresh || removedChanged;
     }
 
     private void UpdateReminder(DeviceStatus device, DateTimeOffset now)
     {
-        if (device.Percentage <= Settings.LowBatteryThreshold)
+        if (device.Percentage < Settings.LowBatteryThreshold && !device.IsCharging && !device.IsFull)
             reminders.TryAdd(device.Device.Id, new(now));
         else
             reminders.Remove(device.Device.Id);
     }
 
-    public DateTimeOffset? NextReminder => reminders.Values.Min(item => item.Due);
+    public DateTimeOffset? NextReminder(DateTimeOffset now) => devices.Values
+        .Where(device => CanRemind(device, now))
+        .Select(device => reminders.GetValueOrDefault(device.Device.Id)?.Due)
+        .Min();
 
-    public DeviceStatus? ReadyReminder(DateTimeOffset now, bool blocked)
+    public DeviceStatus? ReadyReminder(DateTimeOffset now, bool blocked) => blocked ? null :
+        OrderedDevices().FirstOrDefault(item => ReminderIsDue(item.Device.Id, now));
+
+    public bool ReminderIsDue(string id, DateTimeOffset now) =>
+        devices.TryGetValue(id, out var device) && CanRemind(device, now) &&
+        reminders.TryGetValue(id, out var reminder) && reminder.Due <= now;
+
+    private bool CanRemind(DeviceStatus device, DateTimeOffset now) =>
+        device is { Fresh: true, Link: LinkState.Online, IsCharging: false, IsFull: false, Last: { } last } &&
+        last.Percentage < Settings.LowBatteryThreshold &&
+        !IsExpired(last, now);
+
+    private bool IsExpired(SavedBattery last, DateTimeOffset now) =>
+        now - last.ReadAt > TimeSpan.FromSeconds(2 * Settings.PollSeconds);
+
+    public DateTimeOffset? ReminderExpires(string id)
     {
-        if (blocked || NextReminder is not { } due || due > now)
+        if (devices.GetValueOrDefault(id)?.Last is not { } last)
             return null;
-        return OrderedDevices().FirstOrDefault(item =>
-            reminders.TryGetValue(item.Device.Id, out var reminder) && reminder.Due <= now);
+        // 用时间差判断读数是否过期；定时器遇到不合理的未来记录直接略过。
+        var ttl = TimeSpan.FromSeconds(2 * Settings.PollSeconds).Add(TimeSpan.FromTicks(1));
+        return last.ReadAt <= DateTimeOffset.MaxValue - ttl ? last.ReadAt + ttl : null;
     }
-
-    public bool IsLow(string id) => reminders.ContainsKey(id);
 
     public void SetReminder(string id, DateTimeOffset? due)
     {
@@ -158,7 +217,8 @@ internal sealed class TrayModel
         return new()
         {
             Readings = readings,
-            Reminders = new(reminders, StringComparer.OrdinalIgnoreCase)
+            Reminders = new(reminders, StringComparer.OrdinalIgnoreCase),
+            RemovedOfflineDevices = [.. removedOffline]
         };
     }
 }

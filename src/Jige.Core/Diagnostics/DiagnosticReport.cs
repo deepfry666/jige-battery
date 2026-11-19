@@ -53,8 +53,11 @@ public static class DiagnosticReport
             var endpoint = hid[i];
             string id = $"H{i + 1}";
             ids.Add(endpoint, id);
+            string product = DiagnosticPrivacy.Product(endpoint.Product, salt);
+            if (LogitechHidppAdapter.UsesReceiverName(endpoint))
+                product += " · HID++ Receiver"; // 回放所需的非识别性匹配标记。
             report.AppendLine(FormattableString.Invariant(
-                $"HID|{id}|{ReceiverAlias(endpoint)}|{endpoint.VendorId:X4}|{endpoint.ProductId:X4}|{endpoint.UsagePage:X4}|{endpoint.Usage:X4}|{endpoint.InputLength}|{endpoint.OutputLength}|{endpoint.FeatureLength}|{endpoint.InterfaceNumber:X2}|{DiagnosticPrivacy.Product(endpoint.Product, salt)}"));
+                $"HID|{id}|{ReceiverAlias(endpoint)}|{endpoint.VendorId:X4}|{endpoint.ProductId:X4}|{endpoint.UsagePage:X4}|{endpoint.Usage:X4}|{endpoint.InputLength}|{endpoint.OutputLength}|{endpoint.FeatureLength}|{endpoint.InterfaceNumber:X2}|{product}"));
             foreach (var candidate in MouseReceiverCatalog.Candidates(endpoint.VendorId, endpoint.ProductId))
             {
                 string status = candidate.Matches(endpoint) ? candidate.Enabled ? "描述符匹配" : "仅登记" : "描述符不匹配";
@@ -92,14 +95,17 @@ public static class DiagnosticReport
 
                 string label = endpoint is HidInterface mouse && MouseReceiverAdapter.AllowedRoute(mouse) is { } route
                     ? FamilyName(route.Family) : name;
-                report.AppendLine($"匹配 {label} {id}");
-                var capture = new DiagnosticTransport(transport, endpoint);
+                if (device.Target.ShortHid is { } shortHid && ids.TryGetValue(shortHid, out var shortId))
+                    report.AppendLine($"匹配 {label} {id}（长报告） {shortId}（短报告）");
+                else
+                    report.AppendLine($"匹配 {label} {id}");
+                var capture = new DiagnosticTransport(transport, adapter);
                 long started = Stopwatch.GetTimestamp();
                 // 罗技接收器下可能有多台设备，统一走多设备读取，逐条输出结果。
                 var readings = await registry.ReadDevicesAsync(device, capture, null, cancellationToken).ConfigureAwait(false);
                 long elapsed = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 var (transfers, truncated) = capture.Finish();
-                WriteTransfers(report, id, transfers);
+                WriteTransfers(report, ids, transfers);
                 if (truncated)
                     report.AppendLine($"截断 {id} 耗尽诊断记录上限");
                 foreach (var reading in readings)
@@ -126,7 +132,7 @@ public static class DiagnosticReport
     // 只输出厂商自定义集合（使用页 FF00–FFFF），任何品牌都列出；标准键盘、鼠标、音量等集合一律不出现在报告里。
     private static bool IsRelevantHid(HidInterface hid) => hid.UsagePage is >= 0xFF00;
 
-    private static void WriteTransfers(StringBuilder report, string id, DiagnosticTransfer[] transfers)
+    private static void WriteTransfers(StringBuilder report, Dictionary<ReceiverEndpoint, string> ids, DiagnosticTransfer[] transfers)
     {
         var serialData = transfers.Where(item => item.Operation == DiagnosticOperation.SerialRead)
             .SelectMany(item => item.Data).ToArray();
@@ -144,6 +150,14 @@ public static class DiagnosticReport
                 masked = !safe.AsSpan().SequenceEqual(item.Data);
                 Array.Clear(item.Data);
             }
+            // 报告 ID 约束只在打开句柄时使用，归回添加约束前的枚举端点。
+            var endpoint = item.Endpoint is HidInterface hid ? hid with
+            {
+                RequiredInputReportId = null,
+                RequiredOutputReportId = null,
+                RequiredFeatureReportId = null
+            } : item.Endpoint;
+            string id = ids[endpoint];
             string code = item.NativeCode?.ToString(CultureInfo.InvariantCulture) ?? "-";
             string argument = item.Argument?.ToString(CultureInfo.InvariantCulture) ?? "-";
             string hex = safe.Length == 0 ? "-" : Convert.ToHexString(safe);
@@ -156,7 +170,12 @@ public static class DiagnosticReport
     {
         FinalmouseAdapter => "Finalmouse ULX",
         SonyInzoneAdapter => "Sony INZONE H9",
-        _ => "ATK / G-Wolves"
+        MouseReceiverAdapter => "ATK / G-Wolves",
+        LogitechHidppAdapter => "Logitech HID++",
+        LogitechHeadsetAdapter => "Logitech 耳机",
+        RazerFeatureAdapter => "Razer 90B",
+        RazerHeadsetAdapter => "Razer 耳机",
+        _ => adapter.GetType().Name
     };
 
     private static string EvidenceName(MouseEvidence evidence) => evidence switch

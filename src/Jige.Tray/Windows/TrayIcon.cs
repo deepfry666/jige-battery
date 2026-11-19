@@ -23,6 +23,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
     private int size;
     private string? tip;
     private bool registered;
+    public bool Registered => registered;
 
     public bool TryGetRect(out RECT rectangle)
     {

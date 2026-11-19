@@ -293,7 +293,7 @@ internal sealed unsafe class Composition : IDisposable
                 }
                 catch (Exception error)
                 {
-                    System.Diagnostics.Debug.WriteLine(error.Message);
+                    Desktop.Log("释放图层失败", error);
                 }
             }
             Graphics.Release(opacity);

@@ -25,7 +25,7 @@ internal sealed class SettingsPanel(int availableHeight)
     public static readonly SettingChoice[] PollChoices =
     [
         new(new(PopupAction.PollInterval, 30), "30 秒"),
-        new(new(PopupAction.PollInterval, 60), "60 秒（默认）"),
+        new(new(PopupAction.PollInterval, 60), "1 分钟（默认）"),
         new(new(PopupAction.PollInterval, 120), "2 分钟")
     ];
 
