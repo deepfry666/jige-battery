@@ -7,10 +7,12 @@ namespace Jige.Tray.Windows;
 [SupportedOSPlatform("windows10.0.17763")]
 internal static class NativeCheck
 {
+    /// <summary>CI 自检。WinExe 没有控制台，失败原因写入 JIGE_CHECK_LOG 指定的文件。</summary>
     public static int Run()
     {
-        if (PInvoke.CoInitializeEx(COINIT.COINIT_APARTMENTTHREADED).Failed)
-            return 1;
+        var init = PInvoke.CoInitializeEx(COINIT.COINIT_APARTMENTTHREADED);
+        if (init.Failed)
+            return Fail($"CoInitializeEx 失败 0x{init.Value:X8}");
         try
         {
             foreach (int size in new[] { 16, 24, 32 })
@@ -25,7 +27,7 @@ internal static class NativeCheck
                 {
                     var icon = TrayIcon.Draw(size, sample);
                     if (!PInvoke.DestroyIcon(icon))
-                        return 1;
+                        return Fail($"DestroyIcon 失败（{size}px）");
                 }
             }
             return 0;
@@ -33,11 +35,18 @@ internal static class NativeCheck
         catch (Exception error)
         {
             Desktop.Log(error.Message);
-            return 1;
+            return Fail(error.ToString());
         }
         finally
         {
             PInvoke.CoUninitialize();
         }
+    }
+
+    private static int Fail(string message)
+    {
+        if (Environment.GetEnvironmentVariable("JIGE_CHECK_LOG") is { Length: > 0 } path)
+            File.WriteAllText(path, message);
+        return 1;
     }
 }

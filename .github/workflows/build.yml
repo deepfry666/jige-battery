@@ -47,7 +47,9 @@ jobs:
         shell: pwsh
         run: |
           if (-not (Test-Path .\artifacts\tray-win-x64\LICENSE)) { throw "发布目录缺少许可证" }
+          $env:JIGE_CHECK_LOG = Join-Path $env:RUNNER_TEMP 'jige-check.txt'
           $tray = Start-Process -FilePath .\artifacts\tray-win-x64\Jige.Tray.exe -ArgumentList '--check' -Wait -PassThru
+          if ($tray.ExitCode -ne 0 -and (Test-Path $env:JIGE_CHECK_LOG)) { Get-Content $env:JIGE_CHECK_LOG }
           exit $tray.ExitCode
       - name: 上传托盘
         uses: actions/upload-artifact@v7
