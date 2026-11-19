@@ -16,26 +16,47 @@ public sealed class AdapterRegistry
     public AdapterRegistry(params IDeviceAdapter[] adapters) => this.adapters = [.. adapters];
 
     public static AdapterRegistry CreateDefault(int sonyBaudRate = 115200) =>
-        new(new FinalmouseAdapter(), new SonyInzoneAdapter(sonyBaudRate));
+        new(new FinalmouseAdapter(), new SonyInzoneAdapter(sonyBaudRate), new LogitechHidppAdapter(),
+            new LogitechHeadsetAdapter(), new RazerFeatureAdapter(), new RazerHeadsetAdapter());
+
+    public static bool ShouldInspectHid(ushort? vendorId, ushort? productId) =>
+        vendorId == 0x361D && productId == 0x0100 || vendorId == 0x046D ||
+        vendorId == 0x1532 && (RazerFeatureProtocol.Find(productId) is not null || productId == 0x0565);
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory).Select(target => new DetectedDevice(adapter, target)));
 
-    public async Task<BatteryReading> ReadAsync(
+    public Task<BatteryReading> ReadAsync(
         DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
+        => ReadWithDeadlineAsync(device, token => device.Adapter.ReadAsync(device.Target, transport, trace, token),
+            issue => issue, cancellationToken);
+
+    public Task<IReadOnlyList<BatteryReading>> ReadDevicesAsync(
+        DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken) =>
+        device.Adapter is IMultiDeviceAdapter multi
+            ? ReadWithDeadlineAsync(device, token => multi.ReadDevicesAsync(device.Target, transport, trace, token),
+                issue => [issue], cancellationToken)
+            : ReadSingleAsync(device, transport, trace, cancellationToken);
+
+    private async Task<IReadOnlyList<BatteryReading>> ReadSingleAsync(
+        DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken token) =>
+        [await ReadAsync(device, transport, trace, token).ConfigureAwait(false)];
+
+    private static async Task<T> ReadWithDeadlineAsync<T>(DetectedDevice device,
+        Func<CancellationToken, ValueTask<T>> read, Func<BatteryReading, T> failure, CancellationToken cancellationToken)
     {
         try
         {
-            return await OperationDeadline.RunAsync(token => ReadLockedAsync(device, transport, trace, token),
+            return await OperationDeadline.RunAsync(token => ReadLockedAsync(device.Target.Endpoint.ReceiverId, read, token),
                 TimeSpan.FromSeconds(7), cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
-            return Failure(device.Target, ReadIssue.Timeout, "接收器查询超时");
+            return failure(Failure(device.Target, ReadIssue.Timeout, "接收器查询超时"));
         }
         catch (TransportException error)
         {
-            return Failure(device.Target, error.Issue, error.Message);
+            return failure(Failure(device.Target, error.Issue, error.Message));
         }
     }
 
@@ -50,10 +71,9 @@ public sealed class AdapterRegistry
         return new(target.Device, null, false, ChargingState.Unknown, link, DateTimeOffset.UtcNow, issue, detail);
     }
 
-    private static async Task<BatteryReading> ReadLockedAsync(
-        DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
+    private static async Task<T> ReadLockedAsync<T>(
+        string id, Func<CancellationToken, ValueTask<T>> read, CancellationToken token)
     {
-        var id = device.Target.Endpoint.ReceiverId;
         ReceiverLock receiver;
         lock (Receivers)
         {
@@ -68,7 +88,7 @@ public sealed class AdapterRegistry
             try
             {
                 token.ThrowIfCancellationRequested();
-                return await device.Adapter.ReadAsync(device.Target, transport, trace, token).ConfigureAwait(false);
+                return await read(token).ConfigureAwait(false);
             }
             finally
             {

@@ -99,7 +99,7 @@ internal static class Probe
     private static async Task<int> RunWindowsAsync(bool list, bool raw, int baud, CancellationToken token)
     {
         var inventory = await WindowsDeviceDiscovery.ScanAsync(token,
-            list ? null : static (vid, pid) => vid == 0x361D && pid == 0x0100);
+            list ? null : AdapterRegistry.ShouldInspectHid);
         foreach (var warning in inventory.Warnings)
             Console.Error.WriteLine($"枚举警告  {warning}");
         if (list)
@@ -111,7 +111,7 @@ internal static class Probe
         var registry = AdapterRegistry.CreateDefault(baud == 0 ? DefaultBaud : baud);
         var devices = registry.Detect(inventory).ToArray();
         if (!devices.Any(device => device.Target.Endpoint is HidInterface))
-            Console.WriteLine("未找到 Finalmouse ULX 的 361D:0100 接收器。");
+            Console.WriteLine("未找到支持读取的 HID 接收器。");
         if (!devices.Any(device => device.Target.Endpoint is UsbSerialPort))
             Console.WriteLine("未找到 Sony INZONE H9 一代的 054C:0E53 MI_06 串口，请检查接收器的 PC 档。");
 
@@ -125,12 +125,23 @@ internal static class Probe
         foreach (var device in devices)
         {
             bool serial = device.Target.Endpoint is UsbSerialPort;
-            PrintTarget(device, serial ? (baud == 0 ? DefaultBaud : baud) : null);
-            var reading = await registry.ReadAsync(device, transport, raw ? PrintFrame : null, token);
-            PrintReading(reading);
-            bool deviceFailed = reading.Percentage is null;
+            var serialBaud = serial ? (baud == 0 ? DefaultBaud : baud) : (int?)null;
+            PrintTarget(device, serialBaud);
+            var readings = await registry.ReadDevicesAsync(device, transport, raw ? PrintFrame : null, token);
+            if (readings.Count == 0)
+                Console.WriteLine("  未确认接收器下有已配对的 HID++ 2.0 设备。");
+            foreach (var item in readings)
+            {
+                if (item.Device != device.Target.Device)
+                    Console.WriteLine($"  {item.Device.Name}  {item.Device.Id}");
+                PrintReading(item);
+            }
+
+            bool deviceFailed = readings.Count == 0 || readings.Any(item => item.Percentage is null && item.Link != LinkState.Offline)
+                || readings.Any(item => item.Issue != ReadIssue.None);
+            var reading = readings.FirstOrDefault();
             if (alternateSerial is not null && alternateSerial.TryGetValue(device.Target.Device.Id, out var second) &&
-                reading.Issue is not (ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.Disconnected))
+                reading is not null && reading.Issue is not (ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.Disconnected))
             {
                 PrintTarget(second, AlternateBaud);
                 var alternateReading = await alternate!.ReadAsync(second, transport, raw ? PrintFrame : null, token);

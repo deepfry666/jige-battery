@@ -22,7 +22,12 @@ public sealed record HidInterface(
     string ReceiverId, string Path, ushort? VendorId, ushort? ProductId, string? Product,
     ushort? UsagePage, ushort? Usage, ushort? InputLength, ushort? OutputLength,
     ushort? FeatureLength, byte? InterfaceNumber, ReadIssue MetadataIssue = ReadIssue.None,
-    string? MetadataError = null) : ReceiverEndpoint(ReceiverId, Path);
+    string? MetadataError = null) : ReceiverEndpoint(ReceiverId, Path)
+{
+    internal byte? RequiredInputReportId { get; init; }
+    internal byte? RequiredOutputReportId { get; init; }
+    internal byte? RequiredFeatureReportId { get; init; }
+}
 
 public sealed record UsbSerialPort(
     string ReceiverId, string Path, string? PortName, IReadOnlyList<string> HardwareIds,

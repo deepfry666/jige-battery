@@ -134,6 +134,9 @@ internal static unsafe partial class Native
     [LibraryImport("hid.dll", EntryPoint = "HidP_GetCaps")]
     internal static partial int GetHidCaps(nint data, out HidCaps caps);
 
+    [LibraryImport("hid.dll", EntryPoint = "HidP_InitializeReportForID")]
+    internal static partial int InitializeReportForId(int reportType, byte id, nint data, byte* report, uint length);
+
     [LibraryImport("hid.dll", EntryPoint = "HidD_GetProductString", SetLastError = true)]
     internal static partial byte GetProductString(SafeFileHandle file, char* data, uint length);
 

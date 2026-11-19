@@ -20,7 +20,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         try
         {
             var attributes = ReadAttributes(handle);
-            var caps = ReadCaps(handle);
+            var caps = ReadCaps(handle, endpoint);
             if (attributes.VendorId != endpoint.VendorId || attributes.ProductId != endpoint.ProductId ||
                 caps.UsagePage != endpoint.UsagePage || caps.Usage != endpoint.Usage ||
                 caps.InputLength != endpoint.InputLength || caps.OutputLength != endpoint.OutputLength ||
@@ -72,7 +72,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         return attributes;
     }
 
-    internal static Native.HidCaps ReadCaps(SafeFileHandle handle)
+    internal static Native.HidCaps ReadCaps(SafeFileHandle handle, HidInterface? endpoint = null)
     {
         if (Native.GetPreparsedData(handle, out var data) == 0)
             throw WindowsErrors.Last("读取 HID 描述符");
@@ -81,11 +81,33 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
             int status = Native.GetHidCaps(data, out var caps);
             if (status != 0x00110000)
                 throw new TransportException(ReadIssue.IoError, $"解析 HID 描述符失败（0x{status:X8}）");
+            if (endpoint is not null)
+            {
+                VerifyReportId(data, 0, endpoint.RequiredInputReportId, caps.InputLength);
+                VerifyReportId(data, 1, endpoint.RequiredOutputReportId, caps.OutputLength);
+                VerifyReportId(data, 2, endpoint.RequiredFeatureReportId, caps.FeatureLength);
+            }
             return caps;
         }
         finally
         {
             Native.FreePreparsedData(data);
+        }
+    }
+
+    private static unsafe void VerifyReportId(nint data, int reportType, byte? id, ushort length)
+    {
+        if (id is not byte reportId)
+            return;
+
+        // 只在内存中初始化描述符指定的报告，验证编号时无 USB 发包。
+        var buffer = new byte[length];
+        fixed (byte* report = buffer)
+        {
+            int status = Native.InitializeReportForId(reportType, reportId, data, report, length);
+            if (status != 0x00110000)
+                throw new TransportException(ReadIssue.IoError,
+                    $"HID 描述符未确认报告 ID {reportId:X2}（类型 {reportType}，0x{status:X8}）");
         }
     }
 
