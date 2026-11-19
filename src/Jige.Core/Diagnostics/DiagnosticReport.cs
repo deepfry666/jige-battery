@@ -20,9 +20,8 @@ public static class DiagnosticReport
         DeviceInventory inventory;
         try
         {
-            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken,
-                static (vid, pid) => AdapterRegistry.IsKnownHidReceiver(vid, pid) || MouseReceiverCatalog.IsVendor(vid))
-                .ConfigureAwait(false);
+            // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合；不打开任何报告通道。
+            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -124,9 +123,8 @@ public static class DiagnosticReport
             .AppendLine("USB 列为接口｜接收器｜硬件 ID。OP 列格式见 PRIVACY.md。");
     }
 
-    private static bool IsRelevantHid(HidInterface hid) =>
-        (FinalmouseAdapter.IsReceiver(hid) && hid.UsagePage == 0xFF00) ||
-        (MouseReceiverCatalog.IsVendor(hid.VendorId) && hid.UsagePage is 0xFF02 or 0xFF04 or 0xFF05 or 0xFFFF);
+    // 只输出厂商自定义集合（使用页 FF00–FFFF），任何品牌都列出；标准键盘、鼠标、音量等集合一律不出现在报告里。
+    private static bool IsRelevantHid(HidInterface hid) => hid.UsagePage is >= 0xFF00;
 
     private static void WriteTransfers(StringBuilder report, string id, DiagnosticTransfer[] transfers)
     {

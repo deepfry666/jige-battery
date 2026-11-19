@@ -90,7 +90,8 @@ internal static class MouseReceiverCatalog
         new("G-Wolves HTR Pro", GWolves, 0x7717, MouseFamily.XviOld, MouseEvidence.SingleSource),
         new("G-Wolves HSK Plus Lite", GWolves, 0x7203, MouseFamily.XviOld, MouseEvidence.Unverified),
         new("G-Wolves HSK Plus ACE-2", GWolves, null, MouseFamily.XviOld, MouseEvidence.Unverified),
-        new("G-Wolves HTX Ultra 8K", GWolves, 0x5617, MouseFamily.XviNew, MouseEvidence.SingleSource),
+        // 官方网页驱动 mouse.xyz 的型号表标为 IsNewProtocol=1；2026-11-19 用户实机诊断确认接收器描述符为 MI_02 / FFFF:0000 / 65 字节特征报告。
+        new("G-Wolves HTX Ultra 8K", GWolves, 0x5617, MouseFamily.XviNew, MouseEvidence.SingleSource, true),
         new("G-Wolves HSK Pro 2.0 8K", GWolves, 0x6817, MouseFamily.XviNew, MouseEvidence.SingleSource),
         new("G-Wolves HTM Plus", GWolves, 0x3817, MouseFamily.XviNew, MouseEvidence.SingleSource),
         new("G-Wolves VUK", GWolves, 0x3917, MouseFamily.XviOld, MouseEvidence.SingleSource)

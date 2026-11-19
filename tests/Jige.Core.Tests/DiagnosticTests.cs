@@ -37,7 +37,8 @@ public sealed class DiagnosticTests
         original.AssertComplete();
 
         Assert.DoesNotContain("private", report);
-        Assert.DoesNotContain("1234", report);
+        // 0.1.1 起列出所有品牌的厂商自定义集合（只含 VID/PID），产品字符串仍遮蔽；标准键盘集合依旧不出现。
+        Assert.Contains("|1234|1031|FF02|", report);
         Assert.DoesNotContain("1155", report);
         Assert.DoesNotContain("COM7", report);
         Assert.DoesNotContain(MouseAdapterTests.CapturedCompxReply, report);
@@ -62,6 +63,19 @@ public sealed class DiagnosticTests
         Assert.Equal(2, readings.Count);
         Assert.Equal(ReadIssue.Busy, readings[0].Issue);
         Assert.Equal(25, readings[1].Percentage);
+    }
+
+    [Fact]
+    public async Task RealInzoneH9Gen1ReportFromFirstUserReplays()
+    {
+        // 2026-11-19 第一位用户在 Windows 11 实机上导出的 INZONE H9 一代诊断，分段到达的串口回复原样保留。
+        string filename = Path.Combine(AppContext.BaseDirectory, "fixtures", "h9-gen1-real-2026-11-19.txt");
+        var report = await File.ReadAllTextAsync(filename, CancellationToken.None);
+        var readings = await Replay(report.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var headset = Assert.Single(readings);
+        Assert.Equal(50, headset.Percentage);
+        Assert.Equal(ChargingState.NotCharging, headset.Charging);
+        Assert.Equal(LinkState.Online, headset.Link);
     }
 
     [Fact]

@@ -560,9 +560,11 @@ internal sealed class TrayApp : IDisposable
         var point = PopupWindow.MessagePoint(unchecked((nint)wParam.Value));
         switch (kind)
         {
-            case 0x0400 or 0x0401 or 0x0202: // NIN_SELECT、NIN_KEYSELECT 或 WM_LBUTTONUP
+            // NOTIFYICON_VERSION_4 下一次左键单击会先后收到 WM_LBUTTONUP 和 NIN_SELECT。
+            // 两者都处理会让面板刚打开就被第二条消息切换关闭（0.1.0 的"点开即闪退"），因此只认 NIN_SELECT / NIN_KEYSELECT。
+            case 0x0400 or 0x0401: // NIN_SELECT、NIN_KEYSELECT
                 long time = Environment.TickCount64;
-                if (time - lastTraySelect < 90 || time - lostFocusByTray < 250)
+                if (time - lastTraySelect < 300 || time - lostFocusByTray < 300)
                     return;
                 lastTraySelect = time;
                 RequestTrayAction(TrayAction.Panel, point);
@@ -665,6 +667,8 @@ internal sealed class TrayApp : IDisposable
         {
             case 0x0006 when (ushort)wParam.Value == 0 && !active.IsNotice: // WM_ACTIVATE
             case 0x0008 when !active.IsNotice: // WM_KILLFOCUS
+                if (active.TryReclaimFocus())
+                    return true;
                 if (icon.TryGetRect(out var bounds) && PInvoke.GetCursorPos(out var cursor) &&
                     cursor.X >= bounds.left && cursor.X < bounds.right && cursor.Y >= bounds.top && cursor.Y < bounds.bottom)
                     lostFocusByTray = Environment.TickCount64;
@@ -672,6 +676,9 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case 0x0010: // WM_CLOSE
                 PopupCommand(active, PopupAction.Close);
+                return true;
+            case 0x8010: // 面板刚显示即被收回前台时，重新激活一次
+                PInvoke.SetForegroundWindow(active.Handle);
                 return true;
             case 0x0200: active.PointerMove(lParam); return true;
             case 0x02A3: active.PointerLeave(); return true;

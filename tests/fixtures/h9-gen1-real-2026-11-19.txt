@@ -1,0 +1,23 @@
+几格 / Jige Battery 诊断报告 v1
+几格版本 0.1.0
+Windows 10.0.26220
+CPU 架构 X64
+SONY-BAUD|115200
+HID 列为接口｜接收器｜VID｜PID｜使用页｜用法｜输入｜输出｜特征｜接口号｜产品字符串。
+USB 列为接口｜接收器｜硬件 ID。OP 列格式见 PRIVACY.md。
+USB|S2|R3|USB\VID_054C&PID_0E53&REV_0910&MI_06,USB\VID_054C&PID_0E53&MI_06
+枚举警告数量 0
+匹配 Sony INZONE H9 S2
+OP|S2|OpenSerial|24|None|-|115200|-|0
+OP|S2|SerialWrite|0|None|-|-|0100FC0896C321010101007D|0
+OP|S2|SerialRead|0|None|-|-|04|0
+OP|S2|SerialRead|0|None|-|-|FF0A0096C31201100100007D|1
+OP|S2|SerialWrite|0|None|-|-|0100FC0896C341020101009E|0
+OP|S2|SerialRead|100|None|-|-|-|0
+OP|S2|SerialRead|65|None|-|-|04|0
+OP|S2|SerialRead|0|None|-|-|FF0F0096C3140210010000000000000080|1
+OP|S2|SerialWrite|0|None|-|-|0100FC0896C34104010100A0|0
+OP|S2|SerialRead|100|None|-|-|-|0
+OP|S2|SerialRead|99|None|-|-|04|0
+OP|S2|SerialRead|0|None|-|-|FF0B0096C314041001000032B4|0
+结果 S2 890 ms Headset 电量 50% NotCharging Online None

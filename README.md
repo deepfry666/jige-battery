@@ -7,11 +7,11 @@
 | 支持的设备 | 接收器与识别方式 | 证据等级 | 实机验证状态 |
 | --- | --- | --- | --- |
 | Finalmouse UltralightX（ULX） | 2.4 GHz 接收器 `361D:0100`，厂商 HID 集合 `FF00:0001` | 单一来源 | 未在实机验证 |
-| Sony INZONE H9 一代 | PC 档接收器 `054C:0E53` 的 `MI_06` USB 串口 | 多方开源实现一致 | 未在实机验证 |
+| Sony INZONE H9 一代 | PC 档接收器 `054C:0E53` 的 `MI_06` USB 串口 | 多方开源实现一致 | **已实机验证**（Windows 11，2026-11-19） |
 | ATK Compx-OUT | `373B:101A/1031/11D9/1278`，`FF02:0002`；分别对应 ATK 1K 接收器、F1 Ultimate、A9 Ultimate、A9 Air+ | A9 Ultimate 多方开源实现一致，其余单一来源 | 未在实机验证 |
 | ATK BitMouse | ATK ZERO `373B:1155`，`FF05:0001` | 多方开源实现一致 | 未在实机验证 |
 | 游狼 XVI-OLD | HTX Mini 8K `33E4:2717`，`MI_02 / FFFF:0000` | 单一来源 | 未在实机验证 |
-| 游狼 XVI-NEW | Fenrir Pro 8K `33E4:3617`，`MI_02 / FFFF:0000` | 单一来源 | 未在实机验证 |
+| 游狼 XVI-NEW | Fenrir Pro 8K `33E4:3617`、HTX Ultra 8K `33E4:5617`，`MI_02 / FFFF:0000` | 单一来源；HTX Ultra 依据官方网页驱动型号表 | HTX Ultra 接收器描述符已实机确认，电量待确认；其余未在实机验证 |
 | ATK Compx-FEAT、游狼 Receiver RS | A9 Ultra `373B:111A` 和 Receiver RS `33E4:3854` 已登记，待补精确 Usage | A9 Ultra 单一来源；Receiver RS 多方开源实现一致，使用项未核实 | 未在实机验证 |
 | [Logitech HID++ 2.0](docs/protocols.md#logitech-hid-20) | 已知 Lightspeed、Bolt、Unifying 接收器逐槽查找，例如 PRO X SUPERLIGHT 2、G309、G515 | 多方开源实现一致 / 单一来源，按型号 | 未在实机验证 |
 | [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G PRO X 3、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 未在实机验证 |

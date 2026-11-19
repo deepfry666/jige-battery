@@ -79,12 +79,26 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private static int Pixels(float dip, float scale) =>
         (int)MathF.Round(dip * scale, MidpointRounding.AwayFromZero);
 
+    private long shownAt;
+    private bool reclaimed;
+
     public void Show()
     {
         scene?.Open();
         PInvoke.ShowWindow(Handle, IsNotice ? SHOW_WINDOW_CMD.SW_SHOWNOACTIVATE : SHOW_WINDOW_CMD.SW_SHOW);
+        shownAt = Environment.TickCount64;
         if (!IsNotice)
             PInvoke.SetForegroundWindow(Handle);
+    }
+
+    /// <summary>显示后 400 ms 内的第一次失焦视为任务栏收回前台，重新激活而不是关闭。</summary>
+    public bool TryReclaimFocus()
+    {
+        if (IsNotice || reclaimed || Environment.TickCount64 - shownAt > 400)
+            return false;
+        reclaimed = true;
+        PInvoke.PostMessage(Handle, 0x8010, default, default);
+        return true;
     }
 
     public bool BeginClose()
