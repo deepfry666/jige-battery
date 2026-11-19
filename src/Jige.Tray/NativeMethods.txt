@@ -60,7 +60,6 @@ SetProcessDpiAwarenessContext
 SetTimer
 SetWinEventHook
 SetWindowPos
-ShellExecuteW
 Shell_NotifyIconGetRect
 Shell_NotifyIconW
 ShowWindow
@@ -74,3 +73,14 @@ TranslateMessage
 UnhookWinEvent
 Windows.Win32.Graphics.DirectWrite.DWriteCreateFactory
 GetClassName
+CreateFontW
+CreateSolidBrush
+DefSubclassProc
+GetFocus
+GetWindowTextW
+RemoveWindowSubclass
+SetBkColor
+SetFocus
+SetLayeredWindowAttributes
+SetTextColor
+SetWindowSubclass

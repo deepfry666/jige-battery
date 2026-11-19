@@ -39,10 +39,11 @@ internal static class PopupPlacement
                 y = Math.Max(icon.Bottom, work.Top) + gap;
             else if (nearest == bottom)
                 y = Math.Min(icon.Top, work.Bottom) - height - gap;
-            else if (nearest == left)
-                x = Math.Max(icon.Right, work.Left) + gap;
             else
-                x = Math.Min(icon.Left, work.Right) - width - gap;
+            {
+                x = nearest == left ? Math.Max(icon.Right, work.Left) + gap : Math.Min(icon.Left, work.Right) - width - gap;
+                y = Math.Min(icon.Bottom, work.Bottom) - height;
+            }
         }
 
         x = Math.Clamp(x, work.Left, Math.Max(work.Left, work.Right - width));

@@ -14,6 +14,25 @@ internal sealed record TraySettings
     public bool GameSilent { get; init; } = true;
     public bool StartWithWindows { get; init; }
     public Dictionary<string, string> DeviceAliases { get; init; } = [];
+    public string[] HiddenDeviceIds { get; init; } = [];
+
+    public TraySettings WithPrimary(string? id) => this with
+    {
+        PrimaryDeviceId = id,
+        HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray()
+    };
+
+    public TraySettings WithAlias(string id, string name)
+    {
+        string alias = CleanAlias(name);
+        if (alias.Length == 0)
+            return this;
+        var aliases = new Dictionary<string, string>(DeviceAliases, StringComparer.OrdinalIgnoreCase) { [id] = alias };
+        return this with { DeviceAliases = aliases };
+    }
+
+    private static string CleanAlias(string name) =>
+        string.Join(' ', name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
 
     public TraySettings Normalize()
     {
@@ -21,7 +40,7 @@ internal sealed record TraySettings
         foreach (var (id, name) in DeviceAliases ?? [])
         {
             if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name))
-                aliases[id] = string.Join(' ', name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+                aliases[id] = CleanAlias(name);
         }
 
         int normal = Math.Clamp(PollSeconds, 15, 86_400);
@@ -30,7 +49,10 @@ internal sealed record TraySettings
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
-            DeviceAliases = aliases
+            DeviceAliases = aliases,
+            HiddenDeviceIds = (HiddenDeviceIds ?? [])
+                .Where(id => !string.IsNullOrWhiteSpace(id) && !StringComparer.OrdinalIgnoreCase.Equals(id, PrimaryDeviceId))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         };
     }
 }

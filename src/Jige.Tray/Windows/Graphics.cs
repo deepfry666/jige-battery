@@ -195,6 +195,20 @@ internal sealed unsafe class Canvas : IDisposable
     public void Line(float x1, float y1, float x2, float y2, Color color, float thickness = 1) =>
         target->DrawLine(Graphics.Point(x1, y1), Graphics.Point(x2, y2), Brush(color), thickness, null);
 
+    public void Cubic(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, Color color)
+    {
+        float x = x0, y = y0;
+        for (int i = 1; i <= 12; i++)
+        {
+            float t = i / 12f, u = 1 - t;
+            float nextX = u * u * u * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x3;
+            float nextY = u * u * u * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * y3;
+            Line(x, y, nextX, nextY, color, 1.3f);
+            x = nextX;
+            y = nextY;
+        }
+    }
+
     public void Dot(float x, float y, float radius, Color color)
     {
         var circle = new D2D1_ELLIPSE { point = Graphics.Point(x, y), radiusX = radius, radiusY = radius };

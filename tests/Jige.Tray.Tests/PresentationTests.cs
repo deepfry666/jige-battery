@@ -66,7 +66,7 @@ public sealed class PresentationTests
     [InlineData(720, 1040, 0, 0, 1000, 1020, 558, 732)]
     [InlineData(0, 0, 0, 40, 1000, 1080, 0, 52)]
     [InlineData(0, 0, 40, 0, 1000, 1080, 52, 0)]
-    [InlineData(960, 920, 0, 0, 960, 1080, 604, 792)]
+    [InlineData(960, 920, 0, 0, 960, 1080, 604, 664)]
     public void PopupHugsTaskbarEdgeAndStaysInWorkArea(int x, int y,
         int left, int top, int right, int bottom, int expectedX, int expectedY)
     {

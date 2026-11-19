@@ -44,7 +44,8 @@ internal sealed unsafe class Composition : IDisposable
                 "创建 DirectComposition 设备");
             device = desktop;
             IDCompositionTarget* destination = null;
-            device->CreateTargetForHwnd(hwnd, true, &destination);
+            // 合成树在原生子窗口下面，行内 EDIT 可以自行绘制文字与光标。
+            device->CreateTargetForHwnd(hwnd, false, &destination);
             target = destination;
             fonts = new TextFactory();
             Root = new(this, null, 0, 0, 0, 0);
@@ -148,6 +149,35 @@ internal sealed unsafe class Composition : IDisposable
 
         public void Clip(float width, float height) =>
             Visual->SetClip(Graphics.Rect(0, 0, composition.Pixels(width), composition.Pixels(height)));
+
+        public void SetX(float x) => Visual->SetOffsetX(x * composition.Scale);
+
+        public void AnimateX(float from, float to, int milliseconds)
+        {
+            var animation = composition.Animate(from * composition.Scale, to * composition.Scale, 0,
+                milliseconds / 1000.0, Ease.Enter);
+            try
+            {
+                Visual->SetOffsetX(animation);
+            }
+            finally
+            {
+                Graphics.Release(animation);
+            }
+        }
+
+        public void PageMotion(float fromX, float toX, float fromOpacity, float toOpacity)
+        {
+            AnimateX(fromX, toX, PanelLayout.TransitionMilliseconds);
+            Fade(fromOpacity, toOpacity, 0, PanelLayout.TransitionMilliseconds / 1000.0, Ease.Enter);
+        }
+
+        public void ResetPageMotion()
+        {
+            SetX(0);
+            if (opacity != null)
+                opacity->SetOpacity(1f);
+        }
 
         private IDCompositionEffectGroup* Opacity()
         {
@@ -273,7 +303,7 @@ internal sealed unsafe class Composition : IDisposable
 
     private readonly record struct Ease(double X1, double Y1, double X2, double Y2)
     {
-        public static Ease Enter => new(.1, .9, .2, 1);
+        public static Ease Enter => new(PanelLayout.EaseX1, PanelLayout.EaseY1, PanelLayout.EaseX2, PanelLayout.EaseY2);
         public static Ease Exit => new(.7, 0, 1, .5);
         public static Ease Standard => new(.25, .1, .25, 1);
         public static Ease InOut => new(.42, 0, .58, 1);
@@ -309,8 +339,8 @@ internal sealed unsafe class Composition : IDisposable
         for (int i = 1; i <= segments; i++)
         {
             double t = (double)i / segments;
-            double time = start + duration * Bezier(t, ease.X1, ease.X2);
-            double value = from + (to - from) * Bezier(t, ease.Y1, ease.Y2);
+            double time = start + duration * PanelLayout.Bezier(t, ease.X1, ease.X2);
+            double value = from + (to - from) * PanelLayout.Bezier(t, ease.Y1, ease.Y2);
             double seconds = time - lastTime;
             double rate = (value - lastValue) / seconds;
             double nextSlope = Slope(t, rate);
@@ -328,9 +358,6 @@ internal sealed unsafe class Composition : IDisposable
             return dx > 0 ? (to - from) * Derivative(t, ease.Y1, ease.Y2) / (duration * dx) : fallback;
         }
     }
-
-    private static double Bezier(double t, double a, double b) =>
-        3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
 
     private static double Derivative(double t, double a, double b) =>
         3 * ((1 - t) * (1 - t) * a + 2 * (1 - t) * t * (b - a) + t * t * (1 - b));

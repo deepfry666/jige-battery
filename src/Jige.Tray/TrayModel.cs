@@ -37,11 +37,27 @@ internal sealed class TrayModel
     public DateTimeOffset? UpdatedAt { get; private set; }
     public bool ScanFailed { get; private set; }
 
-    public DeviceStatus[] OrderedDevices() => devices.Values
-        .OrderByDescending(item => string.Equals(item.Device.Id, Settings.PrimaryDeviceId, StringComparison.OrdinalIgnoreCase))
+    public DeviceStatus[] OrderedDevices(bool primaryFirst = true) => devices.Values
+        .OrderByDescending(item => primaryFirst && StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, Settings.PrimaryDeviceId))
         .ThenBy(item => item.Device.Kind)
         .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
+
+    public bool IsHidden(string id) => Settings.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+
+    public DeviceStatus[] PanelDevices() => OrderedDevices().Where(item => !IsHidden(item.Device.Id)).ToArray();
+
+    public DeviceStatus? PrimaryDevice => PanelDevices().FirstOrDefault();
+
+    public TraySettings ToggleVisibility(string id)
+    {
+        if (!devices.ContainsKey(id) || StringComparer.OrdinalIgnoreCase.Equals(id, PrimaryDevice?.Device.Id))
+            return Settings;
+        string[] hidden = IsHidden(id)
+            ? Settings.HiddenDeviceIds.Where(item => !StringComparer.OrdinalIgnoreCase.Equals(item, id)).ToArray()
+            : [.. Settings.HiddenDeviceIds, id];
+        return Settings with { HiddenDeviceIds = hidden };
+    }
 
     public string Name(DeviceIdentity device)
     {

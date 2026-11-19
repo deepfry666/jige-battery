@@ -117,6 +117,92 @@ public sealed class TrayModelTests
     }
 
     [Fact]
+    public void LegacyConfigAndPanelChangesSurviveRestartWithoutChangingHiddenTooltipEntries()
+    {
+        var directory = Directory.CreateTempSubdirectory("jige-panel-test-");
+        try
+        {
+            var files = new TrayFiles(directory.FullName);
+            File.WriteAllText(files.ConfigPath, """
+                {
+                  "primaryDeviceId": "ulx:1",
+                  "lowBatteryThreshold": 22,
+                  "pollSeconds": 72,
+                  "gamePollSeconds": 480,
+                  "gameSilent": true,
+                  "startWithWindows": false,
+                  "deviceAliases": { "ULX:1": "旧配置鼠标" }
+                }
+                """);
+
+            Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Empty(loaded.HiddenDeviceIds);
+            Assert.Equal(22, loaded.LowBatteryThreshold);
+            Assert.Equal(72, loaded.PollSeconds);
+            var model = new TrayModel(loaded, new());
+            model.ApplyPoll([Reading(Mouse, 72), Reading(Headset, 48)], false, Now);
+            Assert.Equal("旧配置鼠标", model.Name(Mouse));
+            Assert.Same(loaded, model.ToggleVisibility("ULX:1"));
+
+            var changed = model.ToggleVisibility("INZONE-H9:1").WithAlias(Headset.Id, "  我的　耳机 🐱 ");
+            changed = changed with
+            {
+                LowBatteryThreshold = 30, PollSeconds = 120, GameSilent = false, StartWithWindows = true
+            };
+            files.SaveSettings(changed);
+            files.SaveState(model.Snapshot());
+
+            Assert.True(files.TryLoadSettings(out var saved));
+            var restarted = new TrayModel(saved, files.LoadState());
+            Assert.Equal(30, saved.LowBatteryThreshold);
+            Assert.Equal(120, saved.PollSeconds);
+            Assert.Equal(480, saved.GamePollSeconds);
+            Assert.False(saved.GameSilent);
+            Assert.True(saved.StartWithWindows);
+            Assert.Equal(new[] { "INZONE-H9:1" }, saved.HiddenDeviceIds);
+            Assert.Same(saved, saved.WithAlias(Headset.Id, "   "));
+            Assert.Equal("我的 耳机 🐱", restarted.Name(Headset));
+            Assert.Equal(Mouse, Assert.Single(restarted.PanelDevices()).Device);
+            Assert.Contains("我的 耳机 🐱 48%", Presentation.Tooltip(restarted));
+
+            var shown = restarted.ToggleVisibility(Headset.Id);
+            Assert.Empty(shown.HiddenDeviceIds);
+            restarted.ApplySettings(saved.WithPrimary(Headset.Id), Now);
+            Assert.Empty(restarted.Settings.HiddenDeviceIds);
+            Assert.Equal(Headset, restarted.PrimaryDevice?.Device);
+            Assert.Equal(new[] { Mouse, Headset },
+                restarted.OrderedDevices(primaryFirst: false).Select(device => device.Device));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConfigNormalizationRemovesDuplicateHiddenIdsAndKeepsThePinnedDeviceVisible()
+    {
+        var settings = new TraySettings
+        {
+            PrimaryDeviceId = "ULX:1", HiddenDeviceIds = ["ulx:1", "MOUSE:2", "mouse:2", ""]
+        }.Normalize();
+        Assert.Equal(new[] { "MOUSE:2" }, settings.HiddenDeviceIds);
+    }
+
+    [Fact]
+    public void AutomaticPrimarySkipsHiddenDevicesAndCannotBeHidden()
+    {
+        var model = new TrayModel(new() { HiddenDeviceIds = [Mouse.Id] }, new());
+        model.ApplyPoll([Reading(Mouse, 10), Reading(Headset, 50)], false, Now);
+        Assert.Equal(Headset, model.PrimaryDevice?.Device);
+        Assert.Same(model.Settings, model.ToggleVisibility(Headset.Id));
+        Assert.Equal(Mouse, model.ReadyReminder(Now, false)?.Device);
+        model.ApplySettings(model.Settings.WithPrimary(Mouse.Id), Now);
+        Assert.False(model.IsHidden(Mouse.Id));
+        Assert.Equal(Mouse, model.PrimaryDevice?.Device);
+    }
+
+    [Fact]
     public void StateAndSettingsRoundTripThroughActualFilesAndRecoverFromBadJson()
     {
         string folder = Path.Combine(Path.GetTempPath(), $"jige-test-{Guid.NewGuid():N}");
