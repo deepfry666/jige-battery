@@ -109,8 +109,10 @@ internal sealed unsafe class Composition : IDisposable
                     surface = bitmap;
                     Visual->SetContent((IUnknown*)surface);
                 }
+                // 参考图层为 null 时，insertAbove=true 会把新图层放到同级最底层（DirectComposition 的约定），
+                // 0.1.2 因此把设备行和刷新按钮压在半透明面板背景下面，整行发灰。false 才是放到最顶层。
                 if (parent is not null)
-                    parent.Visual->AddVisual((IDCompositionVisual*)Visual, true, null);
+                    parent.Visual->AddVisual((IDCompositionVisual*)Visual, false, null);
             }
             catch
             {
