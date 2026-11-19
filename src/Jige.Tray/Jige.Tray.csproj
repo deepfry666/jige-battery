@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
+    <CsWin32PlatformTarget>x64</CsWin32PlatformTarget>
+    <IsAotCompatible>true</IsAotCompatible>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <PublishAot Condition="'$(RuntimeIdentifier)' == 'win-x64'">true</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.371" PrivateAssets="all" />
+    <ProjectReference Include="../Jige.Core/Jige.Core.csproj" />
+    <InternalsVisibleTo Include="Jige.Tray.Tests" />
+    <None Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
