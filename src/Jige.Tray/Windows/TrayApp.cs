@@ -357,12 +357,11 @@ internal sealed class TrayApp : IDisposable
         if (enteredGame && schedule.Running && !startedInGame)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
-        if (game.BlockPopups)
+        // 进入游戏只收起几格主动弹出的低电量提醒；用户自己打开的面板和菜单不在这里关闭。
+        if (game.BlockPopups && popup is { IsNotice: true })
         {
-            if (menuOpen)
-                PInvoke.EndMenu();
-            if (popup is not null)
-                DestroyPopup();
+            Desktop.Log("游戏中，收起低电量提醒");
+            DestroyPopup();
         }
         if (changed)
             RefreshIcon();
@@ -577,11 +576,10 @@ internal sealed class TrayApp : IDisposable
 
     private void RequestTrayAction(TrayAction action, Point point)
     {
+        // 用户能点到托盘图标，说明并不在独占全屏游戏里；游戏判定只拦截几格主动弹出的提醒，不拦截用户的点击。
         ReadGameMode();
-        if (game.BlockPopups)
-            pendingUi = (action, point);
-        else
-            ExecuteTrayAction(action, point);
+        Desktop.Log($"托盘{(action == TrayAction.Panel ? "单击" : "右键")} game={game.Game} block={game.BlockPopups}");
+        ExecuteTrayAction(action, point);
         ScheduleWork(DateTimeOffset.UtcNow);
     }
 
@@ -619,6 +617,7 @@ internal sealed class TrayApp : IDisposable
             if (popup is { } active)
             {
                 active.Show();
+                Desktop.Log(notice ? "显示低电量提醒" : "显示面板");
                 if (noticeId is not null)
                 {
                     model.SetReminder(noticeId, null);
@@ -668,7 +667,11 @@ internal sealed class TrayApp : IDisposable
             case 0x0006 when (ushort)wParam.Value == 0 && !active.IsNotice: // WM_ACTIVATE
             case 0x0008 when !active.IsNotice: // WM_KILLFOCUS
                 if (active.TryReclaimFocus())
+                {
+                    Desktop.Log($"面板刚显示即失焦（{Desktop.ForegroundClass()}），重新激活");
                     return true;
+                }
+                Desktop.Log($"面板失焦关闭（msg=0x{message:X4}，前台 {Desktop.ForegroundClass()}）");
                 if (icon.TryGetRect(out var bounds) && PInvoke.GetCursorPos(out var cursor) &&
                     cursor.X >= bounds.left && cursor.X < bounds.right && cursor.Y >= bounds.top && cursor.Y < bounds.bottom)
                     lostFocusByTray = Environment.TickCount64;
@@ -730,6 +733,8 @@ internal sealed class TrayApp : IDisposable
     {
         if (popup is null)
             return;
+        if (!popup.Closing)
+            Desktop.Log("收起面板");
         if (popup.Closing)
             return;
         textDue = null;
@@ -929,6 +934,9 @@ internal sealed class TrayApp : IDisposable
                     "# 请先完整检查内容，确认无误后再自行复制，发到 GitHub Issue 或发给开发者。\r\n" +
                     "# 收集了什么、没收集什么：https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md\r\n\r\n";
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                string log = Desktop.RecentLog(80);
+                if (log.Length > 0)
+                    report += "\r\n# 托盘日志（最近 80 行，仅几格自身事件，不含设备数据以外的个人信息）\r\n" + log;
                 await File.WriteAllTextAsync(path, notice + report, timeout.Token).ConfigureAwait(false);
                 using var editor = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {

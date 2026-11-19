@@ -73,3 +73,4 @@ TrackPopupMenuEx
 TranslateMessage
 UnhookWinEvent
 Windows.Win32.Graphics.DirectWrite.DWriteCreateFactory
+GetClassName

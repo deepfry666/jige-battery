@@ -102,7 +102,7 @@ internal static unsafe class Desktop
             return false;
         uint process;
         PInvoke.GetWindowThreadProcessId(foreground, &process);
-        if (process == (uint)Environment.ProcessId)
+        if (process == (uint)Environment.ProcessId || ShellClasses.Contains(ClassOf(foreground)))
             return false;
 
         RECT frame;
@@ -152,10 +152,74 @@ internal static unsafe class Desktop
         return RECT.FromXYWH(cursor.X, cursor.Y, 1, 1);
     }
 
+    private static readonly object LogGate = new();
+    private static readonly string LogPath = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jige", "jige.log");
+    private const long LogLimit = 1024 * 1024;
+
+    /// <summary>
+    /// 本地日志：最多两个文件（jige.log 与 jige.log.1），各 1 MB，超出即轮换，绝不无限增长。
+    /// 只记录几格自身事件；用户目录替换为 %USERPROFILE%。仅在用户导出诊断信息时附带末尾若干行。
+    /// </summary>
     public static void Log(string message)
     {
         Debug.WriteLine(message);
         fixed (char* native = $"几格 {message}\n")
             PInvoke.OutputDebugString(new PCWSTR(native));
+        try
+        {
+            string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            if (profile.Length > 0)
+                message = message.Replace(profile, "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);
+            string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message.ReplaceLineEndings(" ")}{Environment.NewLine}";
+            lock (LogGate)
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(LogPath)!);
+                var info = new FileInfo(LogPath);
+                if (info.Exists && info.Length > LogLimit)
+                    File.Move(LogPath, LogPath + ".1", overwrite: true);
+                File.AppendAllText(LogPath, line);
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
+
+    public static string RecentLog(int lines)
+    {
+        try
+        {
+            lock (LogGate)
+            {
+                if (!File.Exists(LogPath))
+                    return "";
+                var all = File.ReadAllLines(LogPath);
+                return string.Join(Environment.NewLine, all.Skip(Math.Max(0, all.Length - lines))) + Environment.NewLine;
+            }
+        }
+        catch (IOException) { return ""; }
+        catch (UnauthorizedAccessException) { return ""; }
+    }
+
+    public static string ForegroundClass() => ClassOf(PInvoke.GetForegroundWindow());
+
+    private static string ClassOf(HWND window)
+    {
+        if (window.IsNull)
+            return "无";
+        Span<char> buffer = stackalloc char[128];
+        fixed (char* text = buffer)
+        {
+            int length = PInvoke.GetClassName(window, new PWSTR(text), buffer.Length);
+            return length > 0 ? new string(buffer[..length]) : "未知";
+        }
+    }
+
+    // 桌面、任务栏、开始菜单、通知中心和托盘溢出区都会铺满或贴边，但不是游戏。
+    private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)
+    {
+        "WorkerW", "Progman", "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+        "TopLevelWindowForOverflowXamlIsland", "Windows.UI.Core.CoreWindow", "XamlExplorerHostIslandWindow",
+        "ForegroundStaging", "MultitaskingViewFrame", "TaskListThumbnailWnd"
+    };
 }
