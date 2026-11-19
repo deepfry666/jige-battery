@@ -54,6 +54,7 @@ PostQuitMessage
 RegisterClassExW
 RegisterWindowMessageW
 SHQueryUserNotificationState
+SendMessageW
 SetForegroundWindow
 SetProcessDpiAwarenessContext
 SetTimer
@@ -64,6 +65,9 @@ Shell_NotifyIconGetRect
 Shell_NotifyIconW
 ShowWindow
 SystemParametersInfoW
+TaskDialogIndirect
+TASKDIALOG_MESSAGES
+TASKDIALOG_NOTIFICATIONS
 TrackMouseEvent
 TrackPopupMenuEx
 TranslateMessage

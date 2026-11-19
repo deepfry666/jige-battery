@@ -18,6 +18,6 @@ internal static class Program
         if (args is ["--check"])
             return NativeCheck.Run();
 
-        return TrayApp.Run();
+        return TrayApp.Run(args is ["--after-setup"]);
     }
 }

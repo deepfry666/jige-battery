@@ -27,7 +27,7 @@ internal sealed class TrayApp : IDisposable
     private const uint MoveMessage = 0x8004;
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
-    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3;
+    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4;
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
     private enum TrayAction { Panel, Menu }
     private static TrayApp? current;
@@ -55,6 +55,9 @@ internal sealed class TrayApp : IDisposable
     private long lostFocusByTray = long.MinValue / 2;
     private bool darkTaskbar;
     private bool menuOpen;
+    private UpdateDialog? updateDialog;
+    private int cleanupAttempts;
+    private bool exitRequested;
     private string? settingsError;
     private readonly bool configLoaded;
     private bool startedInGame;
@@ -76,11 +79,16 @@ internal sealed class TrayApp : IDisposable
         icon = new(host, TrayMessage);
     }
 
-    public static int Run()
+    public static int Run(bool afterSetup)
     {
         using var singleton = new Mutex(true, @"Local\Jige.Battery.Tray", out bool first);
         if (!first)
             return 0;
+        if (!afterSetup && Mutex.TryOpenExisting(@"Local\Jige.Battery.Setup", out var setup))
+        {
+            setup.Dispose();
+            return 0;
+        }
 
         PInvoke.SetProcessDpiAwarenessContext(new DPI_AWARENESS_CONTEXT(-4)); // PerMonitorV2
         var hr = PInvoke.CoInitializeEx(COINIT.COINIT_APARTMENTTHREADED);
@@ -107,6 +115,7 @@ internal sealed class TrayApp : IDisposable
 
     private unsafe int Loop()
     {
+        CleanupUpdates();
         if (configLoaded)
             UpdateAutostart(model.Settings.StartWithWindows);
         else if (!File.Exists(files.ConfigPath))
@@ -269,6 +278,11 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case 0x0113: // WM_TIMER
                 PInvoke.KillTimer(host, wParam.Value);
+                if (wParam.Value == UpdateCleanupTimer)
+                {
+                    CleanupUpdates();
+                    return true;
+                }
                 if (wParam.Value == CloseTimer && popup?.Closing == true)
                     DestroyPopup();
                 ProcessWork();
@@ -286,8 +300,13 @@ internal sealed class TrayApp : IDisposable
             case 0x0002: // WM_DESTROY
                 PInvoke.PostQuitMessage(0);
                 return true;
-            case 0x0010: // WM_CLOSE
-                PInvoke.PostQuitMessage(0);
+            case 0x0010: // WM_CLOSE，安装器可请求托盘正常退出。
+                exitRequested = true;
+                if (menuOpen)
+                    PInvoke.EndMenu();
+                updateDialog?.Close();
+                if (updateDialog is null)
+                    PInvoke.PostQuitMessage(0);
                 return true;
             default:
                 return false;
@@ -358,7 +377,7 @@ internal sealed class TrayApp : IDisposable
         if (textDue <= now)
             RenderPopup();
 
-        if (!game.BlockPopups && !menuOpen)
+        if (!game.BlockPopups && !menuOpen && updateDialog is null)
         {
             if (pendingUi is { } waiting)
             {
@@ -375,7 +394,7 @@ internal sealed class TrayApp : IDisposable
     private void ScheduleWork(DateTimeOffset now)
     {
         DateTimeOffset? due = schedule.Due(model.Settings, now, game.Game);
-        if (popup is null && !menuOpen && !schedule.Running && model.NextReminder is { } reminder)
+        if (popup is null && !menuOpen && updateDialog is null && !schedule.Running && model.NextReminder is { } reminder)
         {
             // 有待办提醒时，也处理没有伴随前台事件的系统状态变化。
             due = Earlier(due, game.BlockPopups
@@ -566,7 +585,7 @@ internal sealed class TrayApp : IDisposable
 
     private void ExecuteTrayAction(TrayAction action, Point point)
     {
-        if (menuOpen)
+        if (menuOpen || updateDialog is not null)
             return;
         if (action == TrayAction.Menu)
         {
@@ -769,6 +788,7 @@ internal sealed class TrayApp : IDisposable
             Add(menu, "开机自启", () => ChangeSettings(settings with { StartWithWindows = !settings.StartWithWindows }, true),
                 settings.StartWithWindows);
             Append(menu, "", flags: MENU_ITEM_FLAGS.MF_SEPARATOR);
+            Add(menu, "检查更新…", ShowUpdates);
             Add(menu, "诊断信息…", ShowDiagnostics);
             Add(menu, "编辑配置文件", OpenConfig);
             Add(menu, "重新加载配置", ReloadSettings);
@@ -785,7 +805,7 @@ internal sealed class TrayApp : IDisposable
             int selected = PInvoke.TrackPopupMenuEx(menu, 0x0100 | 0x0002, point.X, point.Y, host, (TPMPARAMS*)null).Value;
             PInvoke.PostMessage(host, 0, default, default);
             menuOpen = false;
-            if (commands.TryGetValue(selected, out var invoke))
+            if (!exitRequested && commands.TryGetValue(selected, out var invoke))
                 invoke();
         }
         finally
@@ -829,6 +849,49 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
+    private void ShowUpdates()
+    {
+        var dialog = new UpdateDialog(host, files.Updates, InGameForInstall);
+        updateDialog = dialog;
+        try
+        {
+            if (dialog.Run())
+                exitRequested = true;
+        }
+        finally
+        {
+            updateDialog = null;
+            if (exitRequested)
+                PInvoke.PostQuitMessage(0);
+        }
+    }
+
+    private bool InGameForInstall() =>
+        Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings.GameSilent).Game ||
+        Desktop.GameMode(foreground, model.Settings.GameSilent).Game;
+
+    private void CleanupUpdates()
+    {
+        if (updateDialog is not null)
+        {
+            ArmTimer(UpdateCleanupTimer, 5_000);
+            return;
+        }
+
+        try
+        {
+            files.Updates.Clear();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // 静默安装结束时旧安装器可能仍占用自身文件，等安装器退出后再清理。
+            if (++cleanupAttempts < 24)
+                ArmTimer(UpdateCleanupTimer, 5_000);
+            else
+                Desktop.Log($"更新目录清理失败：{error.Message}");
+        }
+    }
+
     private void ReloadSettings()
     {
         if (!files.TryLoadSettings(out var settings))
@@ -842,7 +905,7 @@ internal sealed class TrayApp : IDisposable
 
     /// <summary>
     /// 用户点击后才生成诊断报告：后台枚举与查询，写入本地文本文件，再用记事本完整打开，
-    /// 由用户检查后自行复制发送。几格不联网、不上传，内容说明见 PRIVACY.md。
+    /// 由用户检查后自行复制发送。诊断流程只在本机执行，内容说明见 PRIVACY.md。
     /// </summary>
     private void ShowDiagnostics()
     {
@@ -855,7 +918,7 @@ internal sealed class TrayApp : IDisposable
                 string report = await Jige.Core.Diagnostics.DiagnosticReport
                     .GenerateWindowsAsync(timeout.Token).ConfigureAwait(false);
                 const string notice =
-                    "# 这份诊断报告只保存在你的电脑上，几格不会联网或上传。\r\n" +
+                    "# 这份诊断报告只保存在你的电脑上，几格不会上传。\r\n" +
                     "# 请先完整检查内容，确认无误后再自行复制，发到 GitHub Issue 或发给开发者。\r\n" +
                     "# 收集了什么、没收集什么：https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md\r\n\r\n";
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);

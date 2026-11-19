@@ -48,7 +48,7 @@ jobs:
         run: |
           if (-not (Test-Path .\artifacts\tray-win-x64\LICENSE)) { throw "发布目录缺少许可证" }
           $env:JIGE_CHECK_LOG = Join-Path $env:RUNNER_TEMP 'jige-check.txt'
-          $tray = Start-Process -FilePath .\artifacts\tray-win-x64\Jige.Tray.exe -ArgumentList '--check' -Wait -PassThru
+          $tray = Start-Process -FilePath .\artifacts\tray-win-x64\Jige.exe -ArgumentList '--check' -Wait -PassThru
           if ($tray.ExitCode -ne 0 -and (Test-Path $env:JIGE_CHECK_LOG)) { Get-Content $env:JIGE_CHECK_LOG }
           exit $tray.ExitCode
       - name: 上传托盘
@@ -56,6 +56,6 @@ jobs:
         with:
           name: jige-tray-win-x64
           path: |
-            artifacts/tray-win-x64/Jige.Tray.exe
+            artifacts/tray-win-x64/Jige.exe
             artifacts/tray-win-x64/LICENSE
           if-no-files-found: error

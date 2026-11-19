@@ -53,6 +53,7 @@ internal sealed class TrayFiles(string folder)
     public string ConfigPath => Path.Combine(folder, "config.json");
     public string DiagnosticsPath => Path.Combine(folder, "diagnostics.txt");
     public string StatePath => Path.Combine(folder, "state.json");
+    public UpdateFiles Updates { get; } = new(Path.Combine(folder, "updates"));
 
     public bool TryLoadSettings(out TraySettings settings)
     {

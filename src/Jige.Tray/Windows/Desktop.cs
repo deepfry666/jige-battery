@@ -52,17 +52,20 @@ internal static unsafe class Desktop
 
     public static void SetAutostart(bool enabled)
     {
-        var exe = Environment.ProcessPath;
-        if (exe is null)
-            throw new InvalidOperationException("找不到当前程序路径");
-        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
-        if (enabled)
-        {
-            using var writable = key is null ? Registry.CurrentUser.CreateSubKey(RunKey) : null;
-            (key ?? writable!).SetValue(RunName, $"\"{exe}\"");
-        }
+        string installed = InstallPaths.InstalledExecutable(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        string exe = File.Exists(installed) ? installed :
+            Environment.ProcessPath ?? throw new InvalidOperationException("找不到当前程序路径");
+        string? desired = InstallPaths.AutostartCommand(enabled, exe);
+        using var key = Registry.CurrentUser.OpenSubKey(RunKey);
+        if (!InstallPaths.ShouldRepairAutostart(key?.GetValue(RunName), desired))
+            return;
+
+        using var writable = Registry.CurrentUser.CreateSubKey(RunKey);
+        if (desired is null)
+            writable.DeleteValue(RunName, throwOnMissingValue: false);
         else
-            key?.DeleteValue(RunName, throwOnMissingValue: false);
+            writable.SetValue(RunName, desired);
     }
 
     public static bool Animations()

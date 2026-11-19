@@ -224,9 +224,10 @@ internal sealed class PopupScene : IDisposable
             return;
         }
 
-        canvas.Text("几格", 16, 12, 50, 32, 14, colors.Ink, 600);
+        canvas.BrandIcon(15, 18, 20);
+        canvas.Text("几格", 40, 12, 38, 32, 14, colors.Ink, 600);
         var updated = Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
-        canvas.Text(updated, 68, 12, 184, 32, 12, colors.Muted, align: DWRITE_TEXT_ALIGNMENT_TRAILING);
+        canvas.Text(updated, 80, 12, 172, 32, 12, colors.Muted, align: DWRITE_TEXT_ALIGNMENT_TRAILING);
         foreach (var button in PanelButtons)
             ButtonBackground(canvas, Box(button));
         DrawSettings(canvas);

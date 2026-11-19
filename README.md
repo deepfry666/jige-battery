@@ -1,3 +1,5 @@
+<p align="center"><img src="design/brand/fourj-mark.svg" width="96" alt="几格 FourJ 家族标志"></p>
+
 # 几格 / Jige Battery
 
 几格是用托盘数字显示无线外设电量的 Windows 工具。当前阶段已经实现 win-x64 NativeAOT 托盘、设备面板和低电量提醒，并保留一次性命令行探针。下表设备均经 2.4 GHz USB 接收器查询，协议和托盘交互都待 Windows 实机验收。
@@ -30,20 +32,31 @@
 
 几格面向平时关闭官方驱动界面和后台进程、按需调节设置的玩家。官方软件正在运行时，可能抢占接收器。INZONE Hub 尤其会独占 H9 的串口，遇到占用时，两种入口都会结束该设备的本轮读取。托盘保留上次成功读数和时间。Windows 有时用同一个错误码表示独占和权限不足，探针可显示详细报错。
 
-## 使用托盘
+## 安装与使用
 
-在 Windows 11 x64 解压 `jige-tray-win-x64`，双击 `Jige.Tray.exe`。图标若折叠在任务栏的上箭头内，可拖到通知区域。悬停查看简表，单击打开设备面板，按 Esc 或点面板外收起。右键可换主设备、刷新、设为开机自启、查看诊断信息或退出。「诊断信息…」会在本机生成一份脱敏报告并用记事本完整打开，由你检查后自行复制发送，几格不会联网或上传，详见 [PRIVACY.md](PRIVACY.md)。面板中的设置和管理设备同样打开这个菜单。面板中的 `≈` 表示电压估算。
+1. 从 [最新正式 Release](https://github.com/deepfry666/jige-battery/releases/latest) 下载 `Jige-Setup-<版本>-x64.exe` 和同版 `SHA256SUMS.txt`。
+2. 在 PowerShell 运行 `Get-FileHash .\Jige-Setup-0.1.0-x64.exe -Algorithm SHA256`，将文件名替换为下载的版本，并和清单里的散列核对。
+3. 运行安装器，从开始菜单打开「几格」。几格安装到当前用户的 `%LOCALAPPDATA%\Programs\Jige`，无需管理员权限。在 Windows 的「已安装的应用」（或「应用和功能」）可查看版本和卸载。
+
+图标若折叠在任务栏的上箭头内，可拖到通知区域。悬停查看简表，单击打开设备面板，按 Esc 或点面板外收起。右键可换主设备、刷新、设为开机自启、检查更新、查看诊断信息或退出。「诊断信息…」会在本机生成一份脱敏报告并用记事本完整打开，由你检查后自行复制发送，诊断流程不会联网或上传，详见 [PRIVACY.md](PRIVACY.md)。面板中的设置和管理设备同样打开这个菜单。面板中的 `≈` 表示电压估算。
 
 默认每 60 秒在后台查询一次。Windows 报告忙碌、D3D 全屏或演示，或前台窗口铺满显示器时，查询间隔改为 5 分钟。游戏中提交的刷新请求会等到退出游戏，面板、菜单和低电量提醒也会推迟。面板收起后会释放窗口和图形资源。
 
 设备第一次读到电量等于或低于阈值时会进入提醒队列，默认 15%。每轮低电量提醒一次，“1 小时后提醒”可明确延后，本轮电量回升至阈值以上后才能触发新一轮提醒。
+
+### 检查更新
+
+右键选「检查更新…」后，几格才访问 GitHub 查询最新正式版。窗口显示检查结果及新版本摘要。选「下载并安装」后，几格再访问 Release 资源，核对安装包大小和 SHA-256，通过后退出并交给安装器静默升级，安装完成后自动重启。游戏中暂缓安装。选「查看 Release」会用默认浏览器打开该版本页面。几格没有后台更新检查或主动弹出的更新卡片。
+
+升级原地覆盖程序文件，保留配置和设备缓存。下载目录为 `%LOCALAPPDATA%\Jige\updates`，下载前清理旧文件，最多保留一个待装包。校验失败的文件会清除，托盘下次启动会再次清理目录。CI 独立构建可用于试用和检查版本，从 Release 安装的托盘支持直接升级。同一台电脑只需保留正式安装版。
 
 ### 配置与缓存
 
 - `%LOCALAPPDATA%\Jige\config.json` 保存 `primaryDeviceId`、`lowBatteryThreshold`、`pollSeconds`、`gamePollSeconds`、`gameSilent`、`startWithWindows` 和 `deviceAliases`。查询间隔以秒为单位，可设为 15–86400 秒，游戏间隔至少等于平时间隔。阈值范围为 0–100。
 - `gameSilent` 默认为 `true`，将 Windows 新系统首次使用静默期（`QUNS_QUIET_TIME`）也纳入弹窗推迟规则。游戏和演示状态始终启用静默和查询退避。
 - `%LOCALAPPDATA%\Jige\state.json` 保存设备最近一次成功读数、时间和提醒状态。设备别名按该文件中 `readings` 的键配置，例如 `"deviceAliases": { "ulx:接收器标识": "比赛鼠标" }`。
-- 右键选“编辑配置文件”，保存后选择“重新加载配置”。开机自启使用当前用户的 Windows Run 注册表项，程序移动后可从新位置启动，更新启用时登记的路径。
+- 右键选“编辑配置文件”，保存后选择“重新加载配置”。开机自启在当前用户的 Windows Run 注册表项中只使用一个名为 `Jige Battery` 的值。启用后启动时会纠正旧路径。
+- 卸载会移除程序、开始菜单快捷方式、开机自启值及整个 `%LOCALAPPDATA%\Jige` 数据目录。需要保留设置、缓存或诊断报告时，请在卸载前备份。
 
 ## 使用探针
 
@@ -75,24 +88,34 @@ dotnet build -p:EnableWindowsTargeting=true
 dotnet test
 ```
 
-Windows CI 会还原依赖、执行测试、发布两个 win-x64 NativeAOT 程序并检查原生启动。CI 将探针与托盘分别上传为 `jige-probe-win-x64` 和 `jige-tray-win-x64`。托盘启动检查会生成并释放三种尺寸的原生图标。本地 Windows 发布需要安装 Visual Studio 的 C++ 桌面开发工具链。
+Windows CI 会还原依赖、执行测试、发布两个 win-x64 NativeAOT 程序并检查原生启动。CI 将探针与托盘分别上传为 `jige-probe-win-x64` 和 `jige-tray-win-x64`。托盘启动检查会生成并释放三种尺寸的原生图标。托盘独立产物解压后运行 `Jige.exe`。本地 Windows 发布需要安装 Visual Studio 的 C++ 桌面开发工具链。
 
 ```powershell
 dotnet publish src/Jige.Probe/Jige.Probe.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/win-x64
 dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/tray-win-x64
 ```
 
+### 发布正式版
+
+先将通过 Windows 验收的提交合入发布分支，并在 [CHANGELOG.md](CHANGELOG.md) 添加 `## [0.1.0]` 这样的版本标题。首发用以下命令为已合入的版本添加标签并推送。
+
+```sh
+git tag -a v0.1.0 -m "几格 v0.1.0"
+git push origin v0.1.0
+```
+
+发布工作流从标签注入版本，运行测试和托盘自检，用 `installer/jige.iss` 编译安装器，最后上传安装器与 `SHA256SUMS.txt` 并以对应更新记录创建正式 Release。探针由普通 Windows CI 单独构建。安装器还可在 Windows 本地复现，先按上方命令发布托盘，再运行 `ISCC.exe /DAppVersion=0.1.0 installer\jige.iss`。重新生成品牌资源可运行 `python3 scripts/generate-icons.py`，需要 Node.js、npx 和 Pillow。
+
 ## Windows 实机验收待办
 
-macOS arm64 上使用 .NET 10 完成常规构建、win-x64 托管编译以及 57 项离线测试。Windows NativeAOT 发布、原生启动检查与以下实机项目仍待 Windows 环境验证。
+当前版本已通过 macOS 上的托管构建和离线测试。以下项目需要在 Windows 上验证。
 
-- 核对托盘面板与提醒卡片的 DWM 亚克力、圆角、浅深色和纯色回退。
-- 核对 100%、150%、200% DPI 图标清晰度、浅深色切换和混合 DPI 多屏定位。
-- 测试任务栏四个方向、Explorer 重启、单实例、失焦、Esc 和开机自启。
-- 检查展开、收起、逐行进场、充电呼吸的流畅度及系统关闭动画时的行为。
-- 验证独占全屏、无边框全屏和退出全屏时的查询退避、静默与提醒恢复。
-- 测量面板关闭、展开和长时间轮询的 CPU、内存和 GDI 句柄占用。
-- 验证两台外设的实际读数、休眠、拔插、占用和官方驱动共存。
+- 验证两个 NativeAOT 产物和托盘 `--check`，核对 exe 图标、文件版本和安装器资产。
+- 验证非管理员首次安装、开始菜单、已安装的应用记录、从运行中卸载及数据清除。
+- 从较早版本静默升级，验证退旧启新、单实例、配置保留、待装包清理及开机自启路径纠正。
+- 验证正式版检查、查看 Release、断网、取消、损坏下载与游戏中阻止安装。
+- 核对浅深色、DWM、DPI、混合多屏、任务栏位置、Explorer 重启、失焦和 Esc。
+- 验证全屏轮询退避及提醒恢复，检查资源占用、外设真实读数、休眠、拔插与占用。
 
 ## 致谢与参考
 

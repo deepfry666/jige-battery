@@ -5,6 +5,7 @@ using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Direct2D;
 using Windows.Win32.Graphics.Direct2D.Common;
 using Windows.Win32.Graphics.DirectWrite;
+using Windows.Win32.Graphics.Dxgi.Common;
 using Windows.Win32.System.Com;
 
 namespace Jige.Tray.Windows;
@@ -149,6 +150,20 @@ internal sealed unsafe class Canvas : IDisposable
     private readonly TextFactory fonts;
     private ID2D1SolidColorBrush* brush;
 
+    private static class Brand
+    {
+        internal const uint Size = 64;
+        internal static readonly byte[] Pixels = Load();
+
+        private static byte[] Load()
+        {
+            using var stream = typeof(Canvas).Assembly.GetManifestResourceStream("Jige.PanelIcon")!;
+            var pixels = new byte[Size * Size * 4];
+            stream.ReadExactly(pixels);
+            return pixels;
+        }
+    }
+
     public Canvas(ID2D1RenderTarget* target, TextFactory fonts)
     {
         this.target = target;
@@ -203,6 +218,34 @@ internal sealed unsafe class Canvas : IDisposable
             Line(ax, ay, bx, by, color, thickness);
             ax = bx;
             ay = by;
+        }
+    }
+
+    public void BrandIcon(float x, float y, float size)
+    {
+        ID2D1Bitmap* bitmap = null;
+        var format = new D2D1_BITMAP_PROPERTIES
+        {
+            pixelFormat = new()
+            {
+                format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED
+            },
+            dpiX = 96,
+            dpiY = 96
+        };
+        fixed (byte* pixels = Brand.Pixels)
+            target->CreateBitmap(new() { width = Brand.Size, height = Brand.Size },
+                pixels, Brand.Size * 4, in format, &bitmap);
+        try
+        {
+            var bounds = Graphics.Rect(x, y, size, size);
+            target->DrawBitmap(bitmap, &bounds, 1,
+                D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, null);
+        }
+        finally
+        {
+            Graphics.Release(bitmap);
         }
     }
 

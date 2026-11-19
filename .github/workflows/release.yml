@@ -1,0 +1,102 @@
+name: 发布几格正式版
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: 读取正式版版本与更新记录
+        id: version
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -cnotmatch '\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') {
+            throw "正式版标签必须使用 vX.Y.Z 格式"
+          }
+          $version = $tag.Substring(1)
+          $notes = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $heading = [regex]::Escape("## [$version]")
+          $section = [regex]::Match($notes, "(?ms)^$heading[^\S\r\n]*\r?\n(.*?)(?=^## |\z)")
+          if (-not $section.Success -or [string]::IsNullOrWhiteSpace($section.Groups[1].Value)) {
+            throw "CHANGELOG.md 缺少 $version 的更新记录"
+          }
+          $section.Groups[1].Value.Trim() | Set-Content release-notes.md -Encoding utf8
+          "number=$version" >> $env:GITHUB_OUTPUT
+      - name: 运行测试
+        shell: pwsh
+        env:
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: dotnet test Jige.slnx -c Release "-p:Version=$env:JIGE_VERSION"
+      - name: 发布 win-x64 NativeAOT 托盘
+        shell: pwsh
+        env:
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAot=true "-p:Version=$env:JIGE_VERSION" -o artifacts/tray-win-x64
+      - name: 验证托盘自检与文件版本
+        shell: pwsh
+        env:
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          $exe = Get-Item artifacts/tray-win-x64/Jige.exe
+          $expected = [version] "${env:JIGE_VERSION}.0"
+          $actual = [version] $exe.VersionInfo.FileVersion
+          if ($actual -ne $expected) { throw "Jige.exe 文件版本 $actual 与标签 $env:JIGE_VERSION 不一致" }
+          $env:JIGE_CHECK_LOG = Join-Path $env:RUNNER_TEMP 'jige-check.txt'
+          $tray = Start-Process -FilePath $exe.FullName -ArgumentList '--check' -Wait -PassThru
+          if ($tray.ExitCode -ne 0 -and (Test-Path $env:JIGE_CHECK_LOG)) { Get-Content $env:JIGE_CHECK_LOG }
+          exit $tray.ExitCode
+      - name: 编译 Inno Setup 安装包
+        shell: pwsh
+        env:
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          function Find-Compiler {
+            $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($command) { return $command.Source }
+            foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+              foreach ($major in @(7, 6)) {
+                $candidate = Join-Path $root "Inno Setup $major/ISCC.exe"
+                if (Test-Path $candidate) { return $candidate }
+              }
+            }
+          }
+
+          $compiler = Find-Compiler
+          if (-not $compiler) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $compiler = Find-Compiler
+          }
+          if (-not $compiler) { throw "找不到 Inno Setup 编译器 ISCC.exe" }
+          & $compiler "/DAppVersion=$env:JIGE_VERSION" 'installer/jige.iss'
+          exit $LASTEXITCODE
+      - name: 生成 SHA256SUMS.txt
+        shell: pwsh
+        env:
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          $name = "Jige-Setup-${env:JIGE_VERSION}-x64.exe"
+          $hash = (Get-FileHash "artifacts/release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
+      - name: 创建 GitHub 正式 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIGE_VERSION: ${{ steps.version.outputs.number }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME "artifacts/release/Jige-Setup-${env:JIGE_VERSION}-x64.exe" artifacts/release/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --verify-tag --latest --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
