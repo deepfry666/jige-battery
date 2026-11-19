@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>几格 图标方案</title>
+<style>
+:root{
+  color-scheme: light dark;
+  --font:"Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  --ink:#1b1b1b; --ink-2:#5e5e5e; --line:rgba(0,0,0,.09);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --ink:#f3f3f3; --ink-2:#bdbdbd; --line:rgba(255,255,255,.1); }
+}
+:root[data-theme="dark"]{ --ink:#f3f3f3; --ink-2:#bdbdbd; --line:rgba(255,255,255,.1); }
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent}
+body{font-family:var(--font);color:var(--ink);font-size:14px;line-height:1.5}
+.wrap{max-width:1100px;margin:0 auto;padding:4px 0 24px}
+.concept{border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.head b{font-size:16px}
+.head .k{font-size:12px;font-weight:600;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2)}
+.head p{margin:0;color:var(--ink-2);font-size:13px;flex-basis:100%}
+.row{display:flex;gap:12px;flex-wrap:wrap}
+.tile{flex:1 1 200px;border-radius:10px;padding:14px;display:flex;align-items:center;gap:16px;min-width:0}
+.tile.light{background:#f3f3f3;color:#1b1b1b}
+.tile.dark{background:#1c1c1c;color:#f3f3f3}
+.sizes{display:flex;align-items:flex-end;gap:12px}
+.sizes span{display:block;font-size:10px;text-align:center;opacity:.6;margin-top:2px}
+.mini{flex:1 1 260px;border-radius:10px;overflow:hidden;border:1px solid var(--line);display:flex;flex-direction:column}
+.bar{height:40px;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:12px}
+.bar.l{background:#eeeeee;color:#1b1b1b}
+.bar.d{background:#202020;color:#f0f0f0}
+.bar .sp{flex:1}
+.readme{display:flex;align-items:center;gap:10px;padding:10px 12px;font-weight:600;font-size:18px}
+.readme small{font-weight:400;font-size:12px;color:var(--ink-2)}
+svg{display:block}
+</style>
+</head>
+<body>
+<!-- 共享渐变与图形 -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="gBlue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#4aa3ff"/><stop offset="1" stop-color="#0057d9"/>
+    </linearGradient>
+    <linearGradient id="gNight" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a3550"/><stop offset="1" stop-color="#121826"/>
+    </linearGradient>
+    <linearGradient id="gCell" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#2ee59d"/><stop offset="1" stop-color="#7cf5c4"/>
+    </linearGradient>
+    <linearGradient id="gInk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5fb4ff"/><stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+
+    <!-- A 三格电池 -->
+    <symbol id="A" viewBox="0 0 256 256">
+      <rect x="20" y="64" width="190" height="128" rx="34" fill="url(#gBlue)"/>
+      <rect x="216" y="102" width="22" height="52" rx="11" fill="#0057d9"/>
+      <rect x="44" y="88" width="32" height="80" rx="9" fill="#fff"/>
+      <rect x="86" y="88" width="32" height="80" rx="9" fill="#fff"/>
+      <rect x="128" y="88" width="32" height="80" rx="9" fill="#fff"/>
+      <rect x="170" y="88" width="16" height="80" rx="8" fill="#fff" opacity=".32"/>
+    </symbol>
+
+    <!-- B 竖格方块 -->
+    <symbol id="B" viewBox="0 0 256 256">
+      <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#gNight)"/>
+      <rect x="108" y="44" width="40" height="12" rx="6" fill="#3d4a66"/>
+      <rect x="76" y="64" width="104" height="152" rx="22" fill="none" stroke="#3d4a66" stroke-width="10"/>
+      <rect x="92" y="164" width="72" height="36" rx="9" fill="url(#gCell)"/>
+      <rect x="92" y="122" width="72" height="36" rx="9" fill="url(#gCell)"/>
+      <rect x="92" y="80" width="72" height="36" rx="9" fill="#2ee59d" opacity=".22"/>
+    </symbol>
+
+    <!-- C 几字格：右腿换成三节电量格，避免框内加点变成"凡" -->
+    <symbol id="C" viewBox="0 0 256 256">
+      <rect x="16" y="16" width="224" height="224" rx="56" fill="url(#gBlue)"/>
+      <g transform="translate(-6 0)">
+        <path d="M80 204 C 90 168, 94 120, 94 70 H 160" fill="none" stroke="#fff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+        <rect x="147" y="90" width="26" height="25" rx="7" fill="#fff" opacity=".5"/>
+        <rect x="147" y="121" width="26" height="25" rx="7" fill="#fff"/>
+        <rect x="147" y="152" width="26" height="25" rx="7" fill="#fff"/>
+        <path d="M160 195 Q 160 207 172 207 H 196 V 191" fill="none" stroke="#fff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </symbol>
+
+    <!-- D 分段圆环 -->
+    <symbol id="D" viewBox="0 0 256 256">
+      <g fill="none" stroke-width="30" stroke-linecap="round" transform="rotate(-90 128 128)">
+        <!-- 四段，每段 72°，段间留空 18° -->
+        <circle cx="128" cy="128" r="88" stroke="url(#gInk)" stroke-dasharray="110.6 442.3" stroke-dashoffset="-13.8"/>
+        <circle cx="128" cy="128" r="88" stroke="url(#gInk)" stroke-dasharray="110.6 442.3" stroke-dashoffset="-152"/>
+        <circle cx="128" cy="128" r="88" stroke="url(#gInk)" stroke-dasharray="110.6 442.3" stroke-dashoffset="-290.3"/>
+        <circle cx="128" cy="128" r="88" stroke="#7f8ea8" opacity=".35" stroke-dasharray="110.6 442.3" stroke-dashoffset="-428.5"/>
+      </g>
+      <rect x="94" y="108" width="62" height="40" rx="11" fill="none" stroke="#2563eb" stroke-width="10"/>
+      <rect x="160" y="119" width="8" height="18" rx="4" fill="#2563eb"/>
+      <rect x="107" y="121" width="12" height="14" rx="3" fill="#2563eb"/>
+      <rect x="125" y="121" width="12" height="14" rx="3" fill="#2563eb"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="wrap" id="root"></div>
+
+<script>
+const concepts = [
+  {id:'A', name:'三格电池', key:'直白', desc:'一节电池，四格亮三格。最容易一眼认出是"电量工具"，小尺寸下也最稳。'},
+  {id:'B', name:'竖格方块', key:'夜色', desc:'深色圆角方块里立着一节电池，荧光绿的格子在亮。像一台小仪表，在浅色和深色桌面上都很醒目。'},
+  {id:'C', name:'几字格', key:'有名字', desc:'"几"字的右边一竖换成三节电量格，"几 + 格"合起来就是产品名。辨识度最高，最有中文味道。'},
+  {id:'D', name:'分段圆环', key:'极简', desc:'圆环切成四段，亮三段，中间一节小电池。最简洁，偏工具感，适合单色场景。'},
+];
+const use = (id, s) => `<svg width="${s}" height="${s}" viewBox="0 0 256 256"><use href="#${id}"/></svg>`;
+document.getElementById('root').innerHTML = concepts.map(c => `
+  <div class="concept">
+    <div class="head"><b>方案 ${c.id} · ${c.name}</b><span class="k">${c.key}</span><p>${c.desc}</p></div>
+    <div class="row">
+      <div class="tile light">${use(c.id,112)}
+        <div class="sizes">${[48,32,24,16].map(s=>`<div>${use(c.id,s)}<span>${s}</span></div>`).join('')}</div></div>
+      <div class="tile dark">${use(c.id,112)}
+        <div class="sizes">${[48,32,24,16].map(s=>`<div>${use(c.id,s)}<span>${s}</span></div>`).join('')}</div></div>
+      <div class="mini">
+        <div class="bar l">${use(c.id,20)}<span>几格</span><span class="sp"></span><span>任务栏 · 浅色</span></div>
+        <div class="bar d">${use(c.id,20)}<span>几格</span><span class="sp"></span><span>任务栏 · 深色</span></div>
+        <div class="readme">${use(c.id,36)}几格 <small>Jige Battery · GitHub 首页</small></div>
+      </div>
+    </div>
+  </div>`).join('');
+</script>
+</body>
+</html>
