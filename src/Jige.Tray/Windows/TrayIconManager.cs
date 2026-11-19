@@ -14,6 +14,21 @@ internal static class TrayIconPlan
 {
     public const string SingleKey = "__single__";
 
+    // Windows 11 按"程序路径 + 图标 uID"记住用户把哪个图标拖到了时钟旁。
+    // uID 必须由设备 ID 稳定推导，不能按启动顺序递增，否则重启后被提升的图标会换成别的设备。
+    public static uint StableId(string key)
+    {
+        if (string.Equals(key, SingleKey, StringComparison.OrdinalIgnoreCase))
+            return 1;
+        uint hash = 2166136261;
+        foreach (char c in key.ToUpperInvariant())
+        {
+            hash ^= c;
+            hash *= 16777619;
+        }
+        return 2 + hash % 65000;
+    }
+
     public static TrayIconSlot[] Build(TrayModel model, bool suppressTooltip)
     {
         var devices = model.TrayDevices();
@@ -38,7 +53,6 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
 {
     private readonly Dictionary<string, TrayIcon> icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, TrayIcon> byId = [];
-    private uint nextId = 1;
     private uint? lastActiveId;
 
     public bool AnyRegistered => icons.Values.Any(item => item.Registered);
@@ -108,11 +122,10 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         {
             if (!icons.TryGetValue(slot.Key, out var icon))
             {
-                uint id = nextId++;
-                if (nextId > ushort.MaxValue)
-                    nextId = 1;
+                // 冲突时顺延，极少发生；设备集合不变时每次启动得到相同 uID。
+                uint id = TrayIconPlan.StableId(slot.Key);
                 while (byId.ContainsKey(id))
-                    id = id >= ushort.MaxValue ? 1u : id + 1;
+                    id = id >= ushort.MaxValue ? 2u : id + 1;
                 icon = new TrayIcon(window, callback, id);
                 icons[slot.Key] = icon;
                 byId[id] = icon;

@@ -217,4 +217,14 @@ public sealed class TrayV022Tests
         Assert.True(snapshot.History.Count <= TrayModel.MaxHistoryDevices);
         Assert.All(snapshot.History.Values, entry => Assert.True(entry.RecentReadings.Length <= TrayModel.MaxHistorySamples));
     }
+
+    [Fact]
+    public void B5_TrayIconIdsAreStableAcrossRunsSoWindowsKeepsPromotedIcons()
+    {
+        Assert.Equal(1u, TrayIconPlan.StableId(TrayIconPlan.SingleKey));
+        uint mouse = TrayIconPlan.StableId("atk:373B:11D9:mouse");
+        Assert.Equal(mouse, TrayIconPlan.StableId("ATK:373b:11d9:MOUSE"));
+        Assert.InRange(mouse, 2u, 65001u);
+        Assert.NotEqual(mouse, TrayIconPlan.StableId("inzone-h9:054C:0E53"));
+    }
 }
