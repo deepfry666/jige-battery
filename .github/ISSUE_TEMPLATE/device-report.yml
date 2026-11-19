@@ -1,0 +1,36 @@
+name: 设备电量报告
+description: 反馈接收器识别、电量或充电状态的问题
+title: "[设备] "
+body:
+  - type: input
+    id: model
+    attributes:
+      label: 设备型号
+      description: 如知道接收器型号和固件版本，也可以一并填写。
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: 连接方式
+      options:
+        - 2.4 GHz USB 接收器
+        - 星闪 USB 接收器
+        - USB 有线
+        - 蓝牙
+        - 其他或不清楚
+    validations:
+      required: true
+  - type: textarea
+    id: readings
+    attributes:
+      label: 几格与官方驱动的读数
+      description: 填写两边的百分比和充电状态，以及是否一致。也可以写明设备未出现、查询报错或官方读数不可用。
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息
+      description: 在 Windows 运行 Jige.Probe.exe diag，先完整查看报告。愿意公开分享时再粘贴，提交前可再次检查内容。
+      render: text

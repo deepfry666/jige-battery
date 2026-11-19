@@ -43,12 +43,30 @@
 - inzone-h9-mac，MIT。提供 460800、完整的实机电量收发帧和 H9 充电字节的独立记录。[协议文档](https://github.com/jpcarranza94/inzone-h9-mac/blob/main/docs/protocol.md) · [许可证](https://github.com/jpcarranza94/inzone-h9-mac/blob/main/LICENSE)
 - HaloBattery，MIT。提供社区适配记录，测试替身中的拼接回复属于合成样本。[H9 适配记录 #278](https://github.com/HeyOkay/HaloBattery/pull/278) · [许可证](https://github.com/HeyOkay/HaloBattery/blob/main/LICENSE)
 
+## ATK 与游狼鼠标
+
+以下协议全部**未在实机验证**。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合一律跳过。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
+
+| 家族 | 白名单请求与传输 | 运行状态 | 证据等级 |
+| --- | --- | --- | --- |
+| Compx-OUT | `08 04 00×14 49`，17 字节 Output / Input；先挂读再写 | ATK `101A/1031/11D9/1278` 匹配 `FF02:0002` 时允许查询。游狼 `3854` 的精确 Usage 未核实，仍禁止查询 | `11D9`、`3854` 多方开源实现一致，其余单一来源 |
+| Compx-FEAT | 同一 17 字节 Compx 请求，SetFeature 发，Input 收 | ATK `111A` 在 `FF04` 的精确 Usage 未核实，仍禁止查询 | 单一来源 |
+| BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155` 匹配 `FF05:0001` 时允许查询。星闪接收器及分流未核实条目仅登记 | ZERO 无线路径多方开源实现一致 |
+| XVI-OLD | `00 00 02 8F 01 00×60`，65 字节 SetFeature / GetFeature | 启用 `33E4:2717` 的 `MI_02 / FFFF:0000`；其他候选仅登记 | 单一来源 |
+| XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 启用 `33E4:3617` 的 `MI_02 / FFFF:0000`；`3517` 存在两代协议证据，始终跳过 | `3617` 单一来源，`3517` 自动分流未核实 |
+
+Compx 回复核对 ID、命令、状态、地址、载荷长度及校验字节。校验为 `0x55` 减去前 16 字节之和后取低 8 位。只解析声明范围内的百分比及充电字节。游狼 Receiver RS 的公开回复尾字节与此校验式不一致，需复核完整原始帧后再考虑启用。离线测试使用 OpenMouse 的 X1 Pro Max 无线完整抓包核对 Compx 帧。Compx-FEAT 与其共享协议编解码，A9 Ultra 用同通道的真实版本回复核验校验和及电量解码对非电量命令的拒绝，独立电量抓包待补。[Compx-OUT 抓包](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/captures/atk-x1-pro-max/receiver.json) · [A9 Ultra 协议](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md#compx-a9-ultra-compatibility) · [A9 Ultra 版本回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/CompxTests.swift) · [Receiver RS 回复记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#6-the-compx-family)
+
+BitMouse 请求的校验为 ID 和校验槽之后的字节和取低 8 位。回复按登记布局检查帧头、命令和长度，拒绝 `FF` 和主动推送 `73`。实测有未回显请求序列和目标的回复。带前置校验的布局单独校验，当前无自动启用的该布局接收器。BitMouse 的 `83` 会忘记配对，发送白名单只允许 `07` 和 `0F` 的两条完整帧。[BitMouse 解码](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/bitmouse/index.ts) · [BitMouse 实机回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/ProtocolTests.swift)
+
+XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做有限次 GetFeature。两代分别校验自己的回复头和电量范围。旧协议可识别休眠状态，超时和乱码不会生成新读数。旧协议测试用实机验证实现公布的帧布局和合成百分比，新协议测试使用公开的 60% 实机记录。设备缓存可能返回旧回复，单次成功无法证明无线端仍在线。[XVI-OLD 实机验证实现](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/drivers/gwolves/xvi-hid.ts) · [XVI-NEW 实机记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#3-response-frame)
+
 ## Windows 传输约定
 
 `list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
 
-重叠读写取消时调用 `CancelIoEx`。同步的 SetupAPI、打开设备和 HID Feature 调用在工作线程上执行，外层有期限。驱动若迟迟未返回，调用者可先结束等待，工作线程在驱动返回后释放句柄和接收器锁。当前两个适配器只走 HID Output/Input 和串口，Feature 通道仍待后续适配器实机验证。[HID 报告 API 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/sending-hid-reports) · [串口句柄文档](https://learn.microsoft.com/en-us/windows/win32/devio/communications-resource-handles)
+重叠读写取消时调用 `CancelIoEx`。同步的 SetupAPI、打开设备和 HID Feature 调用在工作线程上执行，外层有期限。驱动若迟迟未返回，调用者可先结束等待，工作线程在驱动返回后释放句柄和接收器锁。HID Output/Input、Feature 和串口通道均待 Windows 实机验证。[HID 报告 API 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/sending-hid-reports) · [串口句柄文档](https://learn.microsoft.com/en-us/windows/win32/devio/communications-resource-handles)
 
 ## 本阶段验收
 
-macOS arm64 使用 .NET SDK 10.0.404 完成构建，0 个警告、0 个错误。`dotnet test` 通过 30 项测试，覆盖公开实机样本的离线解码和模拟传输的查询顺序、占用、取消及释放。探针入口已检查帮助、波特率参数、错误参数和 macOS 平台提示。win-x64 托管编译检查通过。Windows 设备访问、NativeAOT 发布产物和实际外设行为尚待 Windows 环境核验。
+macOS arm64 使用 .NET SDK 10.0.404 构建通过，0 个警告、0 个错误。48 项测试覆盖公开报文、完整请求白名单、模拟设备的查询和失败路径、诊断脱敏与报告回放。探针已检查帮助、`diag` 参数和 macOS 平台提示，win-x64 托管编译通过，本机 arm64 NativeAOT 程序可启动。Windows NativeAOT 无法在 macOS 上跨系统发布。Windows 11 实机上的枚举、驱动访问、设备休眠和唤醒、官方驱动共存及 Windows 发布产物仍待验收。

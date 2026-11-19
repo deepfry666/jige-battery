@@ -16,7 +16,12 @@ public sealed class AdapterRegistry
     public AdapterRegistry(params IDeviceAdapter[] adapters) => this.adapters = [.. adapters];
 
     public static AdapterRegistry CreateDefault(int sonyBaudRate = 115200) =>
-        new(new FinalmouseAdapter(), new SonyInzoneAdapter(sonyBaudRate));
+        new(new FinalmouseAdapter(), new SonyInzoneAdapter(sonyBaudRate), new MouseReceiverAdapter());
+
+    internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
+
+    public static bool IsKnownHidReceiver(ushort? vid, ushort? pid) =>
+        (vid == 0x361D && pid == 0x0100) || MouseReceiverCatalog.IsListed(vid, pid);
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory).Select(target => new DetectedDevice(adapter, target)));

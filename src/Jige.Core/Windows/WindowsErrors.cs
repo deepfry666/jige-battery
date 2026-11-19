@@ -20,6 +20,6 @@ internal static class WindowsErrors
             121 or 1460 => (ReadIssue.Timeout, "操作超时"),
             _ => (ReadIssue.IoError, new Win32Exception(code).Message)
         };
-        return new(issue, $"{operation}失败，{reason}（Win32 {code}）");
+        return new(issue, $"{operation}失败，{reason}（Win32 {code}）", nativeCode: code);
     }
 }

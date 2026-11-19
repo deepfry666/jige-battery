@@ -2,6 +2,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using Jige.Core;
 using Jige.Core.Adapters;
+using Jige.Core.Diagnostics;
 using Jige.Core.Windows;
 
 return await Probe.RunAsync(args);
@@ -13,6 +14,7 @@ internal static class Probe
     private const string Usage = """
         几格 / Jige Battery 探针
           Jige.Probe list
+          Jige.Probe diag
           Jige.Probe read [--raw] [--sony-baud 115200|460800|both]
         Sony 默认使用 115200。按 Ctrl+C 取消。
         """;
@@ -26,6 +28,7 @@ internal static class Probe
             return 0;
         }
 
+        bool diagnostic = args is ["diag"];
         if (!TryParse(args, out bool list, out bool raw, out int baud))
         {
             Console.Error.WriteLine(Usage);
@@ -47,6 +50,11 @@ internal static class Probe
         Console.CancelKeyPress += onCancel;
         try
         {
+            if (diagnostic)
+            {
+                Console.Write(await DiagnosticReport.GenerateWindowsAsync(cancel.Token));
+                return 0;
+            }
             return await RunWindowsAsync(list, raw, baud, cancel.Token);
         }
         catch (OperationCanceledException)
@@ -70,7 +78,7 @@ internal static class Probe
         list = args.Length > 0 && args[0] == "list";
         raw = false;
         baud = DefaultBaud;
-        if (list)
+        if (list || args is ["diag"])
             return args.Length == 1;
         if (args.Length == 0 || args[0] != "read")
             return false;
@@ -99,7 +107,7 @@ internal static class Probe
     private static async Task<int> RunWindowsAsync(bool list, bool raw, int baud, CancellationToken token)
     {
         var inventory = await WindowsDeviceDiscovery.ScanAsync(token,
-            list ? null : static (vid, pid) => vid == 0x361D && pid == 0x0100);
+            list ? null : AdapterRegistry.IsKnownHidReceiver);
         foreach (var warning in inventory.Warnings)
             Console.Error.WriteLine($"枚举警告  {warning}");
         if (list)
@@ -111,7 +119,7 @@ internal static class Probe
         var registry = AdapterRegistry.CreateDefault(baud == 0 ? DefaultBaud : baud);
         var devices = registry.Detect(inventory).ToArray();
         if (!devices.Any(device => device.Target.Endpoint is HidInterface))
-            Console.WriteLine("未找到 Finalmouse ULX 的 361D:0100 接收器。");
+            Console.WriteLine("未找到通过识别的 HID 电量接收器。");
         if (!devices.Any(device => device.Target.Endpoint is UsbSerialPort))
             Console.WriteLine("未找到 Sony INZONE H9 一代的 054C:0E53 MI_06 串口，请检查接收器的 PC 档。");
 

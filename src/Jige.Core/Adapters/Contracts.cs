@@ -31,8 +31,9 @@ public interface ISerialSession : IDisposable
     ValueTask<int> ReadAsync(byte[] buffer, CancellationToken cancellationToken);
 }
 
-public sealed class TransportException(ReadIssue issue, string message, Exception? innerException = null)
+public sealed class TransportException(ReadIssue issue, string message, Exception? innerException = null, int? nativeCode = null)
     : IOException(message, innerException)
 {
     public ReadIssue Issue { get; } = issue;
+    public int? NativeCode { get; } = nativeCode;
 }

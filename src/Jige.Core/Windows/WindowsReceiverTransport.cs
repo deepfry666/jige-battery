@@ -80,7 +80,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         {
             int status = Native.GetHidCaps(data, out var caps);
             if (status != 0x00110000)
-                throw new TransportException(ReadIssue.IoError, $"解析 HID 描述符失败（0x{status:X8}）");
+                throw new TransportException(ReadIssue.IoError, $"解析 HID 描述符失败（0x{status:X8}）", nativeCode: status);
             return caps;
         }
         finally
