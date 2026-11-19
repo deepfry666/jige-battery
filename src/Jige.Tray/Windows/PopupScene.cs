@@ -6,7 +6,7 @@ namespace Jige.Tray.Windows;
 
 internal enum PopupAction
 {
-    None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, PrimaryPicker, Threshold, PollInterval,
+    None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, PrimaryDevice, Threshold, PollInterval,
     GameSilent, Autostart, Diagnostics, Updates, Rename, Pin, Visibility
 }
 
@@ -61,13 +61,12 @@ internal sealed partial class PopupScene : IDisposable
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
     private ThumbMotion? gameMotion, autostartMotion;
-    private int hoverSetting = -1;
+    private SettingChoice[] primaryChoices = [];
     private string? error;
     private string? editorId;
     private DeviceStatus[] devices = [];
     private DeviceStatus? notice;
     private DeviceStatus? primary;
-    private HitBox? primaryPicker;
     private DateTimeOffset now;
     private bool reading;
     private int offset;
@@ -77,7 +76,7 @@ internal sealed partial class PopupScene : IDisposable
     private int hoverRow = -1;
 
     public PopupScene(Composition composition, Palette colors, bool animations, TrayModel model,
-        PanelPage page, string? noticeId, PanelSize size, int offset)
+        PanelPage page, string? noticeId, PanelSize size, int offset, int availableHeight)
     {
         this.composition = composition;
         this.colors = colors;
@@ -88,7 +87,9 @@ internal sealed partial class PopupScene : IDisposable
         this.offset = offset;
         Page = page;
         rows = new Composition.Layer[page == PanelPage.Main ? size.Rows : 0];
-        frame = new(composition, composition.Root, 0, 0, Width, height);
+        if (page == PanelPage.Settings)
+            Settings = new(availableHeight);
+        frame = new(composition, composition.Root, 0, 0, Width, SurfaceHeight);
         try
         {
             if (Page == PanelPage.Main)
@@ -108,6 +109,9 @@ internal sealed partial class PopupScene : IDisposable
     public PanelPage Page { get; }
     public PanelSize Size => size;
     public int Offset => offset;
+    public SettingsPanel? Settings { get; }
+    public float DisplayHeight => Settings?.Height ?? height;
+    public int SurfaceHeight => Settings?.SurfaceHeight ?? height;
     public Composition.Layer Visual => frame;
     private bool IsNotice => Page == PanelPage.Notice;
     private bool IsSubPage => Page is PanelPage.Settings or PanelPage.Devices;
@@ -132,7 +136,12 @@ internal sealed partial class PopupScene : IDisposable
     {
         devices = Page == PanelPage.Main ? model.PanelDevices() : model.OrderedDevices(primaryFirst: false);
         primary = IsSubPage ? model.PrimaryDevice : null;
-        primaryPicker = null;
+        if (Settings is { } settings)
+        {
+            primaryChoices = devices.Select(item => new SettingChoice(
+                new(PopupAction.PrimaryDevice, DeviceId: item.Device.Id), model.Name(item.Device))).ToArray();
+            settings.SetDeviceCount(primaryChoices.Length);
+        }
         error = settingsError;
         editorId = editing;
         notice = devices.FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
@@ -143,9 +152,7 @@ internal sealed partial class PopupScene : IDisposable
             pulse.Dispose();
         pulses.Clear();
 
-        DrawFrame();
-        if (Page == PanelPage.Settings)
-            DrawSwitchThumbs();
+        Redraw();
         for (int i = 0; i < rows.Length; i++)
             DrawRow(i);
         if (refresh is not null)
@@ -220,10 +227,9 @@ internal sealed partial class PopupScene : IDisposable
             y >= top && y < top + step * size.Rows)
             row = (int)((y - top) / step);
 
-        int setting = Page == PanelPage.Settings ? SettingRowAt(x, y) : -1;
         var nextPressed = down is true ? next : down is false || x < 0 ? default : pressed;
         bool buttonChanged = hover != next || pressed != nextPressed;
-        if (!buttonChanged && row == hoverRow && setting == hoverSetting)
+        if (!buttonChanged && row == hoverRow)
             return;
 
         int previousRow = hoverRow;
@@ -231,7 +237,6 @@ internal sealed partial class PopupScene : IDisposable
         hover = next;
         pressed = nextPressed;
         hoverRow = row;
-        hoverSetting = setting;
         if (buttonChanged || IsSubPage)
         {
             DrawFrame();
@@ -271,11 +276,20 @@ internal sealed partial class PopupScene : IDisposable
 
     public bool Scroll(int step)
     {
+        if (Settings is { } settings)
+            return settings.Scroll(step);
         int next = Math.Clamp(offset + step, 0, MaxOffset);
         if (next == offset)
             return false;
         offset = next;
         return true;
+    }
+
+    public void Redraw()
+    {
+        DrawFrame();
+        if (Settings is not null)
+            DrawSwitchThumbs();
     }
 
     private void DrawFrame() => frame.Draw(canvas =>

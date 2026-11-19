@@ -192,6 +192,12 @@ internal sealed unsafe class Canvas : IDisposable
         target->DrawRoundedRectangle(in rect, Brush(color), thickness, null);
     }
 
+    public void PushClip(PanelRect rect) =>
+        target->PushAxisAlignedClip(Graphics.Rect(rect.X, rect.Y, rect.Width, rect.Height),
+            D2D1_ANTIALIAS_MODE.D2D1_ANTIALIAS_MODE_ALIASED);
+
+    public void PopClip() => target->PopAxisAlignedClip();
+
     public void Line(float x1, float y1, float x2, float y2, Color color, float thickness = 1) =>
         target->DrawLine(Graphics.Point(x1, y1), Graphics.Point(x2, y2), Brush(color), thickness, null);
 

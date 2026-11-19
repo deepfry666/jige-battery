@@ -72,7 +72,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         work = new(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         screenBounds = new(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         iconBounds = new(anchor.left, anchor.top, anchor.right, anchor.bottom);
-        int minimumHeight = IsNotice ? PanelLayout.NoticeHeight : PanelLayout.SettingsHeight;
+        int minimumHeight = IsNotice ? PanelLayout.NoticeHeight : PanelLayout.SettingsHeight + SettingsPanel.OptionHeight;
         float newScale = Math.Min(Desktop.Dpi(screen) / 96f,
             Math.Min((work.Width - 16f) / PanelLayout.Width, work.Height / (minimumHeight + 24f)));
         if (newScale <= 0)
@@ -98,7 +98,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         else
             DrawScene();
 
-        Resize(transition is null ? size.Height : displayedHeight);
+        Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
         composition.Commit();
     }
 
@@ -110,8 +110,10 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             PanelPage.Devices => model.OrderedDevices().Length,
             _ => 0
         };
-        return PanelLayout.Size(target, count, (int)(work.Height / scale) - 24);
+        return PanelLayout.Size(target, count, AvailableHeight);
     }
+
+    private int AvailableHeight => (int)(work.Height / scale) - 24;
 
     public void Navigate(PanelPage target)
     {
@@ -121,7 +123,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         tracking = false;
         down = default;
         ReplaceScene(SizeOf(target));
-        Resize(transition is null ? scene!.Size.Height : displayedHeight);
+        Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
         composition!.Commit();
     }
 
@@ -136,10 +138,10 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             oldTransition.IncomingStart.Towards(Transition.Resting, progress);
         bool animate = shown && animations && previous is not null && !IsNotice &&
             (previous.Page != page || displayedHeight != size.Height);
-        bool reversing = animate && oldOutgoing?.Page == page && oldOutgoing.Size == size;
+        bool reversing = animate && page != PanelPage.Settings && oldOutgoing?.Page == page && oldOutgoing.Size == size;
 
         int offset = page == PanelPage.Main ? mainOffset : page == PanelPage.Devices ? deviceOffset : 0;
-        scene = reversing ? oldOutgoing! : new(composition!, colors, animations, model, page, NoticeId, size, offset);
+        scene = reversing ? oldOutgoing! : new(composition!, colors, animations, model, page, NoticeId, size, offset, AvailableHeight);
         if (!reversing)
             oldOutgoing?.Dispose();
         outgoing = previous;
@@ -177,13 +179,57 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
 
     public void Animate()
     {
-        if (transition is not { } motion)
+        long time = Environment.TickCount64;
+        if (transition is { } motion)
+        {
+            double progress = motion.Progress(time);
+            if (progress >= 1)
+                FinishTransition();
+            else
+                Resize(motion.FromHeight + (motion.ToHeight - motion.FromHeight) * (float)PanelLayout.Ease(progress));
+            composition!.Commit();
+        }
+        else if (scene?.Settings is { Animating: true } settings)
+        {
+            settings.Advance(time);
+            if (!settings.Animating)
+                PInvoke.KillTimer(Handle, AnimationTimer);
+            RedrawSettings();
+        }
+    }
+
+    public void ToggleSetting(SettingRow row)
+    {
+        if (transition is not null || scene?.Settings is null)
             return;
-        double progress = motion.Progress(Environment.TickCount64);
-        if (progress >= 1)
-            FinishTransition();
-        else
-            Resize(motion.FromHeight + (motion.ToHeight - motion.FromHeight) * (float)PanelLayout.Ease(progress));
+        scene.ToggleSetting(row, Environment.TickCount64);
+        UpdateSettingsAnimation();
+    }
+
+    public void SelectSetting(PopupTarget target, Action<TraySettings> save)
+    {
+        var active = scene;
+        if (transition is null &&
+            active?.Settings?.Select(target, model, Environment.TickCount64, animations, save) == true &&
+            scene == active && !Closing)
+            UpdateSettingsAnimation();
+    }
+
+    private void UpdateSettingsAnimation()
+    {
+        var settings = scene!.Settings!;
+        if (settings.Animating && PInvoke.SetTimer(Handle, AnimationTimer, 15, null) == 0)
+        {
+            settings.Advance(Environment.TickCount64 + PanelLayout.TransitionMilliseconds);
+            PInvoke.KillTimer(Handle, AnimationTimer);
+        }
+        RedrawSettings();
+    }
+
+    private void RedrawSettings()
+    {
+        scene!.Redraw();
+        Resize(scene.DisplayHeight);
         composition!.Commit();
     }
 
@@ -194,7 +240,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         outgoing = null;
         transition = null;
         scene!.Visual.ResetPageMotion();
-        Resize(scene.Size.Height);
+        Resize(scene.DisplayHeight);
     }
 
     private void Resize(float height)
@@ -208,7 +254,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         if (background is null || backgroundCapacity < height)
         {
             background?.Dispose();
-            backgroundCapacity = Math.Max((int)Math.Ceiling(height), scene!.Size.Height);
+            backgroundCapacity = Math.Max((int)Math.Ceiling(height), scene!.SurfaceHeight);
             background = new(composition!, backdrop, 0, 0, PanelLayout.Width, backgroundCapacity);
         }
         background.Draw(canvas =>
@@ -270,14 +316,6 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)
             deviceOffset = scene.Offset;
-    }
-
-    public RECT? ScreenRect(PopupTarget target)
-    {
-        if (scene?.TargetRect(target) is not { } box || position is not { } origin)
-            return null;
-        return new(origin.Left + Pixels(box.X), origin.Top + Pixels(box.Y), origin.Left + Pixels(box.X + box.Width),
-            origin.Top + Pixels(box.Y + box.Height));
     }
 
     public void StartEdit(PopupTarget target)
@@ -358,7 +396,14 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     public PopupTarget Key(nuint key)
     {
         if (key == 0x1B)
+        {
+            if (scene?.Settings?.Collapse(Environment.TickCount64, animations) == true)
+            {
+                UpdateSettingsAnimation();
+                return default;
+            }
             return page is PanelPage.Main or PanelPage.Notice ? PopupAction.Close : PopupAction.Back;
+        }
         if (transition is not null)
             return default;
         switch (key)

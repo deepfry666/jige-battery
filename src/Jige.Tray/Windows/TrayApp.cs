@@ -760,14 +760,11 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.Back:
                 active.Navigate(PanelPage.Main);
                 break;
-            case PopupAction.PrimaryPicker:
-                ShowPrimaryPicker(active, target);
+            case PopupAction.ExpandSetting:
+                active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.Threshold:
-                ChangeSettings(model.Settings with { LowBatteryThreshold = target.Value });
-                break;
-            case PopupAction.PollInterval:
-                ChangeSettings(model.Settings with { PollSeconds = target.Value });
+            case PopupAction.PrimaryDevice or PopupAction.Threshold or PopupAction.PollInterval:
+                active.SelectSetting(target, ChangeSettings);
                 break;
             case PopupAction.GameSilent:
                 ChangeSettings(model.Settings with { GameSilent = !model.Settings.GameSilent });
@@ -903,55 +900,6 @@ internal sealed class TrayApp : IDisposable
             int id = commands.Count + 1;
             commands.Add(id, run);
             Append(menu, label, (nuint)id);
-        }
-    }
-
-    private unsafe void ShowPrimaryPicker(PopupWindow active, PopupTarget target)
-    {
-        if (active.ScreenRect(target) is not { } bounds)
-            return;
-        var menu = PInvoke.CreatePopupMenu();
-        if (menu.IsNull)
-            return;
-
-        var devices = model.OrderedDevices(primaryFirst: false);
-        var settings = model.Settings;
-        int selected;
-        menuOpen = true;
-        try
-        {
-            Append(menu, "自动选择", 1, settings.PrimaryDeviceId is null ? MENU_ITEM_FLAGS.MF_CHECKED : 0);
-            for (int i = 0; i < devices.Length; i++)
-            {
-                var device = devices[i].Device;
-                Append(menu, Presentation.Shorten(model.Name(device), 60), (nuint)(i + 2),
-                    StringComparer.OrdinalIgnoreCase.Equals(device.Id, settings.PrimaryDeviceId)
-                        ? MENU_ITEM_FLAGS.MF_CHECKED : 0);
-            }
-            var exclude = new TPMPARAMS { cbSize = (uint)sizeof(TPMPARAMS), rcExclude = bounds };
-            // 将控件矩形作为避让区域，菜单优先从它的左下角展开。
-            selected = PInvoke.TrackPopupMenuEx(menu, 0x0100 | 0x0040, bounds.left, bounds.bottom,
-                active.Handle, &exclude).Value; // TPM_RETURNCMD | TPM_VERTICAL
-        }
-        finally
-        {
-            menuOpen = false;
-            PInvoke.DestroyMenu(menu);
-            PInvoke.PostMessage(active.Handle, 0, default, default);
-        }
-
-        if (exitRequested || popup != active)
-            return;
-        if (selected == 1)
-            ChangeSettings(model.Settings.WithPrimary(null));
-        else if (selected >= 2 && selected <= devices.Length + 1)
-            ChangeSettings(model.Settings.WithPrimary(devices[selected - 2].Device.Id));
-        if (popup == active && PInvoke.GetForegroundWindow() != active.Handle)
-        {
-            if (selected != 0)
-                PInvoke.SetForegroundWindow(active.Handle);
-            else
-                ClosePopup();
         }
     }
 

@@ -150,6 +150,8 @@ internal sealed unsafe class Composition : IDisposable
         public void Clip(float width, float height) =>
             Visual->SetClip(Graphics.Rect(0, 0, composition.Pixels(width), composition.Pixels(height)));
 
+        public void SetY(float y) => Visual->SetOffsetY(composition.Pixels(y));
+
         public void SetX(float x) => Visual->SetOffsetX(x * composition.Scale);
 
         public void AnimateX(float from, float to, int milliseconds)

@@ -8,14 +8,13 @@ internal readonly record struct PanelRect(float X, float Y, float Width, float H
 }
 
 internal readonly record struct PanelSize(int Height, int Rows);
-internal readonly record struct PanelOption(int Value, string Label, PanelRect Rect);
 
 internal static class PanelLayout
 {
     public const int Width = 344;
     public const int NoticeHeight = 144;
     public const int MainRowHeight = 48;
-    public const int SettingsHeight = 429;
+    public const int SettingsHeight = 323;
     public const int DeviceRowsTop = 99;
     public const float DeviceRowHeight = 54.25f;
     public const int DeviceBaseHeight = 153;
@@ -24,26 +23,6 @@ internal static class PanelLayout
     public const int SlideDistance = 56;
     public const double EaseX1 = .1, EaseY1 = .9, EaseX2 = .2, EaseY2 = 1;
     public static readonly PanelRect Back = new(9, 11, 32, 32);
-    public static readonly PanelRect GameSilent = new(287, 224, 40, 20);
-    public static readonly PanelRect Autostart = new(287, 349, 40, 20);
-    public static readonly PanelRect ThresholdTrack = new(153.5f, 172, 173.5f, 28);
-    public static readonly PanelRect PollTrack = new(175, 301, 152, 28);
-    public static ReadOnlySpan<PanelOption> ThresholdOptions => ThresholdChoices;
-    public static ReadOnlySpan<PanelOption> PollOptions => PollChoices;
-
-    private static readonly PanelOption[] ThresholdChoices =
-    [
-        new(10, "10%", new(155.5f, 174, 39.75f, 24)),
-        new(15, "15%", new(197.25f, 174, 39.75f, 24)),
-        new(20, "20%", new(239, 174, 42, 24)),
-        new(30, "30%", new(283, 174, 42, 24))
-    ];
-    private static readonly PanelOption[] PollChoices =
-    [
-        new(30, "30 秒", new(177, 303, 46.4f, 24)),
-        new(60, "60 秒", new(225.4f, 303, 46.4f, 24)),
-        new(120, "2 分钟", new(273.8f, 303, 51.2f, 24))
-    ];
 
     public static PanelSize Size(PanelPage page, int count, int availableHeight)
     {
