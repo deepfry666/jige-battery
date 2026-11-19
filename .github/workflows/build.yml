@@ -1,4 +1,4 @@
-name: 构建 Windows 探针
+name: 构建 Windows 探针和托盘
 
 on:
   push:
@@ -39,4 +39,21 @@ jobs:
           path: |
             artifacts/win-x64/Jige.Probe.exe
             artifacts/win-x64/LICENSE
+          if-no-files-found: error
+
+      - name: 发布 win-x64 NativeAOT 托盘
+        run: dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/tray-win-x64
+      - name: 检查原生托盘程序启动和图标生成
+        shell: pwsh
+        run: |
+          if (-not (Test-Path .\artifacts\tray-win-x64\LICENSE)) { throw "发布目录缺少许可证" }
+          $tray = Start-Process -FilePath .\artifacts\tray-win-x64\Jige.Tray.exe -ArgumentList '--check' -Wait -PassThru
+          exit $tray.ExitCode
+      - name: 上传托盘
+        uses: actions/upload-artifact@v7
+        with:
+          name: jige-tray-win-x64
+          path: |
+            artifacts/tray-win-x64/Jige.Tray.exe
+            artifacts/tray-win-x64/LICENSE
           if-no-files-found: error
