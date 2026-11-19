@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Jige.Core/Jige.Core.csproj" />
+    <None Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

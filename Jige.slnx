@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="src/Jige.Core/Jige.Core.csproj" />
+  <Project Path="src/Jige.Probe/Jige.Probe.csproj" />
+  <Project Path="tests/Jige.Core.Tests/Jige.Core.Tests.csproj" />
+</Solution>

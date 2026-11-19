@@ -1,0 +1,35 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "marquee",
+        "value": "*",
+        "files": [
+          "design/ui-claude.html"
+        ],
+        "createdAt": "2026-11-19T10:57:11.770Z",
+        "reason": "Claude: charging-progress shimmer on the battery bar, domain-appropriate status motion, only while charging, disabled under prefers-reduced-motion"
+      },
+      {
+        "rule": "radial-halo",
+        "value": "*",
+        "files": [
+          "design/ui-claude.html"
+        ],
+        "createdAt": "2026-11-19T10:57:11.795Z",
+        "reason": "Claude: the gradient is a mock Windows desktop wallpaper inside the prototype stage, a demo fixture, not page decoration"
+      },
+      {
+        "rule": "low-contrast",
+        "value": "*",
+        "files": [
+          "design/ui-claude.html"
+        ],
+        "createdAt": "2026-11-19T10:57:16.368Z",
+        "reason": "Claude: all three hits are dark-theme tokens (#f3f3f3/#c5c5c5/#a0a0a0) measured against an assumed white page; the page switches color-scheme to dark with those tokens and they sit on dark surfaces, checked in dark-mode preview"
+      }
+    ]
+  }
+}

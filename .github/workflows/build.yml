@@ -1,0 +1,42 @@
+name: 构建 Windows 探针
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: 还原依赖
+        run: dotnet restore Jige.slnx
+      - name: 运行测试
+        run: dotnet test Jige.slnx -c Release --no-restore
+      - name: 发布 win-x64 NativeAOT 探针
+        run: dotnet publish src/Jige.Probe/Jige.Probe.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/win-x64
+      - name: 检查原生程序启动及枚举
+        shell: pwsh
+        run: |
+          if (-not (Test-Path .\artifacts\win-x64\LICENSE)) { throw "发布目录缺少许可证" }
+          & .\artifacts\win-x64\Jige.Probe.exe --help
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & .\artifacts\win-x64\Jige.Probe.exe list
+          exit $LASTEXITCODE
+      - name: 上传探针
+        uses: actions/upload-artifact@v7
+        with:
+          name: jige-probe-win-x64
+          path: |
+            artifacts/win-x64/Jige.Probe.exe
+            artifacts/win-x64/LICENSE
+          if-no-files-found: error

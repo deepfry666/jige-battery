@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>几格 交互原型</title>
+<style>
+:root{
+  color-scheme: light;
+  --font: "Segoe UI Variable Text","Segoe UI","Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+  --font-num: "Segoe UI Variable Display","Segoe UI","SF Pro Display",system-ui,sans-serif;
+
+  --ink:#1b1b1b; --ink-2:#5e5e5e; --ink-3:#6b6b6b;
+  --card:#ffffff; --card-stroke:rgba(0,0,0,.08);
+  --chip:#f0f0f0;
+
+  --wall-a:#9fb8e8; --wall-b:#e9d5f2; --wall-c:#f6e7d8;
+  --taskbar:rgba(243,243,243,.86); --taskbar-stroke:rgba(0,0,0,.06);
+  --flyout:rgba(249,249,249,.80); --flyout-solid:#f9f9f9; --flyout-stroke:rgba(0,0,0,.10);
+  --layer:rgba(255,255,255,.62); --layer-stroke:rgba(0,0,0,.05);
+  --hover:rgba(0,0,0,.04); --press:rgba(0,0,0,.07);
+  --shadow:0 0 0 1px rgba(0,0,0,.04),0 16px 40px rgba(0,0,0,.16),0 4px 10px rgba(0,0,0,.06);
+
+  --accent:#005fb8; --accent-soft:rgba(0,95,184,.12);
+  --ok:#005fb8; --warn:#9d5d00; --low:#c42b1c; --charge:#0f7b0f; --idle:#8a8a8a;
+  --cell-empty:rgba(0,0,0,.09);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --ink:#f3f3f3; --ink-2:#c5c5c5; --ink-3:#a0a0a0;
+    --card:#262626; --card-stroke:rgba(255,255,255,.08); --chip:#333;
+    --wall-a:#1d2b4f; --wall-b:#3a2346; --wall-c:#4a3324;
+    --taskbar:rgba(32,32,32,.86); --taskbar-stroke:rgba(255,255,255,.07);
+    --flyout:rgba(40,40,40,.78); --flyout-solid:#2b2b2b; --flyout-stroke:rgba(255,255,255,.09);
+    --layer:rgba(255,255,255,.05); --layer-stroke:rgba(255,255,255,.06);
+    --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.09);
+    --shadow:0 0 0 1px rgba(0,0,0,.5),0 16px 40px rgba(0,0,0,.5),0 4px 10px rgba(0,0,0,.3);
+    --accent:#60cdff; --accent-soft:rgba(96,205,255,.14);
+    --ok:#60cdff; --warn:#fce100; --low:#ff99a4; --charge:#6ccb5f; --idle:#8f8f8f;
+    --cell-empty:rgba(255,255,255,.12);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ink:#f3f3f3; --ink-2:#c5c5c5; --ink-3:#a0a0a0;
+  --card:#262626; --card-stroke:rgba(255,255,255,.08); --chip:#333;
+  --wall-a:#1d2b4f; --wall-b:#3a2346; --wall-c:#4a3324;
+  --taskbar:rgba(32,32,32,.86); --taskbar-stroke:rgba(255,255,255,.07);
+  --flyout:rgba(40,40,40,.78); --flyout-solid:#2b2b2b; --flyout-stroke:rgba(255,255,255,.09);
+  --layer:rgba(255,255,255,.05); --layer-stroke:rgba(255,255,255,.06);
+  --hover:rgba(255,255,255,.06); --press:rgba(255,255,255,.09);
+  --shadow:0 0 0 1px rgba(0,0,0,.5),0 16px 40px rgba(0,0,0,.5),0 4px 10px rgba(0,0,0,.3);
+  --accent:#60cdff; --accent-soft:rgba(96,205,255,.14);
+  --ok:#60cdff; --warn:#fce100; --low:#ff99a4; --charge:#6ccb5f; --idle:#8f8f8f;
+  --cell-empty:rgba(255,255,255,.12);
+}
+
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent}
+body{font-family:var(--font);color:var(--ink);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1100px;margin:0 auto;padding:8px 0 32px}
+h1{font-size:22px;font-weight:600;margin:0}
+h2{font-size:16px;font-weight:600;margin:0 0 4px}
+p.lead{margin:2px 0 0;color:var(--ink-2)}
+.note{color:var(--ink-2);font-size:13px;margin:0 0 14px}
+section{margin-top:28px}
+
+/* 顶部 */
+.top{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;justify-content:space-between}
+.brand{display:flex;gap:12px;align-items:center}
+.seg{display:inline-flex;background:var(--chip);border-radius:8px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;color:var(--ink-2);font:inherit;font-size:13px;padding:5px 12px;border-radius:6px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.ctl-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.ctl-label{font-size:12px;color:var(--ink-3)}
+
+/* 舞台：模拟桌面 */
+.stage{position:relative;height:600px;border-radius:12px;overflow:hidden;
+  background:
+    radial-gradient(120% 90% at 85% 110%, var(--wall-c), transparent 60%),
+    radial-gradient(90% 80% at 10% 10%, var(--wall-a), transparent 65%),
+    radial-gradient(80% 90% at 70% 20%, var(--wall-b), transparent 70%),
+    var(--wall-a);
+  border:1px solid var(--card-stroke); user-select:none}
+.taskbar{position:absolute;left:0;right:0;bottom:0;height:48px;background:var(--taskbar);
+  backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);
+  border-top:1px solid var(--taskbar-stroke);display:flex;align-items:center;justify-content:space-between;padding:0 8px}
+.tb-center{position:absolute;left:50%;transform:translateX(-50%);display:flex;gap:6px}
+.tb-app{width:40px;height:40px;border-radius:6px;display:grid;place-items:center}
+.tb-app i{display:block;width:22px;height:22px;border-radius:5px;background:var(--ink-3);opacity:.35}
+.tb-app:first-child i{background:var(--accent);opacity:.9;border-radius:3px;width:20px;height:20px;
+  clip-path:polygon(0 0,46% 0,46% 46%,0 46%,0 54%,46% 54%,46% 100%,0 100%,0 0,54% 0,100% 0,100% 46%,54% 46%,54% 54%,100% 54%,100% 100%,54% 100%)}
+.tray{margin-left:auto;display:flex;align-items:center;gap:2px;height:100%}
+.tray-btn{height:40px;min-width:32px;padding:0 6px;border-radius:6px;display:grid;place-items:center;color:var(--ink);cursor:default}
+.tray-btn.hit{cursor:pointer}
+.tray-btn.hit:hover{background:var(--hover)}
+.tray-btn.hit:active{background:var(--press)}
+.tray-btn.on{background:var(--hover)}
+.sys{display:flex;gap:10px;align-items:center;padding:0 8px;height:40px;border-radius:6px}
+.clock{text-align:right;font-size:12px;line-height:16px;padding:0 8px}
+
+/* 托盘提示 */
+.tip{position:absolute;bottom:58px;right:120px;background:var(--flyout-solid);color:var(--ink);
+  border:1px solid var(--flyout-stroke);border-radius:6px;padding:7px 10px;font-size:12px;line-height:18px;
+  box-shadow:0 4px 12px rgba(0,0,0,.14);opacity:0;transform:translateY(4px);pointer-events:none;
+  transition:opacity .12s ease, transform .12s ease;white-space:nowrap}
+.tip.show{opacity:1;transform:none;transition-delay:.35s}
+.tip b{font-weight:600}
+
+/* 弹出面板 */
+.flyout{position:absolute;right:12px;bottom:60px;width:344px;max-width:calc(100% - 24px);
+  background:var(--flyout);backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);
+  border:1px solid var(--flyout-stroke);border-radius:8px;box-shadow:var(--shadow);
+  opacity:0;transform:translateY(16px);pointer-events:none;
+  transition:opacity .12s cubic-bezier(.7,0,1,.5), transform .12s cubic-bezier(.7,0,1,.5)}
+.flyout.open{opacity:1;transform:none;pointer-events:auto;
+  transition:opacity .16s linear, transform .25s cubic-bezier(.1,.9,.2,1)}
+.fo-head{display:flex;align-items:center;gap:8px;padding:12px 12px 8px 16px}
+.fo-title{font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
+.fo-time{font-size:12px;color:var(--ink-3);margin-left:auto}
+.icon-btn{width:32px;height:32px;border-radius:5px;border:0;background:transparent;color:var(--ink-2);display:grid;place-items:center;cursor:pointer}
+.icon-btn:hover{background:var(--hover);color:var(--ink)}
+.icon-btn:active{background:var(--press)}
+.icon-btn.spin svg{animation:spin .6s cubic-bezier(.4,0,.2,1)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.hero{margin:0 8px;padding:14px 14px 14px;border-radius:7px;background:var(--layer);border:1px solid var(--layer-stroke)}
+.hero-top{display:flex;align-items:center;gap:10px}
+.dev-ico{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);flex:none}
+.hero .name{font-weight:600}
+.tag{font-size:10.5px;line-height:16px;padding:0 5px;border-radius:4px;background:var(--chip);color:var(--ink-2);font-weight:600;letter-spacing:.02em}
+.pin{color:var(--accent);display:inline-flex;align-items:center;gap:3px;font-size:11.5px}
+.hero-mid{display:flex;align-items:flex-end;justify-content:space-between;margin-top:10px;gap:12px}
+.big{font-family:var(--font-num);font-size:46px;line-height:44px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.big small{font-size:18px;font-weight:600;margin-left:2px;color:var(--ink-2);letter-spacing:0}
+.big .approx{font-size:24px;font-weight:500;color:var(--ink-3);margin-right:2px;vertical-align:8px}
+.sub{font-size:12px;color:var(--ink-2);margin-top:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;display:inline-block}
+
+.list{padding:6px 4px 4px}
+.row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:6px;cursor:default;
+  opacity:0;transform:translateY(6px)}
+.flyout.open .row{opacity:1;transform:none;transition:opacity .2s ease, transform .3s cubic-bezier(.1,.9,.2,1), background .1s}
+.row:hover{background:var(--hover)}
+.row .dev-ico{width:32px;height:32px;border-radius:7px;background:var(--chip);color:var(--ink-2)}
+.row .meta{flex:1;min-width:0}
+.row .nm{font-size:13.5px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .st{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .num{font-family:var(--font-num);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;min-width:44px}
+.row .num small{font-size:12px;color:var(--ink-3);font-weight:600;margin-left:1px}
+.row.dim .num,.row.dim .nm{color:var(--ink-3)}
+.fo-foot{display:flex;align-items:center;justify-content:space-between;padding:8px 12px 10px 16px;border-top:1px solid var(--flyout-stroke);margin-top:4px;font-size:12px;color:var(--ink-3)}
+.link{color:var(--accent);cursor:pointer}
+
+/* 电量指示：格子 / 细条 / 圆环 */
+.cells{display:flex;gap:3px}
+.cells i{display:block;border-radius:2px;background:var(--cell-empty)}
+.hero .cells i{width:13px;height:22px;border-radius:3px}
+.row .cells i{width:5px;height:14px;border-radius:1.5px}
+.cells i.f{background:var(--c)}
+.cells i.next{animation:breathe 1.6s ease-in-out infinite;background:var(--c)}
+@keyframes breathe{0%,100%{opacity:.15}50%{opacity:.85}}
+.bar{height:4px;border-radius:2px;background:var(--cell-empty);overflow:hidden;position:relative}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:2px;background:var(--c);transition:width .5s cubic-bezier(.1,.9,.2,1)}
+.bar.charging i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);animation:sweep 1.8s linear infinite}
+@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.hero .bar{width:150px;height:6px;border-radius:3px}
+.row .bar{width:40px}
+.ring{display:block}
+.ring .trk{stroke:var(--cell-empty)}
+.ring .val{stroke:var(--c);transition:stroke-dashoffset .5s cubic-bezier(.1,.9,.2,1)}
+.ring.charging .val{animation:ringpulse 1.6s ease-in-out infinite}
+@keyframes ringpulse{50%{opacity:.55}}
+
+/* 游戏中遮罩 */
+.game{position:absolute;inset:0;background:#0b0d12;color:#cfd6e4;display:grid;place-items:center;opacity:0;pointer-events:none;transition:opacity .3s}
+.game.on{opacity:1;pointer-events:auto}
+.game .g-in{text-align:center}
+.game .g-in b{display:block;font-size:20px;letter-spacing:.2em;color:#fff;margin-bottom:6px}
+.game .g-in span{font-size:12px;color:#8892a6}
+.cross{position:absolute;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%)}
+.cross::before,.cross::after{content:"";position:absolute;background:#7cffb2}
+.cross::before{left:8px;top:0;width:2px;height:18px}.cross::after{top:8px;left:0;height:2px;width:18px}
+
+/* 低电量提醒 */
+.toast{position:absolute;right:12px;bottom:60px;width:344px;max-width:calc(100% - 24px);background:var(--flyout);
+  backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);
+  border:1px solid var(--flyout-stroke);border-radius:8px;box-shadow:var(--shadow);padding:12px 14px 14px;
+  transform:translateX(calc(100% + 24px));transition:transform .35s cubic-bezier(.1,.9,.2,1)}
+.toast.show{transform:none}
+.t-app{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2)}
+.t-app .x{margin-left:auto}
+.t-body{display:flex;gap:12px;margin-top:10px;align-items:center}
+.t-body .dev-ico{background:color-mix(in srgb,var(--low) 14%,transparent);color:var(--low)}
+.t-body b{display:block;font-weight:600;font-size:14px}
+.t-body span{font-size:13px;color:var(--ink-2)}
+.t-act{display:flex;gap:8px;margin-top:12px}
+.btn{flex:1;border:1px solid var(--card-stroke);background:var(--card);color:var(--ink);font:inherit;font-size:13px;padding:6px 10px;border-radius:5px;cursor:pointer}
+.btn:hover{filter:brightness(.97)}
+.btn.pri{background:var(--accent);border-color:transparent;color:#fff}
+:root[data-theme="dark"] .btn.pri{color:#000}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.pri{color:#000}}
+
+.queued{position:absolute;left:12px;top:12px;font-size:12px;padding:6px 10px;border-radius:6px;background:rgba(0,0,0,.55);color:#fff;opacity:0;transition:opacity .2s}
+.queued.on{opacity:1}
+
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chipbtn{border:1px solid var(--card-stroke);background:var(--card);color:var(--ink);font:inherit;font-size:13px;padding:6px 12px;border-radius:999px;cursor:pointer}
+.chipbtn[aria-pressed="true"]{background:var(--accent);color:#fff;border-color:transparent}
+:root[data-theme="dark"] .chipbtn[aria-pressed="true"]{color:#000}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .chipbtn[aria-pressed="true"]{color:#000}}
+
+/* 托盘图标规范 */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.cardx{background:var(--card);border:1px solid var(--card-stroke);border-radius:10px;padding:14px}
+.icons{display:flex;align-items:flex-end;gap:10px;margin:6px 0 10px}
+.icons .z{background:var(--taskbar);border-radius:4px;display:grid;place-items:center;padding:4px}
+.cap{font-size:12px;color:var(--ink-2)}
+.cap b{color:var(--ink);font-weight:600}
+.spec{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px}
+.spec .cardx h3{font-size:13px;margin:0 0 6px;font-weight:600}
+.spec ul{margin:0;padding-left:18px;color:var(--ink-2);font-size:13px}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.sw{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-2)}
+.sw i{width:14px;height:14px;border-radius:4px;display:block;background:var(--c)}
+
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition-duration:.01ms!important}
+}
+@media (max-width:560px){
+  .stage{height:560px}
+  .tb-center{display:none}
+  .clock{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div class="brand">
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+        <rect x="3" y="9" width="30" height="22" rx="5" fill="none" stroke="var(--ink)" stroke-width="2.2"/>
+        <rect x="34.5" y="16" width="3" height="8" rx="1.5" fill="var(--ink)"/>
+        <rect x="7" y="13" width="6" height="14" rx="1.5" fill="var(--accent)"/>
+        <rect x="15" y="13" width="6" height="14" rx="1.5" fill="var(--accent)"/>
+        <rect x="23" y="13" width="6" height="14" rx="1.5" fill="var(--accent)" opacity=".28"/>
+      </svg>
+      <div>
+        <h1>几格 · 交互原型</h1>
+        <p class="lead">点任务栏右下角的数字展开面板，悬停查看提示。下方按钮可以模拟各种状态。</p>
+      </div>
+    </div>
+    <div class="ctl-row">
+      <span class="ctl-label">外观</span>
+      <div class="seg" id="themeSeg">
+        <button data-v="auto" aria-pressed="true">跟随系统</button>
+        <button data-v="light" aria-pressed="false">浅色</button>
+        <button data-v="dark" aria-pressed="false">深色</button>
+      </div>
+      <span class="ctl-label">电量样式</span>
+      <div class="seg" id="styleSeg">
+        <button data-v="cells" aria-pressed="true">格子</button>
+        <button data-v="bar" aria-pressed="false">细条</button>
+        <button data-v="ring" aria-pressed="false">圆环</button>
+      </div>
+    </div>
+  </div>
+
+  <section style="margin-top:18px">
+    <div class="stage" id="stage">
+      <div class="queued" id="queued">游戏中：低电量提醒已推迟，退出全屏后再提醒</div>
+
+      <div class="flyout open" id="flyout" role="dialog" aria-label="几格">
+        <div class="fo-head">
+          <div class="fo-title">几格</div>
+          <div class="fo-time" id="foTime">刚刚更新</div>
+          <button class="icon-btn" id="refresh" title="立即刷新" aria-label="立即刷新">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M12.2 1.8v2.6H9.6"/></svg>
+          </button>
+          <button class="icon-btn" title="设置" aria-label="设置">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+          </button>
+        </div>
+        <div id="hero"></div>
+        <div class="list" id="list"></div>
+        <div class="fo-foot"><span>每 60 秒查询 · 游戏中 5 分钟</span><span class="link">管理设备</span></div>
+      </div>
+
+      <div class="toast" id="toast" role="status">
+        <div class="t-app">
+          <svg width="16" height="16" viewBox="0 0 40 40"><rect x="3" y="9" width="30" height="22" rx="5" fill="none" stroke="currentColor" stroke-width="3"/><rect x="8" y="14" width="6" height="12" rx="1.5" fill="var(--low)"/></svg>
+          几格<span class="x"><button class="icon-btn" id="toastX" aria-label="关闭" style="width:24px;height:24px">
+            <svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.3"><path d="M1 1l8 8M9 1l-8 8"/></svg></button></span>
+        </div>
+        <div class="t-body">
+          <div class="dev-ico" id="toastIco"></div>
+          <div><b id="toastTitle">鼠标该充电了</b><span id="toastText">ATK X1 只剩 15%</span></div>
+        </div>
+        <div class="t-act"><button class="btn" id="toastLater">1 小时后提醒</button><button class="btn pri" id="toastOk">知道了</button></div>
+      </div>
+
+      <div class="tip" id="tip"></div>
+
+      <div class="game" id="game"><div class="cross"></div><div class="g-in"><b>独占全屏游戏中</b><span>托盘被遮住 · 几格不弹任何窗口，查询放慢到 5 分钟</span></div></div>
+
+      <div class="taskbar">
+        <div class="tb-center"><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div></div>
+        <div class="tray">
+          <div class="tray-btn"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 8l4-4 4 4"/></svg></div>
+          <div class="tray-btn hit on" id="trayIcon" title="" aria-label="几格"></div>
+          <div class="sys">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
+          </div>
+          <div class="clock" id="clock">21:36<br>2026/11/19</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="chipbtn" data-sim="charge" aria-pressed="true">耳机充电中</button>
+      <button class="chipbtn" data-sim="low" aria-pressed="true">ATK 电量低</button>
+      <button class="chipbtn" data-sim="sleep" aria-pressed="true">游狼休眠</button>
+      <button class="chipbtn" data-sim="busy" aria-pressed="true">罗技接收器被占用</button>
+      <button class="chipbtn" data-sim="game" aria-pressed="false">进入全屏游戏</button>
+      <button class="chipbtn" id="fireToast">触发低电量提醒</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>托盘图标</h2>
+    <p class="note">16 / 24 / 32 px 分别对应 100% / 150% / 200% 缩放。按显示器 DPI 现画，数字只用两位，字重随尺寸加粗。</p>
+    <div class="grid" id="iconGrid"></div>
+  </section>
+
+  <section>
+    <h2>规范</h2>
+    <p class="note">托盘图标、面板和提醒共用一套颜色和动效。</p>
+    <div class="spec">
+      <div class="cardx">
+        <h3>动效</h3>
+        <ul>
+          <li>展开：上移 16px 并淡入，250ms，曲线 (0.1, 0.9, 0.2, 1)，和 Windows 11 自带面板一致</li>
+          <li>收起：120ms 加速淡出，不拖泥带水</li>
+          <li>设备行依次进场，每行晚 25ms</li>
+          <li>充电：下一格呼吸闪烁，1.6s 一个周期</li>
+          <li>系统开启"减少动画"时全部关闭</li>
+        </ul>
+      </div>
+      <div class="cardx">
+        <h3>状态颜色</h3>
+        <div class="swatches">
+          <span class="sw"><i style="--c:var(--ok)"></i>正常 · 强调色</span>
+          <span class="sw"><i style="--c:var(--warn)"></i>≤ 30%</span>
+          <span class="sw"><i style="--c:var(--low)"></i>≤ 15% · 提醒</span>
+          <span class="sw"><i style="--c:var(--charge)"></i>充电中</span>
+          <span class="sw"><i style="--c:var(--idle)"></i>休眠 / 离线 / 被占用</span>
+        </div>
+        <ul style="margin-top:8px">
+          <li>颜色只表示状态，正常时跟随系统强调色</li>
+          <li>电压估算的读数前加 ≈，不冒充精确值</li>
+        </ul>
+      </div>
+      <div class="cardx">
+        <h3>文字层级</h3>
+        <ul>
+          <li>主设备数字 46px，Segoe UI Variable Display，等宽数字</li>
+          <li>列表数字 20px，名称 13.5px，状态 12px</li>
+          <li>状态说明只在异常时出现；正常时只写"2.4G 已连接"</li>
+        </ul>
+      </div>
+      <div class="cardx">
+        <h3>打扰规则</h3>
+        <ul>
+          <li>游戏全屏时不弹窗，提醒排队到退出后</li>
+          <li>同一设备每次低电量只提醒一次，"稍后提醒"延 1 小时</li>
+          <li>面板失去焦点即收起，Esc 也可收起</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const ICON = {
+    mouse:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v6.5" stroke-linecap="round"/></svg>',
+    headset:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4.5" height="7" rx="1.6"/><rect x="16.5" y="14" width="4.5" height="7" rx="1.6"/></svg>',
+    keyboard:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.3 10h.01M12.6 10h.01M15.9 10h.01M18 10h.01M8 14.2h8"/></svg>'
+  };
+  const PIN = '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M7.6 1.2l3.2 3.2-1.4.6-1.9 1.9.3 2.2-.9.9L4.7 7.8 2 10.5l-.5-.5L4.2 7.3 2 5.1l.9-.9 2.2.3L7 2.6z"/></svg>';
+
+  const devices = [
+    {id:'ulx', name:'Finalmouse ULX', kind:'mouse', pct:72, est:true, primary:true},
+    {id:'h9', name:'INZONE H9', kind:'headset', pct:48},
+    {id:'atk', name:'ATK X1', kind:'mouse', pct:15},
+    {id:'gw', name:'G-Wolves HTX', kind:'mouse', pct:64},
+    {id:'lg', name:'Logitech 键盘', kind:'keyboard', pct:81},
+  ];
+  const sim = {charge:true, low:true, sleep:true, busy:true, game:false};
+  let style = 'cells';
+
+  function state(d){
+    if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中'};
+    if (d.id==='gw' && sim.sleep) return {k:'idle', c:'var(--idle)', text:'休眠 · 上次读数 8 分钟前', dim:true};
+    if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被 G HUB 占用 · 上次读数', dim:true};
+    const p = pctOf(d);
+    if (p<=15) return {k:'low', c:'var(--low)', text:'电量低，该充电了'};
+    if (p<=30) return {k:'warn', c:'var(--warn)', text:'2.4G 已连接'};
+    return {k:'ok', c:'var(--ok)', text: d.est ? '2.4G 已连接 · 电压估算' : '2.4G 已连接'};
+  }
+  function pctOf(d){ return d.id==='atk' ? (sim.low?15:58) : d.pct; }
+
+  function indicator(d, s, big){
+    const p = pctOf(d);
+    if (style==='cells'){
+      const n = big?10:5, f = Math.round(p/100*n);
+      let h = '';
+      for (let i=0;i<n;i++){
+        const cls = i<f ? 'f' : (s.k==='charge' && i===f ? 'next' : '');
+        h += `<i class="${cls}"></i>`;
+      }
+      return `<div class="cells" style="--c:${s.c}">${h}</div>`;
+    }
+    if (style==='bar'){
+      return `<div class="bar ${s.k==='charge'?'charging':''}" style="--c:${s.c}"><i style="width:${p}%"></i></div>`;
+    }
+    const r = big?20:10, w = big?5:3, size=(r+w)*2, C = 2*Math.PI*r;
+    return `<svg class="ring ${s.k==='charge'?'charging':''}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="--c:${s.c};transform:rotate(-90deg)">
+      <circle class="trk" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}"/>
+      <circle class="val" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p/100)}"/></svg>`;
+  }
+
+  function render(){
+    const hero = devices.find(d=>d.primary), hs = state(hero);
+    document.getElementById('hero').innerHTML = `
+      <div class="hero">
+        <div class="hero-top">
+          <div class="dev-ico">${ICON[hero.kind]}</div>
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;gap:6px;align-items:center"><span class="name">${hero.name}</span><span class="tag">2.4G</span></div>
+            <div class="pin">${PIN}固定在托盘</div>
+          </div>
+        </div>
+        <div class="hero-mid">
+          <div class="big" style="${hs.k==='low'?'color:var(--low)':''}">${hero.est?'<span class="approx">≈</span>':''}${pctOf(hero)}<small>%</small></div>
+          ${indicator(hero, hs, true)}
+        </div>
+        <div class="sub"><span class="dot" style="color:${hs.c}"></span>${hs.text}</div>
+      </div>`;
+    const rows = devices.filter(d=>!d.primary).map((d,i)=>{
+      const s = state(d);
+      const numColor = s.k==='low' ? 'color:var(--low)' : '';
+      return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
+        <div class="dev-ico">${ICON[d.kind]}</div>
+        <div class="meta"><div class="nm">${d.name}</div>
+          <div class="st" style="${s.k==='low'||s.k==='charge'?`color:${s.c}`:''}">${s.text}</div></div>
+        ${indicator(d, s, false)}
+        <div class="num" style="${numColor}">${pctOf(d)}<small>%</small></div>
+      </div>`;
+    }).join('');
+    document.getElementById('list').innerHTML = rows;
+    renderTray(); renderTip();
+  }
+
+  // 托盘数字图标：SVG 模拟，真实实现为按 DPI 绘制的 HICON
+  function trayIconSVG(size, opt){
+    const {text, color, mode} = opt;
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+    if (mode==='full'){
+      const s = size/16;
+      return `<svg width="${size}" height="${size}" viewBox="0 0 16 16"><rect x="1" y="4" width="12.5" height="8" rx="1.8" fill="none" stroke="${color||ink}" stroke-width="${s>1.4?1.2:1.4}"/><rect x="14.2" y="6.4" width="1.3" height="3.2" rx=".6" fill="${color||ink}"/><rect x="2.6" y="5.6" width="9.3" height="4.8" rx=".8" fill="${color||ink}"/></svg>`;
+    }
+    const weight = size<=16 ? 700 : 650;
+    const fs = text.length>=2 ? size*0.78 : size*0.9;
+    const under = mode==='charge' ? `<rect x="${size*0.16}" y="${size*0.86}" width="${size*0.68}" height="${Math.max(1.5,size*0.1)}" rx="${size*0.05}" fill="${color}"/>` : '';
+    const lowDot = '';
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <text x="50%" y="${mode==='charge'?size*0.72:size*0.79}" text-anchor="middle" font-family="Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
+        font-size="${fs}" font-weight="${weight}" letter-spacing="${-size*0.03}" fill="${color||ink}" ${mode==='idle'?'opacity=".55"':''}>${text}</text>${under}${lowDot}</svg>`;
+  }
+  function trayOpt(){
+    const d = devices.find(x=>x.primary), s = state(d), p = pctOf(d);
+    if (p>=100) return {mode:'full'};
+    return {text:String(p), color: s.k==='ok' ? '' : s.c, mode: s.k==='charge'?'charge':(s.k==='idle'?'idle':'')};
+  }
+  function renderTray(){
+    const o = trayOpt();
+    o.color = o.color ? getComputedStyle(document.documentElement).getPropertyValue(o.color.slice(4,-1)).trim() : '';
+    document.getElementById('trayIcon').innerHTML = trayIconSVG(16, o);
+  }
+  function renderTip(){
+    const parts = devices.map(d=>{
+      const s = state(d), p = pctOf(d);
+      const tail = s.k==='charge' ? ' 充电中' : s.k==='idle' ? '（上次）' : s.k==='low' ? ' 电量低' : '';
+      return `${d.primary?'<b>':''}${d.name} ${d.est?'≈':''}${p}%${tail}${d.primary?'</b>':''}`;
+    });
+    document.getElementById('tip').innerHTML = parts.join('<br>');
+  }
+
+  function renderIconGrid(){
+    const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const cases = [
+      {cap:'<b>正常</b> · 跟随文字色', o:{text:'72'}},
+      {cap:'<b>≤ 30%</b> · 琥珀', o:{text:'26', color:css('--warn')}},
+      {cap:'<b>≤ 15%</b> · 红色', o:{text:'9', color:css('--low')}},
+      {cap:'<b>充电中</b> · 绿色 + 底线', o:{text:'48', color:css('--charge'), mode:'charge'}},
+      {cap:'<b>休眠/占用</b> · 上次读数变淡', o:{text:'64', mode:'idle'}},
+      {cap:'<b>100%</b> · 换成满电图形', o:{mode:'full'}},
+      {cap:'<b>未知</b> · 短横线', o:{text:'–', mode:'idle'}},
+    ];
+    document.getElementById('iconGrid').innerHTML = cases.map(c=>`
+      <div class="cardx"><div class="icons">
+        ${[16,24,32].map(s=>`<div class="z">${trayIconSVG(s,c.o)}</div>`).join('')}
+      </div><div class="cap">${c.cap}</div></div>`).join('');
+  }
+
+  // 交互
+  const fly = document.getElementById('flyout'), tray = document.getElementById('trayIcon'), tip = document.getElementById('tip');
+  const toast = document.getElementById('toast'), game = document.getElementById('game'), queued = document.getElementById('queued');
+  let pendingToast = false;
+  function setOpen(v){ fly.classList.toggle('open', v); tray.classList.toggle('on', v); if (v){ tip.classList.remove('show'); toast.classList.remove('show'); } }
+  tray.addEventListener('click', e=>{ e.stopPropagation(); setOpen(!fly.classList.contains('open')); });
+  tray.addEventListener('mouseenter', ()=>{ if(!fly.classList.contains('open')) tip.classList.add('show'); });
+  tray.addEventListener('mouseleave', ()=> tip.classList.remove('show'));
+  document.getElementById('stage').addEventListener('click', e=>{ if(!fly.contains(e.target)) setOpen(false); });
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape') setOpen(false); });
+  document.getElementById('refresh').addEventListener('click', e=>{
+    const b = e.currentTarget; b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
+    document.getElementById('foTime').textContent = '刚刚更新';
+  });
+
+  function showToast(){
+    const d = devices.find(x=>x.id==='atk');
+    document.getElementById('toastIco').innerHTML = ICON[d.kind];
+    document.getElementById('toastTitle').textContent = '鼠标该充电了';
+    document.getElementById('toastText').textContent = `${d.name} 只剩 ${pctOf(d)}%`;
+    setOpen(false); toast.classList.add('show');
+  }
+  document.getElementById('fireToast').addEventListener('click', e=>{
+    e.stopPropagation();
+    if (sim.game){ pendingToast = true; queued.classList.add('on'); return; }
+    showToast();
+  });
+  ['toastX','toastLater','toastOk'].forEach(id=>document.getElementById(id).addEventListener('click', e=>{ e.stopPropagation(); toast.classList.remove('show'); }));
+
+  document.querySelectorAll('[data-sim]').forEach(b=>b.addEventListener('click', e=>{
+    e.stopPropagation();
+    const k = b.dataset.sim; sim[k] = !sim[k]; b.setAttribute('aria-pressed', sim[k]);
+    if (k==='game'){
+      game.classList.toggle('on', sim.game); setOpen(false); toast.classList.remove('show');
+      if (sim.game) queued.classList.toggle('on', pendingToast);
+      else { queued.classList.remove('on'); if (pendingToast){ pendingToast=false; setTimeout(showToast, 450); } }
+    }
+    render();
+  }));
+
+  function bindSeg(id, fn){
+    const seg = document.getElementById(id);
+    seg.querySelectorAll('button').forEach(b=>b.addEventListener('click', ()=>{
+      seg.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x===b));
+      fn(b.dataset.v);
+    }));
+  }
+  bindSeg('themeSeg', v=>{
+    if (v==='auto') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', v);
+    render(); renderIconGrid();
+  });
+  bindSeg('styleSeg', v=>{ style = v; render(); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', ()=>{ render(); renderIconGrid(); });
+
+  function tick(){
+    const n = new Date(), p = x=>String(x).padStart(2,'0');
+    document.getElementById('clock').innerHTML = `${p(n.getHours())}:${p(n.getMinutes())}<br>${n.getFullYear()}/${n.getMonth()+1}/${n.getDate()}`;
+  }
+  tick(); setInterval(tick, 30000);
+  render(); renderIconGrid();
+})();
+</script>
+</body>
+</html>
