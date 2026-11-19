@@ -5,7 +5,7 @@ namespace Jige.Tray.Windows;
 internal sealed partial class PopupScene
 {
     private int DevicesFooter => height - 42;
-    private const float PinX = 261, EyeX = 301;
+    private const float TrayCheckX = 261, EyeX = 301;
 
     private readonly record struct ThumbMotion(float From, float To, long Started)
     {
@@ -20,7 +20,7 @@ internal sealed partial class PopupScene
         {
             SettingRow? optionRow = focused.Action switch
             {
-                PopupAction.PrimaryDevice => SettingRow.Primary,
+                PopupAction.TrayMode => SettingRow.TrayMode,
                 PopupAction.Threshold => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
                 _ => null
@@ -59,20 +59,16 @@ internal sealed partial class PopupScene
                 SettingRow.Autostart => PopupAction.Autostart,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
-            bool enabled = row != SettingRow.Primary || primaryChoices.Length > 0;
-            if (enabled)
-            {
-                var button = new HitBox(target, rect);
-                subButtons.Add(button);
-                DrawSettingBackground(canvas, button, row is SettingRow.Primary or SettingRow.Autostart);
-            }
-            if (row != SettingRow.Primary)
+            var button = new HitBox(target, rect);
+            subButtons.Add(button);
+            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.Autostart);
+            if (row != SettingRow.TrayMode)
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
             DrawSettingIcon(canvas, row, 25, rect.Y + 14);
             string name = row switch
             {
-                SettingRow.Primary => "托盘显示",
+                SettingRow.TrayMode => "托盘显示",
                 SettingRow.Threshold => "低电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
@@ -89,7 +85,7 @@ internal sealed partial class PopupScene
 
             string value = row switch
             {
-                SettingRow.Primary => primary is null ? "未选择设备" : model.Name(primary.Device),
+                SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
                 _ => Presentation.Interval(settings.PollSeconds)
             };
@@ -114,9 +110,9 @@ internal sealed partial class PopupScene
         Settings!.Toggle(row, time, animations, selected);
     }
 
-    private SettingChoice[] Choices(SettingRow row) => row switch
+    private static SettingChoice[] Choices(SettingRow row) => row switch
     {
-        SettingRow.Primary => primaryChoices,
+        SettingRow.TrayMode => SettingsPanel.TrayModeChoices,
         SettingRow.Threshold => SettingsPanel.ThresholdChoices,
         SettingRow.PollInterval => SettingsPanel.PollChoices,
         _ => []
@@ -124,7 +120,7 @@ internal sealed partial class PopupScene
 
     private bool IsSelected(PopupTarget target) => target.Action switch
     {
-        PopupAction.PrimaryDevice => StringComparer.OrdinalIgnoreCase.Equals(target.DeviceId, primary?.Device.Id),
+        PopupAction.TrayMode => target.Value == (int)model.Settings.TrayMode,
         PopupAction.Threshold => target.Value == model.Settings.LowBatteryThreshold,
         PopupAction.PollInterval => target.Value == model.Settings.PollSeconds,
         _ => false
@@ -225,7 +221,7 @@ internal sealed partial class PopupScene
 
         switch (row)
         {
-            case SettingRow.Primary:
+            case SettingRow.TrayMode:
                 canvas.Stroke(x + 1.5f, y + 9.5f, 13, 5, 1.2f, ink, 1.3f);
                 Line(10.5f, 12, 12.5f, 12);
                 break;
@@ -300,12 +296,12 @@ internal sealed partial class PopupScene
 
     private void DrawDevicesPage(Canvas canvas)
     {
-        canvas.Text("点名称可以改名，图钉设为托盘显示，眼睛控制是否出现在", 17, 59, 310, 18, 12, colors.Muted);
+        canvas.Text("点名称可改名，勾选在托盘显示，眼睛控制是否出现在", 17, 59, 310, 18, 12, colors.Muted);
         canvas.Text("面板里。", 17, 77, 310, 18, 12, colors.Muted);
         for (int i = 0; i < size.Rows; i++)
         {
             var device = devices[i + offset];
-            DrawDevice(canvas, i, device, device == primary);
+            DrawDevice(canvas, i, device);
         }
         if (MaxOffset > 0 && size.Rows > 0)
         {
@@ -316,8 +312,8 @@ internal sealed partial class PopupScene
         }
 
         string unidentified = model.UnknownReceivers > 0
-            ? $"检测到 {model.UnknownReceivers} 个未识别的接收器 ·" : "没看到你的设备？";
-        float footerWidth = HasDiagnosticReport ? 177 : 230;
+            ? $"检测到 {model.UnknownReceivers} 个未识别接收器" : "没看到设备？";
+        float footerWidth = HasDiagnosticReport ? 120 : 172;
         string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
         if (model.UnknownReceivers > 0 && feedback is not null)
         {
@@ -329,12 +325,14 @@ internal sealed partial class PopupScene
         }
         else
             DrawAbout(canvas, DevicesFooter, feedback ?? unidentified, footerWidth);
+
         if (HasDiagnosticReport)
-            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 201, DevicesFooter + 9, 48, 20), "查看报告");
+            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 143, DevicesFooter + 9, 48, 20), "查看报告");
+        DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 9, 48, 20), "重新检测");
         DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 9, 72, 20), "导出诊断信息");
     }
 
-    private void DrawDevice(Canvas canvas, int index, DeviceStatus device, bool primary)
+    private void DrawDevice(Canvas canvas, int index, DeviceStatus device)
     {
         float y = PanelLayout.DeviceRowsTop + index * PanelLayout.DeviceRowHeight;
         string id = device.Device.Id;
@@ -361,14 +359,8 @@ internal sealed partial class PopupScene
             canvas.Text(model.Name(device.Device), 59, name.Y, name.Width - 8, name.Height, 13.5f, Dim(colors.Ink), ellipsis: true);
         }
 
-        bool verified = DeviceVerification.IsVerified(device.Device);
         float prefix = canvas.Text("2.4G · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
-        string badge = verified ? "已实机验证" : "按协议适配";
-        float badgeWidth = canvas.Measure(badge, 10.5f, 600) + 10;
-        canvas.Fill(59 + prefix, y + 31, badgeWidth, 15.5f, 4,
-            Dim(verified ? colors.Charging.WithAlpha(41) : colors.Chip));
-        canvas.Text(badge, 64 + prefix, y + 31, badgeWidth - 10, 15.5f, 10.5f,
-            Dim(verified ? colors.Charging : colors.Secondary), 600);
+        DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
 
         float iconTop = y + 12.125f;
         if (removable)
@@ -379,18 +371,37 @@ internal sealed partial class PopupScene
             canvas.Text("移除", remove.X, remove.Y, remove.Width, remove.Height, 12, colors.Accent,
                 align: DWRITE_TEXT_ALIGNMENT_CENTER);
         }
-        var pin = new HitBox(new PopupTarget(PopupAction.Pin, DeviceId: id), new(PinX, iconTop, 30, 30));
-        subButtons.Add(pin);
-        ButtonBackground(canvas, pin);
-        DrawPin(canvas, PinX + 9, iconTop + 9, primary ? colors.Accent : IconInk(pin), 1.2f);
+
+        // B4 / B5：去掉图钉，改为托盘勾选框（在「每台设备一个图标」模式下控制该设备是否显示在托盘）。
+        bool inTray = model.Settings.IsInTray(id);
+        bool perDeviceMode = model.Settings.TrayMode == TrayDisplayMode.PerDevice;
+        var trayCheck = new HitBox(new PopupTarget(PopupAction.TrayToggle, DeviceId: id), new(TrayCheckX, iconTop, 30, 30));
+        subButtons.Add(trayCheck);
+        ButtonBackground(canvas, trayCheck);
+        DrawCheckbox(canvas, TrayCheckX + 7, iconTop + 7, inTray, perDeviceMode, IconInk(trayCheck));
 
         var eye = new HitBox(new PopupTarget(PopupAction.Visibility, DeviceId: id), new(EyeX, iconTop, 30, 30));
-        if (!primary)
+        subButtons.Add(eye);
+        ButtonBackground(canvas, eye);
+        DrawEye(canvas, EyeX + 15, iconTop + 15, hidden, IconInk(eye));
+    }
+
+    private void DrawCheckbox(Canvas canvas, float x, float y, bool isChecked, bool activeMode, Color borderInk)
+    {
+        const float boxSize = 16;
+        if (isChecked)
         {
-            subButtons.Add(eye);
-            ButtonBackground(canvas, eye);
+            var fill = activeMode ? colors.Accent : colors.Muted.WithAlpha(120);
+            canvas.Fill(x, y, boxSize, boxSize, 4, fill);
+            var tick = activeMode ? colors.ButtonText : colors.Solid;
+            canvas.Line(x + 3.8f, y + 8.2f, x + 6.7f, y + 11.1f, tick, 1.6f);
+            canvas.Line(x + 6.7f, y + 11.1f, x + 12.2f, y + 5.2f, tick, 1.6f);
         }
-        DrawEye(canvas, EyeX + 15, iconTop + 15, hidden, primary ? colors.Muted.WithAlpha(89) : IconInk(eye));
+        else
+        {
+            var stroke = activeMode ? borderInk : colors.Muted.WithAlpha(90);
+            canvas.Stroke(x + .6f, y + .6f, boxSize - 1.2f, boxSize - 1.2f, 3.6f, stroke, 1.3f);
+        }
     }
 
     private Color IconInk(HitBox button) => hover == button.Target ? colors.Ink : colors.Muted;

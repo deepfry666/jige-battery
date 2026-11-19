@@ -39,6 +39,7 @@ internal static class NativeCheck
         }
         finally
         {
+            TrayIcon.DisposeSharedRenderer();
             PInvoke.CoUninitialize();
         }
     }

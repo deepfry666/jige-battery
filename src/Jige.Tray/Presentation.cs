@@ -93,7 +93,7 @@ internal static class Presentation
         string status = (device.Link, device.Issue) switch
         {
             (LinkState.Asleep, _) => "休眠",
-            (LinkState.Offline, _) => "离线",
+            (LinkState.Offline, _) => "已断开",
             (LinkState.Busy, _) => "接收器被占用",
             (_, ReadIssue.AccessDenied) => "无法访问接收器",
             (_, ReadIssue.Timeout) => "查询超时",
@@ -118,33 +118,63 @@ internal static class Presentation
             { } time => $"{Age(time, now)}前更新"
         };
 
+    public static string TrayModeShortLabel(TrayDisplayMode mode) => mode switch
+    {
+        TrayDisplayMode.LowestBattery => "最低电量",
+        _ => "每台一个图标"
+    };
+
+    public static string TrayModeLabel(TrayDisplayMode mode) => mode switch
+    {
+        TrayDisplayMode.LowestBattery => "只显示电量最低的设备",
+        _ => "每台设备一个图标"
+    };
+
+    /// <summary>单设备独立托盘图标的悬停提示（B5 / B6）：带设备名，断开后明确写「已断开 · 上次 xx%」。</summary>
+    public static string DeviceTooltip(TrayModel model, DeviceStatus device)
+    {
+        const int limit = 127;
+        string name = model.Name(device.Device);
+        string suffix = DeviceTooltipSuffix(device, model.Settings.LowBatteryThreshold);
+        int spare = Math.Max(4, limit - suffix.Length);
+        return Shorten(name, spare) + suffix;
+    }
+
+    private static string DeviceTooltipSuffix(DeviceStatus device, int threshold)
+    {
+        var tone = Tone(device, threshold);
+        if (tone == BatteryTone.Idle)
+            return device.Last is not null ? $" · 已断开 · 上次 {Value(device)}" : " · 已断开";
+        string tail = tone switch
+        {
+            BatteryTone.Charging => device.IsFull ? " 已充满" : " 充电中",
+            BatteryTone.Low => " 电量低",
+            BatteryTone.Warning => " 电量偏低",
+            _ => ""
+        };
+        return $" {Value(device)}{tail}";
+    }
+
+    /// <summary>单图标模式（「只显示电量最低的设备」）的多设备悬停摘要。</summary>
     public static string Tooltip(TrayModel model)
     {
         const int limit = 127; // Shell 的 128 个 UTF-16 字符含结尾的 NUL。
         var primary = model.PrimaryDevice;
         var devices = model.OrderedDevices().Where(device => device != primary)
             .OrderBy(device => model.IsHidden(device.Device.Id))
+            .ThenByDescending(device => device.IsOnline)
             .ThenBy(device => device.Percentage ?? int.MaxValue);
         var ordered = primary is null ? devices.AsEnumerable() : devices.Prepend(primary);
         var entries = ordered.Select(device =>
-        {
-            string tail = Tone(device, model.Settings.LowBatteryThreshold) switch
-            {
-                BatteryTone.Idle when device.Last is not null => "（上次）",
-                BatteryTone.Charging => device.IsFull ? " 已充满" : " 充电中",
-                BatteryTone.Low => " 电量低",
-                BatteryTone.Warning => " 电量偏低",
-                _ => ""
-            };
-            return (Name: model.Name(device.Device), Value: $" {Value(device)}{tail}");
-        }).ToArray();
+            (Name: model.Name(device.Device), Value: DeviceTooltipSuffix(device, model.Settings.LowBatteryThreshold)))
+            .ToArray();
 
         if (entries.Length == 0)
             return "几格 · 未找到支持的设备";
 
         static string Overflow(int count) => count > 0 ? $"\n另有 {count} 台" : "";
         var first = entries[0];
-        int spare = limit - first.Value.Length - Overflow(entries.Length - 1).Length;
+        int spare = Math.Max(4, limit - first.Value.Length - Overflow(entries.Length - 1).Length);
         var tip = new System.Text.StringBuilder(Shorten(first.Name, spare)).Append(first.Value);
         int shown = 1;
         while (shown < entries.Length)

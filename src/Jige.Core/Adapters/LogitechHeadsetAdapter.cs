@@ -1,7 +1,16 @@
 namespace Jige.Core.Adapters;
 
-internal sealed class LogitechHeadsetAdapter : IDeviceAdapter
+internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
 {
+    public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
+
+    public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
+        DeviceTarget target, IReceiverTransport transport, CancellationToken token)
+    {
+        var reading = await ReadAsync(target, transport, null, token).ConfigureAwait(false);
+        var link = reading.Link == LinkState.Online ? LinkState.Online : LinkState.Offline;
+        return new(target.Endpoint.ReceiverId, null, target.Device.Id, link, reading.Issue);
+    }
     private static string? Model(ushort? pid) => pid switch
     {
         0x0AF7 => "Logitech G PRO X 2 LIGHTSPEED",

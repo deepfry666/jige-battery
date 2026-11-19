@@ -28,6 +28,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private RECT anchor = anchor;
     private PanelPage page = noticeId is null ? firstPage : PanelPage.Notice;
     private int mainOffset, deviceOffset;
+    private bool offlineExpanded;
     private long shownAt;
     private bool reclaimed, shown;
     private DateTimeOffset now;
@@ -111,11 +112,27 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         int count = target switch
         {
-            PanelPage.Main => model.PanelDevices().Length,
-            PanelPage.Devices => model.OrderedDevices().Length,
+            PanelPage.Main => MainCount(),
+            PanelPage.Devices => model.OrderedForManagement().Length,
             _ => 0
         };
         return PanelLayout.Size(target, count, AvailableHeight);
+    }
+
+    private int MainCount()
+    {
+        var plan = model.BuildMainPanel();
+        return plan.Hero is null ? 0 : 1 + plan.RowCount(offlineExpanded);
+    }
+
+    public void ToggleOffline()
+    {
+        if (page != PanelPage.Main || transition is not null)
+            return;
+        offlineExpanded = !offlineExpanded;
+        ReplaceScene(SizeOf(PanelPage.Main));
+        Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
+        composition!.Commit();
     }
 
     private int AvailableHeight => (int)(work.Height / scale) - 24;
@@ -316,7 +333,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)

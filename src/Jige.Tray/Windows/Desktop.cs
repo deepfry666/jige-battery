@@ -7,6 +7,7 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Dwm;
 using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.System.Threading;
 using Windows.Win32.UI.Controls;
 using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.Shell;
@@ -177,6 +178,17 @@ internal static unsafe class Desktop
     public static void Log(string message) => EventLog.Write(message);
     public static void Log(string message, Exception error) => Log(TrayLog.Describe(message, error));
     public static string RecentLog(int lines) => EventLog.Recent(lines);
+
+    public static Jige.Core.Diagnostics.DiagnosticProcessMetrics CollectProcessMetrics(DateTimeOffset startedAt)
+    {
+        using var process = Process.GetCurrentProcess();
+        var handle = PInvoke.GetCurrentProcess();
+        int gdi = (int)PInvoke.GetGuiResources(handle, GET_GUI_RESOURCES_FLAGS.GR_GDIOBJECTS);
+        int user = (int)PInvoke.GetGuiResources(handle, GET_GUI_RESOURCES_FLAGS.GR_USEROBJECTS);
+        var uptime = DateTimeOffset.UtcNow - startedAt;
+        return new(process.PrivateMemorySize64, process.WorkingSet64, process.HandleCount, gdi, user,
+            process.TotalProcessorTime, uptime < TimeSpan.Zero ? TimeSpan.Zero : uptime);
+    }
 
     public static ForegroundKind Classify(HWND window, out uint process)
     {

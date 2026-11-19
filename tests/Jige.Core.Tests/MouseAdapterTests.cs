@@ -148,12 +148,13 @@ public sealed class MouseAdapterTests
     }
 
     [Fact]
-    public async Task UnlistedPidCannotSendEvenThroughDirectAdapterEntry()
+    public async Task AmbiguousOrUnknownVendorCannotSendEvenThroughDirectAdapterEntry()
     {
         var transport = new FakeReceiverTransport();
         var registry = AdapterRegistry.CreateDefault();
         var adapter = new MouseReceiverAdapter();
-        foreach (var endpoint in new[] { Atk with { ProductId = 0x9999 }, Xvi with { ProductId = 0x9999 } })
+        // 未收录的 33E4 XVI 命中新旧两代家族（安全门 ① 冲突），未知厂商 1234 命中 0 个家族，两者均不得发包。
+        foreach (var endpoint in new[] { Xvi with { ProductId = 0x9999 }, Atk with { VendorId = 0x1234, ProductId = 0x9999 } })
         {
             Assert.Empty(registry.Detect(new([endpoint], [], [])));
             var target = new DeviceTarget(new("test", "测试", DeviceKind.Mouse), endpoint, "0");

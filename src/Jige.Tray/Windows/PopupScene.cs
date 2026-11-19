@@ -6,8 +6,9 @@ namespace Jige.Tray.Windows;
 
 internal enum PopupAction
 {
-    None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, PrimaryDevice, Threshold, PollInterval,
-    GameSilent, Autostart, Diagnostics, Updates, Rename, Pin, Visibility, Remove, TaskbarSettings, OpenDiagnostics
+    None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
+    GameSilent, Autostart, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
+    OpenDiagnostics, ToggleOffline, Redetect
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -30,6 +31,13 @@ internal sealed partial class PopupScene : IDisposable
         public float Height => Rect.Height;
     }
 
+    private readonly record struct MainRowEntry(DeviceStatus? Device, int OfflineCount, bool OfflineExpanded)
+    {
+        public bool IsOfflineToggle => Device is null;
+        public static MainRowEntry ForDevice(DeviceStatus device) => new(device, 0, false);
+        public static MainRowEntry ForOfflineToggle(int count, bool expanded) => new(null, count, expanded);
+    }
+
     public const int Width = PanelLayout.Width;
     private const int RowHeight = PanelLayout.MainRowHeight;
     private const int RowTop = 202;
@@ -50,8 +58,6 @@ internal sealed partial class PopupScene : IDisposable
         new(PopupAction.TaskbarSettings, 14, 97, 154, 32),
         new(PopupAction.Dismiss, 176, 97, 154, 32)
     ];
-    private static readonly HitBox[] PanelButtonsWithReport =
-        [.. PanelButtons, new(PopupAction.OpenDiagnostics, 80, 12, 172, 32)];
 
     private readonly Composition composition;
     private readonly Palette colors;
@@ -64,11 +70,11 @@ internal sealed partial class PopupScene : IDisposable
     private readonly string? noticeId;
     private readonly PanelSize size;
     private int height => size.Height;
+    private readonly List<HitBox> mainButtons = [];
     private readonly List<HitBox> subButtons = [];
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
     private ThumbMotion? gameMotion, autostartMotion;
-    private SettingChoice[] primaryChoices = [];
     private string? error;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
@@ -76,8 +82,10 @@ internal sealed partial class PopupScene : IDisposable
     private int Threshold => model.Settings.LowBatteryThreshold;
     private string? editorId;
     private DeviceStatus[] devices = [];
+    private MainPanelPlan mainPlan = new(null, false, [], []);
+    private MainRowEntry[] mainEntries = [];
+    private bool offlineExpanded;
     private DeviceStatus? notice;
-    private DeviceStatus? primary;
     private DateTimeOffset now;
     private bool reading;
     private int offset;
@@ -130,12 +138,12 @@ internal sealed partial class PopupScene : IDisposable
     {
         PanelPage.Notice => NoticeButtons,
         PanelPage.Welcome => WelcomeButtons,
-        PanelPage.Main => diagnosticPreviewPending ? PanelButtonsWithReport : PanelButtons,
+        PanelPage.Main => mainButtons,
         _ => subButtons
     };
     private int MaxOffset => Page switch
     {
-        PanelPage.Main => Math.Max(0, devices.Length - 1 - size.Rows),
+        PanelPage.Main => Math.Max(0, mainEntries.Length - size.Rows),
         PanelPage.Devices => Math.Max(0, devices.Length - size.Rows),
         _ => 0
     };
@@ -144,24 +152,44 @@ internal sealed partial class PopupScene : IDisposable
         ? item with { Rect = item.Rect with { Y = height - 37 } }
         : item;
 
-    public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing, DiagnosticStatus diagnostics, bool previewPending)
+    public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing,
+        DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded)
     {
-        devices = Page == PanelPage.Main ? model.PanelDevices() : model.OrderedDevices(primaryFirst: false);
-        primary = IsSubPage ? model.PrimaryDevice : null;
-        if (Settings is { } settings)
+        offlineExpanded = showOfflineExpanded;
+        if (Page == PanelPage.Main)
         {
-            primaryChoices = devices.Select(item => new SettingChoice(
-                new(PopupAction.PrimaryDevice, DeviceId: item.Device.Id), model.Name(item.Device))).ToArray();
-            settings.SetDeviceCount(primaryChoices.Length);
+            mainPlan = model.BuildMainPanel();
+            List<MainRowEntry> entries = [];
+            foreach (var online in mainPlan.OnlineRows)
+                entries.Add(MainRowEntry.ForDevice(online));
+            if (mainPlan.OfflineRows.Length > 0)
+            {
+                entries.Add(MainRowEntry.ForOfflineToggle(mainPlan.OfflineRows.Length, offlineExpanded));
+                if (offlineExpanded)
+                {
+                    foreach (var off in mainPlan.OfflineRows)
+                        entries.Add(MainRowEntry.ForDevice(off));
+                }
+            }
+            mainEntries = [.. entries];
+            devices = model.PanelDevices();
         }
+        else
+        {
+            devices = model.OrderedForManagement();
+            mainEntries = [];
+        }
+
         error = settingsError;
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
         editorId = editing;
-        notice = devices.FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
+        notice = model.OrderedDevices().FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
         now = time;
         reading = running;
         offset = Math.Min(offset, MaxOffset);
+        RebuildMainButtons();
+
         foreach (var pulse in pulses)
             pulse.Dispose();
         pulses.Clear();
@@ -171,13 +199,27 @@ internal sealed partial class PopupScene : IDisposable
             DrawRow(i);
         if (refresh is not null)
             refresh.Draw(DrawRefresh);
-        if (Page == PanelPage.Main && devices.Length > 0 && devices[0].IsCharging)
-            AddPulse(frame, devices[0], 172, 120, 12, 22, 3, 10);
+        if (Page == PanelPage.Main && mainPlan.Hero is { IsCharging: true } hero)
+            AddPulse(frame, hero, 172, 120, 12, 22, 3, 10);
         for (int i = 0; i < rows.Length; i++)
         {
-            var row = devices[1 + offset + i];
-            if (row.IsCharging)
+            if (offset + i < mainEntries.Length && mainEntries[offset + i].Device is { IsCharging: true } row)
                 AddPulse(rows[i], row, 217, 17, 5, 14, 1.5f, 5);
+        }
+    }
+
+    private void RebuildMainButtons()
+    {
+        if (Page != PanelPage.Main)
+            return;
+        mainButtons.Clear();
+        mainButtons.AddRange(PanelButtons);
+        if (diagnosticPreviewPending)
+            mainButtons.Add(new(PopupAction.OpenDiagnostics, 80, 12, 172, 32));
+        for (int i = 0; i < rows.Length; i++)
+        {
+            if (offset + i < mainEntries.Length && mainEntries[offset + i].IsOfflineToggle)
+                mainButtons.Add(new(PopupAction.ToggleOffline, 4, RowTop + i * RowHeight, Width - 8, RowHeight));
         }
     }
 
@@ -271,6 +313,8 @@ internal sealed partial class PopupScene : IDisposable
 
     public void Tab(bool reverse)
     {
+        if (Buttons.Count == 0)
+            return;
         int index = -1;
         for (int i = 0; i < Buttons.Count; i++)
         {
@@ -285,6 +329,11 @@ internal sealed partial class PopupScene : IDisposable
         index = (index + Buttons.Count + (reverse ? -1 : 1)) % Buttons.Count;
         focused = Buttons[index].Target;
         DrawFrame();
+        if (Page == PanelPage.Main)
+        {
+            for (int i = 0; i < rows.Length; i++)
+                DrawRow(i);
+        }
         composition.Commit();
     }
 
@@ -326,41 +375,52 @@ internal sealed partial class PopupScene : IDisposable
             (diagnosticStatus == DiagnosticStatus.Ready ? null : DiagnosticExport.Label(diagnosticStatus)) ??
             error ?? Presentation.Updated(model.UpdatedAt, now, reading, model.ScanFailed);
         foreach (var button in Buttons)
-            ButtonBackground(canvas, Box(button));
+        {
+            if (button.Action != PopupAction.ToggleOffline)
+                ButtonBackground(canvas, Box(button));
+        }
         canvas.Text(updated, 80, 12, 172, 32, 12, diagnosticPreviewPending ? colors.Accent : colors.Muted,
             align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
         DrawSettings(canvas);
-        if (devices.Length > 0)
-            DrawHero(canvas, devices[0]);
+        if (mainPlan.Hero is { } hero)
+            DrawHero(canvas, hero, mainPlan.HeroDisconnected);
         else
             canvas.Text("未找到支持的设备", 16, 60, 312, 46, 14, colors.Secondary, align: DWRITE_TEXT_ALIGNMENT_CENTER);
 
+        // 主面板底部不再显示查询间隔文字，只保留「管理设备」（B9）。
         int footer = height - 37;
         canvas.Line(0, footer + .5f, Width, footer + .5f, colors.Border);
-        var settings = model.Settings;
-        canvas.Text($"每 {Presentation.Interval(settings.PollSeconds)}查询 · 游戏中 {Presentation.Interval(settings.GamePollSeconds)}",
-            16, footer + 1, 246, 34, 12, colors.Muted, ellipsis: true);
         canvas.Text("管理设备", 268, footer + 1, 64, 34, 12, colors.Accent, align: DWRITE_TEXT_ALIGNMENT_CENTER);
 
         if (MaxOffset > 0 && rows.Length > 0)
         {
             float span = rows.Length * RowHeight - 8;
-            float thumb = Math.Max(10, span * rows.Length / (devices.Length - 1));
+            float thumb = Math.Max(10, span * rows.Length / mainEntries.Length);
             canvas.Fill(339, RowTop + 4 + (span - thumb) * offset / MaxOffset, 2, thumb, 1, colors.Muted.WithAlpha(150));
         }
     });
 
-    private void DrawHero(Canvas canvas, DeviceStatus device)
+    private void DrawHero(Canvas canvas, DeviceStatus device, bool disconnected)
     {
         canvas.Fill(8, 52, 328, 144, 7, colors.Layer);
         canvas.Stroke(8.5f, 52.5f, 327, 143, 6.5f, colors.LayerStroke);
-        DeviceIcon(canvas, device.Device.Kind, 23, 67, 36, colors.AccentSoft, colors.Accent);
-        float nameWidth = canvas.Text(model.Name(device.Device), 69, 65, 194, 22, 14, colors.Ink, 600, ellipsis: true);
+        DeviceIcon(canvas, device.Device.Kind, 23, 67, 36,
+            disconnected ? colors.Chip : colors.AccentSoft,
+            disconnected ? colors.Muted : colors.Accent);
+        float nameWidth = canvas.Text(model.Name(device.Device), 69, 65, 194, 22, 14,
+            disconnected ? colors.Secondary : colors.Ink, 600, ellipsis: true);
         float tagX = 69 + Math.Min(nameWidth, 194) + 6;
         canvas.Fill(tagX, 69, 34, 16, 4, colors.Chip);
         canvas.Text("2.4G", tagX, 69, 34, 16, 10.5f, colors.Secondary, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
-        DrawPin(canvas, 70, 88);
-        canvas.Text("固定在托盘", 83, 86, 190, 18, 11.5f, colors.Accent);
+
+        // 顶部卡片不再显示「固定在托盘」；无在线设备时明确标明「已断开」，同时展示适配徽标（A4 / B4 / B7）。
+        float metaX = 69;
+        if (disconnected)
+        {
+            float discWidth = canvas.Text("已断开 · ", metaX, 86, 80, 18, 11.5f, colors.Muted);
+            metaX += discWidth;
+        }
+        DrawBadge(canvas, device.Device, metaX, 87.5f, dimmed: false);
 
         var tone = Presentation.Tone(device, Threshold);
         var ink = tone switch
@@ -379,15 +439,35 @@ internal sealed partial class PopupScene : IDisposable
 
     private void DrawRow(int index) => rows[index].Draw(canvas =>
     {
-        var device = devices[1 + offset + index];
+        if (offset + index >= mainEntries.Length)
+            return;
+        var entry = mainEntries[offset + index];
+        if (entry.IsOfflineToggle)
+        {
+            bool hot = hoverRow == index || hover.Action == PopupAction.ToggleOffline;
+            if (hot)
+                canvas.Fill(0, 0, Width - 8, RowHeight, 6, pressed.Action == PopupAction.ToggleOffline ? colors.Press : colors.Hover);
+            if (focused.Action == PopupAction.ToggleOffline)
+                canvas.Stroke(.5f, .5f, Width - 9, RowHeight - 1, 5.5f, colors.Accent);
+            canvas.Line(12, .5f, Width - 20, .5f, colors.Border);
+            canvas.Text($"离线设备（{entry.OfflineCount}）", 14, 0, 240, RowHeight, 12.5f, colors.Muted, 600);
+            DrawChevron(canvas, Width - 28, RowHeight / 2f, entry.OfflineExpanded ? 1f : 0f);
+            return;
+        }
+
+        var device = entry.Device!;
         var tone = Presentation.Tone(device, Threshold);
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
         string status = Presentation.Status(device, now, Threshold);
         int split = status.IndexOf(" · 上次读数", StringComparison.Ordinal);
-        canvas.Text(model.Name(device.Device), 56, split < 0 ? 5 : 1, 153, 19, 13.5f,
+        bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
+        float nameMaxWidth = isGeneric ? 98 : 153;
+        float nameWidth = canvas.Text(model.Name(device.Device), 56, split < 0 ? 5 : 1, nameMaxWidth, 19, 13.5f,
             tone == BatteryTone.Idle ? colors.Muted : colors.Ink, ellipsis: true);
+        if (isGeneric)
+            DrawBadge(canvas, device.Device, 56 + Math.Min(nameWidth, nameMaxWidth) + 5, split < 0 ? 7 : 3, dimmed: tone == BatteryTone.Idle);
         var statusColor = tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Muted;
         if (split < 0)
             canvas.Text(status, 56, 23, 161, 19, 12, statusColor, ellipsis: true);
@@ -406,6 +486,26 @@ internal sealed partial class PopupScene : IDisposable
         };
         DrawNumber(canvas, device, 260, 7, 64, 34, 20, 12, 11, ink, true);
     });
+
+    private void DrawBadge(Canvas canvas, DeviceIdentity device, float x, float y, bool dimmed)
+    {
+        var badge = DeviceVerification.Badge(device);
+        string label = DeviceVerification.Label(badge);
+        float badgeWidth = canvas.Measure(label, 10.5f, 600) + 10;
+        var (bg, fg) = badge switch
+        {
+            AdaptationBadge.Verified => (colors.Charging.WithAlpha(41), colors.Charging),
+            AdaptationBadge.Generic => (colors.AccentSoft, colors.Accent),
+            _ => (colors.Chip, colors.Secondary)
+        };
+        if (dimmed)
+        {
+            bg = bg.WithAlpha((byte)Math.Round(bg.Alpha * .45));
+            fg = fg.WithAlpha((byte)Math.Round(fg.Alpha * .45));
+        }
+        canvas.Fill(x, y, badgeWidth, 15.5f, 4, bg);
+        canvas.Text(label, x + 5, y, badgeWidth - 10, 15.5f, 10.5f, fg, 600);
+    }
 
     private void DrawNumber(Canvas canvas, DeviceStatus device, float x, float y, float width, float height,
         float numberSize, float percentSize, float approxSize, Color ink, bool rightAlign)
@@ -518,16 +618,6 @@ internal sealed partial class PopupScene : IDisposable
         canvas.Arc(16, 16, 5.5f, 0, MathF.PI * 1.75f, ink, 1.4f);
         canvas.Line(20.2f, 9.8f, 20.2f, 12.4f, ink, 1.4f);
         canvas.Line(20.2f, 12.4f, 17.6f, 12.4f, ink, 1.4f);
-    }
-
-    private void DrawPin(Canvas canvas, float x, float y) => DrawPin(canvas, x, y, colors.Accent, 1);
-
-    private static void DrawPin(Canvas canvas, float x, float y, Color ink, float scale)
-    {
-        canvas.Line(x + 6 * scale, y + scale, x + 9 * scale, y + 4 * scale, ink, 1.6f * scale);
-        canvas.Line(x + 7 * scale, y + 3 * scale, x + 4 * scale, y + 6 * scale, ink, 2.2f * scale);
-        canvas.Line(x + 2 * scale, y + 4 * scale, x + 7 * scale, y + 9 * scale, ink, 1.6f * scale);
-        canvas.Line(x + 5 * scale, y + 7 * scale, x + scale, y + 11 * scale, ink, scale);
     }
 
     private static void DeviceIcon(Canvas canvas, DeviceKind kind, float x, float y, float size, Color fill, Color ink)

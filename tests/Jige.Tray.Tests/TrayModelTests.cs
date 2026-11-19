@@ -56,10 +56,10 @@ public sealed class TrayModelTests
     }
 
     [Fact]
-    public void PrimaryGoesFirstAndSnoozeLastsAnHourEvenAfterRestart()
+    public void LowestBatteryGoesFirstAndSnoozeLastsAnHourEvenAfterRestart()
     {
-        var model = new TrayModel(new() { PrimaryDeviceId = "INZONE-H9:1" }, new());
-        model.ApplyPoll([Reading(Mouse, 10), Reading(Headset, 14)], false, Now);
+        var model = new TrayModel(new(), new());
+        model.ApplyPoll([Reading(Mouse, 14), Reading(Headset, 10)], false, Now);
         Assert.Equal(Headset, model.ReadyReminder(Now, false)?.Device);
         model.SetReminder(Headset.Id, Now.AddHours(1));
         Assert.Equal(Mouse, model.ReadyReminder(Now, false)?.Device);
@@ -69,8 +69,8 @@ public sealed class TrayModelTests
         Assert.Null(restarted.ReadyReminder(Now.AddHours(1), false));
         Assert.False(restarted.OrderedDevices()[0].Fresh);
         var current = Now.AddMinutes(59);
-        restarted.ApplyPoll([Reading(Mouse, 10) with { ReadAt = current },
-            Reading(Headset, 14) with { ReadAt = current }], false, current);
+        restarted.ApplyPoll([Reading(Mouse, 14) with { ReadAt = current },
+            Reading(Headset, 10) with { ReadAt = current }], false, current);
         Assert.Null(restarted.ReadyReminder(current, false));
         Assert.Null(restarted.ReadyReminder(Now.AddHours(1), true));
         Assert.Equal(Headset, restarted.ReadyReminder(Now.AddHours(1), false)?.Device);
@@ -104,24 +104,24 @@ public sealed class TrayModelTests
         model.ApplyPoll([Reading(Mouse, 72, estimated: true), Reading(Headset, 48)], false, Now);
         var time = Now.AddMinutes(8);
         model.ApplyPoll([Reading(Mouse, null, LinkState.Asleep), Reading(Headset, null, LinkState.Busy)], false, time);
-        var devices = model.OrderedDevices();
+        var devices = model.OrderedForManagement();
         Assert.Equal("≈72%", Presentation.Value(devices[0]));
         Assert.Equal("休眠 · 上次读数 · 8 分钟前", Presentation.Status(devices[0], time, 15));
         Assert.Equal("接收器被占用 · 上次读数 · 8 分钟前", Presentation.Status(devices[1], time, 15));
 
         model.ApplyPoll([], true, time);
-        Assert.Equal(LinkState.Unknown, model.OrderedDevices()[0].Link);
+        Assert.Equal(LinkState.Unknown, model.OrderedForManagement()[0].Link);
         model.ApplyPoll([], false, time);
-        Assert.Equal("离线 · 上次读数 · 8 分钟前", Presentation.Status(model.OrderedDevices()[0], time, 15));
+        Assert.Equal("已断开 · 上次读数 · 8 分钟前", Presentation.Status(model.OrderedForManagement()[0], time, 15));
         Assert.Equal(Now, model.Snapshot().Readings[Mouse.Id].ReadAt);
     }
 
     [Fact]
-    public void TooltipKeepsPrimaryValueAndFitsUtf16Buffer()
+    public void TooltipKeepsLowestOnlineValueAndFitsUtf16Buffer()
     {
         var settings = new TraySettings()
         {
-            PrimaryDeviceId = Headset.Id,
+            TrayMode = TrayDisplayMode.LowestBattery,
             DeviceAliases = new()
             {
                 ["INZONE-H9:1"] = string.Concat(Enumerable.Repeat("🐱", 90)),
@@ -141,7 +141,7 @@ public sealed class TrayModelTests
     }
 
     [Fact]
-    public void LegacyConfigAndPanelChangesSurviveRestartWithHiddenTooltipEntries()
+    public void B4_LegacyConfigWithPrimaryDeviceIdLoadsCleanlyWithoutErrors()
     {
         var directory = Directory.CreateTempSubdirectory("jige-panel-test-");
         try
@@ -160,14 +160,17 @@ public sealed class TrayModelTests
                 """);
 
             Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Equal(TrayDisplayMode.PerDevice, loaded.TrayMode);
             Assert.Empty(loaded.HiddenDeviceIds);
             Assert.Null(loaded.WelcomeShown);
             Assert.Equal(22, loaded.LowBatteryThreshold);
             Assert.Equal(72, loaded.PollSeconds);
+
             var model = new TrayModel(loaded, new());
             model.ApplyPoll([Reading(Mouse, 72), Reading(Headset, 48)], false, Now);
             Assert.Equal("旧配置鼠标", model.Name(Mouse));
-            Assert.Same(loaded, model.ToggleVisibility("ULX:1"));
+            // 顶部自动显示电量最低的在线设备（Headset 48% < Mouse 72%）。
+            Assert.Equal(Headset, model.PrimaryDevice?.Device);
 
             var changed = model.ToggleVisibility("INZONE-H9:1").WithAlias(Headset.Id, "  我的　耳机 🐱 ");
             changed = changed with
@@ -187,7 +190,7 @@ public sealed class TrayModelTests
             Assert.Equal(new[] { "INZONE-H9:1" }, saved.HiddenDeviceIds);
             Assert.Equal("我的 耳机 🐱", restarted.Name(Headset));
             Assert.Equal(Mouse, Assert.Single(restarted.PanelDevices()).Device);
-            Assert.Contains("我的 耳机 🐱 48%", Presentation.Tooltip(restarted));
+            Assert.Contains("我的 耳机 🐱 · 已断开 · 上次 48%", Presentation.Tooltip(restarted));
 
             var cleared = saved.WithAlias(Headset.Id, "   ");
             restarted.ApplySettings(cleared, Now);
@@ -195,14 +198,6 @@ public sealed class TrayModelTests
             files.SaveSettings(cleared);
             Assert.True(files.TryLoadSettings(out var reopened));
             Assert.False(reopened.DeviceAliases.ContainsKey(Headset.Id));
-
-            var shown = restarted.ToggleVisibility(Headset.Id);
-            Assert.Empty(shown.HiddenDeviceIds);
-            restarted.ApplySettings(saved.WithPrimary(Headset.Id), Now);
-            Assert.Empty(restarted.Settings.HiddenDeviceIds);
-            Assert.Equal(Headset, restarted.PrimaryDevice?.Device);
-            Assert.Equal(new[] { Mouse, Headset },
-                restarted.OrderedDevices(primaryFirst: false).Select(device => device.Device));
         }
         finally
         {
@@ -211,26 +206,15 @@ public sealed class TrayModelTests
     }
 
     [Fact]
-    public void ConfigNormalizationRemovesDuplicateHiddenIdsAndKeepsThePinnedDeviceVisible()
+    public void ConfigNormalizationDeduplicatesHiddenAndExcludedIds()
     {
         var settings = new TraySettings
         {
-            PrimaryDeviceId = "ULX:1", HiddenDeviceIds = ["ulx:1", "MOUSE:2", "mouse:2", ""]
+            HiddenDeviceIds = ["ulx:1", "MOUSE:2", "mouse:2", ""],
+            TrayExcludedDeviceIds = ["ulx:1", "ULX:1", ""]
         }.Normalize();
-        Assert.Equal(new[] { "MOUSE:2" }, settings.HiddenDeviceIds);
-    }
-
-    [Fact]
-    public void AutomaticPrimarySkipsHiddenDevicesAndCannotBeHidden()
-    {
-        var model = new TrayModel(new() { HiddenDeviceIds = [Mouse.Id] }, new());
-        model.ApplyPoll([Reading(Mouse, 10), Reading(Headset, 50)], false, Now);
-        Assert.Equal(Headset, model.PrimaryDevice?.Device);
-        Assert.Same(model.Settings, model.ToggleVisibility(Headset.Id));
-        Assert.Equal(Mouse, model.ReadyReminder(Now, false)?.Device);
-        model.ApplySettings(model.Settings.WithPrimary(Mouse.Id), Now);
-        Assert.False(model.IsHidden(Mouse.Id));
-        Assert.Equal(Mouse, model.PrimaryDevice?.Device);
+        Assert.Equal(new[] { "ulx:1", "MOUSE:2" }, settings.HiddenDeviceIds);
+        Assert.Equal(new[] { "ulx:1" }, settings.TrayExcludedDeviceIds);
     }
 
     [Fact]
@@ -247,13 +231,15 @@ public sealed class TrayModelTests
             Assert.False(defaults.WelcomeShown);
             var settings = defaults with
             {
-                PrimaryDeviceId = Mouse.Id, PollSeconds = 72, GamePollSeconds = 480, StartWithWindows = true,
+                TrayMode = TrayDisplayMode.LowestBattery,
+                PollSeconds = 72, GamePollSeconds = 480, StartWithWindows = true,
                 GameSilent = false, WelcomeShown = true,
                 GameProcessNames = ["Arena.exe", " arena ", "C:/Hidden.exe"],
                 DeviceAliases = new() { ["ULX:1"] = " 我的\n 鼠标 " }
             };
             files.SaveSettings(settings);
             Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Equal(TrayDisplayMode.LowestBattery, loaded.TrayMode);
             Assert.Equal("我的 鼠标", loaded.DeviceAliases[Mouse.Id]);
             Assert.True(loaded.StartWithWindows);
             Assert.False(loaded.GameSilent);
@@ -262,10 +248,11 @@ public sealed class TrayModelTests
             var model = new TrayModel(loaded, files.LoadState());
             model.ApplyPoll([Reading(Mouse, 8, estimated: true)], false, Now);
             model.SetReminder(Mouse.Id, Now.AddHours(1));
-            files.SaveState(model.Snapshot());
+            files.SaveState(model.Snapshot(new() { ["373B:1999:FF02:0002:17:17:0"] = "回复格式不符" }));
             var restored = new TrayModel(loaded, files.LoadState());
             Assert.Equal("≈8%", Presentation.Value(restored.OrderedDevices()[0]));
             Assert.Equal(Now.AddHours(1), restored.Snapshot().Reminders[Mouse.Id].Due);
+            Assert.True(restored.InitialBlockedReceivers.ContainsKey("373B:1999:FF02:0002:17:17:0"));
 
             File.WriteAllText(files.StatePath + ".tmp", "{");
             Assert.Equal(Now, files.LoadState().Readings[Mouse.Id].ReadAt);
@@ -293,16 +280,15 @@ public sealed class TrayModelTests
     }
 
     [Fact]
-    public void TooltipKeepsPrimaryThenVisibleLowDevicesAndCountsOmittedRows()
+    public void TooltipKeepsLowestVisibleFirstAndCountsOmittedRows()
     {
         var list = Enumerable.Range(0, 20).Select(i => new DeviceIdentity($"dev:{i:D2}",
             $"设备 {i:D2} 的名称", DeviceKind.Mouse)).ToArray();
-        var model = new TrayModel(new TraySettings { PrimaryDeviceId = list[5].Id, HiddenDeviceIds = [list[0].Id] }, new());
+        var model = new TrayModel(new TraySettings { HiddenDeviceIds = [list[0].Id] }, new());
         model.ApplyPoll(list.Select((device, i) => Reading(device, i + 1)).ToArray(), false, Now);
         var lines = Presentation.Tooltip(model).Split('\n');
-        Assert.StartsWith("设备 05 的名称 6%", lines[0]);
-        Assert.StartsWith("设备 01 的名称 2%", lines[1]);
-        Assert.StartsWith("设备 02 的名称 3%", lines[2]);
+        Assert.StartsWith("设备 01 的名称 2%", lines[0]);
+        Assert.StartsWith("设备 02 的名称 3%", lines[1]);
         Assert.DoesNotContain(lines, line => line.StartsWith("设备 00", StringComparison.Ordinal));
         Assert.Equal($"另有 {list.Length - lines.Length + 1} 台", lines[^1]);
         Assert.True(Presentation.Tooltip(model).Length <= 127);
@@ -311,7 +297,7 @@ public sealed class TrayModelTests
     [Fact]
     public void RemovingOfflineDeviceClearsSavedSettingsAndReadingUntilDetectedAgain()
     {
-        var settings = new TraySettings { PrimaryDeviceId = Mouse.Id }.WithAlias(Mouse.Id, "旧鼠标");
+        var settings = new TraySettings().WithAlias(Mouse.Id, "旧鼠标");
         var model = new TrayModel(settings, new());
         model.ApplyPoll([Reading(Mouse, 10)], false, Now);
         model.RemoveOffline(Mouse.Id);
@@ -324,7 +310,6 @@ public sealed class TrayModelTests
         Assert.Empty(restored.OrderedDevices());
         Assert.Empty(restored.Snapshot().Reminders);
         Assert.Empty(restored.Settings.DeviceAliases);
-        Assert.Null(restored.Settings.PrimaryDeviceId);
         restored.ApplyPoll([Reading(Mouse, null, LinkState.Offline)], false, Now);
         Assert.Empty(restored.OrderedDevices());
         restored.ApplyPoll([Reading(Mouse, 56)], false, Now);

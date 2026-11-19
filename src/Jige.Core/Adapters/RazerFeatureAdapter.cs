@@ -1,7 +1,25 @@
 namespace Jige.Core.Adapters;
 
-internal sealed class RazerFeatureAdapter : IDeviceAdapter
+internal sealed class RazerFeatureAdapter : IDeviceAdapter, IPresenceAdapter
 {
+    public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
+
+    public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
+        DeviceTarget target, IReceiverTransport transport, CancellationToken token)
+    {
+        if (target.Endpoint is not HidInterface endpoint || Match(endpoint) is not { } model)
+            return null;
+        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0 }, token);
+        var request = RazerFeatureProtocol.Encode(model.Pid, RazerFeatureQuery.Battery);
+        await session.WriteFeatureAsync(request, token).ConfigureAwait(false);
+        await Task.Delay(60, token).ConfigureAwait(false);
+        var response = new byte[RazerFeatureProtocol.ReportLength];
+        await session.ReadFeatureAsync(response, token).ConfigureAwait(false);
+        if (!RazerFeatureProtocol.TryDecode(response, model, RazerFeatureQuery.Battery, out byte status, out _))
+            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.InvalidResponse);
+        var link = status switch { 2 => LinkState.Online, 4 => LinkState.Offline, 1 => LinkState.Busy, _ => LinkState.Unknown };
+        return new(endpoint.ReceiverId, null, target.Device.Id, link);
+    }
     private static RazerFeatureModel? Match(HidInterface endpoint)
     {
         var model = RazerFeatureProtocol.Find(endpoint.ProductId);

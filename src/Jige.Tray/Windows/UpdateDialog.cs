@@ -13,7 +13,7 @@ using static Windows.Win32.UI.Controls.TASKDIALOG_NOTIFICATIONS;
 namespace Jige.Tray.Windows;
 
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inGame)
+internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inGame, Action<string>? logResult = null)
 {
     private const int Cancel = 2, Install = 100, Release = 101;
     private const uint CloseMessage = 0x0010; // WM_CLOSE
@@ -37,9 +37,11 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
                 return false;
             if (update is null)
             {
+                logResult?.Invoke($"已是最新版本 v{current}");
                 Show("已是最新版本", $"当前版本 v{current}。");
                 return false;
             }
+            logResult?.Invoke($"发现新版本 v{update.Version}（当前 v{current}）");
 
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             bool installed = InstallPaths.IsInstalledExecutable(Environment.ProcessPath, local);
@@ -57,11 +59,13 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
         catch (OperationCanceledException)
         {
             // 用户取消或安装器要求退出时结束当前操作。
+            logResult?.Invoke("已取消");
             return false;
         }
         catch (Exception error) when (error is IOException or InvalidDataException or JsonException or
             HttpRequestException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
         {
+            logResult?.Invoke($"失败（{error.GetType().Name}）");
             if (!closing)
                 Show("更新未完成", Explain(error));
             return false;

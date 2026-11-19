@@ -161,7 +161,7 @@ public static class WindowsDeviceDiscovery
             var attributes = WindowsReceiverTransport.ReadAttributes(handle);
             vid = attributes.VendorId;
             pid = attributes.ProductId;
-            if (readProduct)
+            if (readProduct && caps.UsagePage >= 0xFF00)
             {
                 char* chars = stackalloc char[126];
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')

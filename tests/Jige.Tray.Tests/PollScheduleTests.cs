@@ -4,38 +4,82 @@ namespace Jige.Tray.Tests;
 
 public sealed class PollScheduleTests
 {
-    private static readonly DateTimeOffset Now = new(2026, 11, 19, 12, 0, 0, TimeSpan.Zero);
+    private const long T0 = 1_000_000L;
 
     [Fact]
     public void GameDelaysAutomaticWorkButHonorsAnExplicitRefresh()
     {
         var settings = new TraySettings();
-        var schedule = new PollSchedule(Now);
-        Assert.Equal(Now.AddMinutes(5), schedule.Due(settings, Now, true));
+        var schedule = new PollSchedule(T0);
+        Assert.Equal(T0 + 300_000L, schedule.Due(settings, T0, true));
         schedule.Request();
-        Assert.Equal(Now, schedule.Due(settings, Now, true));
-        schedule.Start(Now, true);
+        Assert.Equal(T0, schedule.Due(settings, T0, true));
+        schedule.Start(T0, true);
         Assert.True(schedule.StartedByUser);
         schedule.Request();
-        Assert.Null(schedule.Due(settings, Now, true));
+        Assert.Null(schedule.Due(settings, T0, true));
         schedule.Complete();
-        Assert.Equal(Now.AddMinutes(5), schedule.Due(settings, Now, true));
-        Assert.Equal(Now.AddMinutes(1), schedule.Due(settings, Now, false));
+        Assert.Equal(T0 + 300_000L, schedule.Due(settings, T0, true));
+        Assert.Equal(T0 + 60_000L, schedule.Due(settings, T0, false));
     }
 
     [Fact]
     public void BackgroundRetryWaitsForGameToEnd()
     {
         var settings = new TraySettings { PollSeconds = 90, GamePollSeconds = 480 };
-        var schedule = new PollSchedule(Now);
-        var gamePoll = Now.AddSeconds(480);
+        var schedule = new PollSchedule(T0);
+        long gamePoll = T0 + 480_000L;
         schedule.Request(userInitiated: false);
-        Assert.Equal(gamePoll, schedule.Due(settings, Now, true));
+        Assert.Equal(gamePoll, schedule.Due(settings, T0, true));
         schedule.Start(gamePoll, true);
         Assert.False(schedule.StartedByUser);
         schedule.Complete();
-        Assert.Equal(Now.AddSeconds(960), schedule.Due(settings, gamePoll, true));
-        Assert.Equal(gamePoll.AddSeconds(1), schedule.Due(settings, gamePoll.AddSeconds(1), false));
+        Assert.Equal(T0 + 960_000L, schedule.Due(settings, gamePoll, true));
+        Assert.Equal(gamePoll + 1_000L, schedule.Due(settings, gamePoll + 1_000L, false));
+    }
+
+    [Fact]
+    public void B1_HeartbeatRunsEvery8SecondsNormallyAnd30SecondsInGame()
+    {
+        var settings = new TraySettings { PollSeconds = 60, GamePollSeconds = 300 };
+        var schedule = new PollSchedule(T0);
+        schedule.Start(T0, game: false);
+        schedule.Complete();
+
+        // 平时 8 秒一次轻量心跳，电量查询仍保持 60 秒。
+        Assert.Equal(T0 + 60_000L, schedule.Due(settings, T0, game: false));
+        Assert.Equal(T0 + 8_000L, schedule.HeartbeatDue(T0, game: false, hasHeartbeatDevices: true));
+        Assert.Null(schedule.HeartbeatDue(T0, game: false, hasHeartbeatDevices: false));
+
+        // 游戏中心跳放慢到 30 秒。
+        Assert.Equal(T0 + 30_000L, schedule.HeartbeatDue(T0, game: true, hasHeartbeatDevices: true));
+
+        // 心跳执行一次后，下一次顺延 8 秒。
+        schedule.StartHeartbeat(T0 + 8_000L);
+        Assert.Null(schedule.HeartbeatDue(T0 + 8_000L, game: false, hasHeartbeatDevices: true));
+        schedule.CompleteHeartbeat();
+        Assert.Equal(T0 + 16_000L, schedule.HeartbeatDue(T0 + 8_000L, game: false, hasHeartbeatDevices: true));
+    }
+
+    [Fact]
+    public void C2_PowerResumeTriggersImmediateRescanAndScheduleIsMonotonic()
+    {
+        var settings = new TraySettings { PollSeconds = 60 };
+        var schedule = new PollSchedule(T0);
+        Assert.True(schedule.Start(T0, game: false));
+        schedule.Complete();
+
+        // 普通轮询不强制重新枚举。
+        Assert.Equal(T0 + 60_000L, schedule.Due(settings, T0 + 10_000L, game: false));
+        Assert.False(schedule.Start(T0 + 60_000L, game: false));
+        schedule.Complete();
+
+        // 休眠恢复立即到期并强制重新枚举。
+        schedule.NotifyPowerResume();
+        long resumeTick = T0 + 65_000L;
+        Assert.Equal(resumeTick, schedule.Due(settings, resumeTick, game: false));
+        Assert.True(schedule.Start(resumeTick, game: false));
+        schedule.Complete();
     }
 
     [Theory]

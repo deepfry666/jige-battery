@@ -42,18 +42,17 @@ public sealed class PanelPagesTests
 
     [Theory]
     [InlineData(null, 52, 96, 140, 184, 228, 323)]
-    [InlineData((int)SettingRow.Primary, 52, 266, 310, 354, 398, 493)]
+    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 391)]
     [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 459)]
     [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 425)]
-    public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int primary, int threshold,
+    public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int trayMode, int threshold,
         int game, int poll, int autostart, int height)
     {
         var panel = new SettingsPanel(700);
-        panel.SetDeviceCount(5);
         if (expanded is int expandedRow)
             Assert.True(panel.Toggle((SettingRow)expandedRow, 0, animate: false, selectedIndex: 0));
 
-        int[] tops = [primary, threshold, game, poll, autostart];
+        int[] tops = [trayMode, threshold, game, poll, autostart];
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = panel.RowRect(row);
@@ -108,42 +107,20 @@ public sealed class PanelPagesTests
         Assert.Equal(323, panel.Height);
     }
 
-    [Fact]
-    public void DeviceOverflowCanScrollToEveryChoiceWithinWorkArea()
-    {
-        var panel = new SettingsPanel(400);
-        Assert.False(panel.Toggle(SettingRow.Primary, 0, animate: false, selectedIndex: -1));
-        panel.SetDeviceCount(12);
-        Assert.True(panel.Toggle(SettingRow.Primary, 0, animate: false, selectedIndex: 0));
-        Assert.Equal(391, panel.Height);
-        Assert.Equal(2, panel.VisibleCount(SettingRow.Primary));
-        for (int index = 0; index < 10; index++)
-            Assert.True(panel.Scroll(1));
-        Assert.False(panel.Scroll(1));
-        Assert.False(panel.OptionHitRect(SettingRow.Primary, 9).Contains(100, 96));
-        Assert.True(panel.OptionHitRect(SettingRow.Primary, 11).Contains(100, 130));
-        Assert.Equal(391, panel.Height);
-    }
-
     [Theory]
-    [InlineData((int)SettingRow.Primary, (int)PopupAction.PrimaryDevice, 0, "headset", 15, 60)]
-    [InlineData((int)SettingRow.Threshold, (int)PopupAction.Threshold, 30, null, 30, 60)]
-    [InlineData((int)SettingRow.PollInterval, (int)PopupAction.PollInterval, 120, null, 15, 120)]
-    public void SelectingAnOptionSavesItAndClosesTheList(int row, int action, int value, string? id, int threshold, int poll)
+    [InlineData((int)SettingRow.TrayMode, (int)PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery, 15, 60, (int)TrayDisplayMode.LowestBattery)]
+    [InlineData((int)SettingRow.Threshold, (int)PopupAction.Threshold, 30, 30, 60, (int)TrayDisplayMode.PerDevice)]
+    [InlineData((int)SettingRow.PollInterval, (int)PopupAction.PollInterval, 120, 15, 120, (int)TrayDisplayMode.PerDevice)]
+    public void SelectingAnOptionSavesItAndClosesTheList(int row, int action, int value, int threshold, int poll, int expectedMode)
     {
         var panel = new SettingsPanel(700);
-        var device = new DeviceIdentity("headset", "耳机", DeviceKind.Headset);
         var time = DateTimeOffset.UnixEpoch;
-        var model = new TrayModel(new() { HiddenDeviceIds = [device.Id] }, new()
-        {
-            Readings = new() { [device.Id] = new(device, 50, false, time) }
-        });
-        panel.SetDeviceCount(1);
+        var model = new TrayModel(new(), new());
         var directory = Directory.CreateTempSubdirectory("jige-settings-test-");
         try
         {
             var files = new TrayFiles(directory.FullName);
-            var target = new PopupTarget((PopupAction)action, value, id);
+            var target = new PopupTarget((PopupAction)action, value);
             Assert.False(panel.Select(target, model, 0, animate: false, Save));
             Assert.False(File.Exists(files.ConfigPath));
 
@@ -154,9 +131,7 @@ public sealed class PanelPagesTests
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);
-            Assert.Equal(id, reloaded.PrimaryDeviceId);
-            if (id is not null)
-                Assert.Empty(reloaded.HiddenDeviceIds);
+            Assert.Equal((TrayDisplayMode)expectedMode, reloaded.TrayMode);
 
             void Save(TraySettings settings)
             {
@@ -171,14 +146,15 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData("inzone-h9:receiver", "Sony INZONE H9（一代接收器）", (int)DeviceKind.Headset, true)]
-    [InlineData("inzone-h9:receiver", "Sony INZONE H9 II", (int)DeviceKind.Headset, false)]
-    [InlineData("MOUSE:some-container", "G-Wolves HTX Ultra 8K", (int)DeviceKind.Mouse, true)]
-    [InlineData("mouse:some-container", "G-Wolves HTX Mini 8K", (int)DeviceKind.Mouse, false)]
-    [InlineData("mouse:some-container", "G-Wolves Fenrir Pro 8K", (int)DeviceKind.Mouse, false)]
-    [InlineData("ulx:some-container", "G-Wolves HTX Ultra 8K", (int)DeviceKind.Mouse, false)]
-    public void VerifiedBadgeUsesOriginalAdapterIdentity(string id, string name, int kind, bool verified)
+    [InlineData("inzone-h9:receiver", "Sony INZONE H9（一代接收器）", (int)DeviceKind.Headset, (int)AdaptationSource.Catalog, "已实机验证")]
+    [InlineData("inzone-h9:receiver", "Sony INZONE H9 II", (int)DeviceKind.Headset, (int)AdaptationSource.Catalog, "按协议适配")]
+    [InlineData("MOUSE:some-container", "G-Wolves HTX Ultra 8K", (int)DeviceKind.Mouse, (int)AdaptationSource.Catalog, "已实机验证")]
+    [InlineData("mouse:some-container", "G-Wolves HTX Mini 8K", (int)DeviceKind.Mouse, (int)AdaptationSource.Catalog, "按协议适配")]
+    [InlineData("mouse:some-container", "ATK 鼠标", (int)DeviceKind.Mouse, (int)AdaptationSource.Generic, "通用适配")]
+    [InlineData("ulx:some-container", "Finalmouse ULX", (int)DeviceKind.Mouse, (int)AdaptationSource.Generic, "通用适配")]
+    public void A4_BadgesDistinguishVerifiedProtocolAndGenericAdaptation(string id, string name, int kind, int source, string expectedLabel)
     {
-        Assert.Equal(verified, DeviceVerification.IsVerified(new(id, name, (DeviceKind)kind)));
+        var identity = new DeviceIdentity(id, name, (DeviceKind)kind, (AdaptationSource)source);
+        Assert.Equal(expectedLabel, DeviceVerification.Label(identity));
     }
 }

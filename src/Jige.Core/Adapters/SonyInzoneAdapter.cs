@@ -1,15 +1,44 @@
+using System.Diagnostics;
+
 namespace Jige.Core.Adapters;
 
-internal sealed class SonyInzoneAdapter : IDeviceAdapter
+internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
 {
     private const string HardwareIdPrefix = @"USB\VID_054C&PID_0E53&";
+    private static readonly string[] InzoneHubProcessNames = ["INZONEHub", "INZONE Hub", "INZONEHubService"];
     private readonly int baudRate;
+    private readonly Func<bool> isInzoneHubRunning;
 
-    public SonyInzoneAdapter(int baudRate)
+    public PresenceProbeKind PresenceKind => PresenceProbeKind.FullPollOnly;
+
+    public SonyInzoneAdapter(int baudRate, Func<bool>? isInzoneHubRunning = null)
     {
         if (baudRate is not (115200 or 460800))
             throw new ArgumentOutOfRangeException(nameof(baudRate));
         this.baudRate = baudRate;
+        this.isInzoneHubRunning = isInzoneHubRunning ?? DefaultInzoneHubCheck;
+    }
+
+    private static bool DefaultInzoneHubCheck()
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+        foreach (string name in InzoneHubProcessNames)
+        {
+            try
+            {
+                var processes = Process.GetProcessesByName(name);
+                bool running = processes.Length > 0;
+                foreach (var process in processes)
+                    process.Dispose();
+                if (running)
+                    return true;
+            }
+            catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception)
+            {
+            }
+        }
+        return false;
     }
 
     private static bool IsControlInterface(string id) =>
@@ -28,6 +57,11 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter
         }
     }
 
+    // H9 串口为独占访问，不做高频在线心跳，避免频繁打开端口与 INZONE Hub 争抢。
+    public ValueTask<PresenceUpdate?> CheckPresenceAsync(
+        DeviceTarget target, IReceiverTransport transport, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<PresenceUpdate?>(null);
+
     public async ValueTask<BatteryReading> ReadAsync(
         DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
     {
@@ -37,6 +71,10 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter
 
         if (endpoint.Path.Length == 0)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, endpoint.MetadataError ?? "串口设备路径不可用");
+
+        // INZONE Hub 正在运行时主动退让，不打开独占串口，避免与官方驱动冲突。
+        if (isInzoneHubRunning())
+            return AdapterRegistry.Failure(target, ReadIssue.Busy, "INZONE Hub 正在运行，已退让避免占用串口");
 
         using var session = transport.OpenSerial(endpoint, baudRate, cancellationToken);
         var stream = new SonyEventStream(trace);

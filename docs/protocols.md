@@ -6,7 +6,7 @@
 
 | 项目 | 本阶段实现 | 验证证据 |
 | --- | --- | --- |
-| 接口 | `361D:0100`，`FF00:0001`，输入、输出报告各 64 字节，含报告 ID | 社区报告在该接收器和厂商使用页上查询成功。本项目未在实机验证 Windows 报告长度、Usage 和不同固件的集合布局 |
+| 接口 | 厂商 `361D`（已知 `361D:0100`，其余 PID 走通用家族识别），唯一 `FF00:0001`，输入、输出报告各 64 字节，含报告 ID | 社区报告在该厂商和使用页上查询成功；未收录 PID 需通过三道安全门（唯一特征、`24` 链路回复校验、不符则持久化拦截）。本项目未在实机验证 Windows 报告长度、Usage 和不同固件的集合布局 |
 | 封帧 | Output `04`，后接 `02`、高位置位的命令、`00`、填零。Input `05`，后接长度、命令、载荷长度和数据 | 社区实机帧印证电压回复的报告 ID、长度和字段。本项目未在实机验证输入及输出 |
 | `24` 链路 | 非零后继续。零表示无线链路断开，按“休眠或关机”显示并结束本轮读取。链路查询无回复时本轮也结束 | 社区记录了链路载荷 `01`。零值无法区分休眠和关机，是否唤醒设备未核实 |
 | `26` 电量 | 载荷依次为百分比、低位 mV、高位 mV；接受 0–100。超时或无有效百分比时走 `05` | 有社区固件持续不回复 `26`。百分比回复仍待本项目实机确认 |
@@ -32,7 +32,7 @@
 | 2 | 耳机型号信息 GET | `01 00 FC 08 96 C3 41 02 01 01 00 9E` |
 | 3 | 耳机电量 GET | `01 00 FC 08 96 C3 41 04 01 01 00 A0` |
 
-前两帧沿用社区的初始化查询顺序，设备无回复时仍可进行电量查询。openinzone 记录的官方串口打开流程没有额外握手，也有记录指出该代链路查询不稳定。几格用有效电量回复确认在线。
+前两帧沿用社区的初始化查询顺序，设备无回复时仍可进行电量查询。openinzone 记录的官方串口打开流程没有额外握手，也有记录指出该代链路查询不稳定。几格用有效电量回复确认在线。因串口为独占访问，H9 不参与高频在线心跳；检测到 `INZONEHub` 进程运行时主动退让，不打开串口。
 
 事件头为 `04 FF`，第三字节加 3 是整帧长度；按流重组分段回复。校验值为从第 4 字节到校验值之前各字节的和取低 8 位。电量只接受 14 字节的 `14 04 10 01 00` 地址、事件、回复类型和事务号组合，校验保留位和 `96 C3` 键值。载荷为 0 或 1 的充电字节以及 0–100 的百分比。
 
@@ -45,15 +45,17 @@
 
 ## ATK 与游狼鼠标
 
-游狼 HTX Ultra 8K 已由几格在 Windows 11 实机读到电量，其他接收器待验证。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合一律跳过。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
+游狼 HTX Ultra 8K 已由几格在 Windows 11 实机读到电量，其他接收器待验证。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合或跨家族冲突一律由安全门 ① 跳过。对于未收录的 `373B`（ATK）与 `361D`（Finalmouse）接收器，支持按唯一接口特征通用识别并施加三道安全门：① 特征必须唯一对应单个协议家族；② 首条只发无害状态查询，回复格式校验通过后才继续；③ 格式不符立即停止并按 `VID:PID:接口特征` 持久化拦截，重启有效，点击「重新检测」清除。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
+
+共享接收器（如 `373B:11D9`、`101A`、`1278` 及通用识别的 ATK 接收器）不再按 PID 写死型号，默认显示「ATK 鼠标」，仅在协议通过 `0x10`（CID/MID）读出已登记型号（例如 OpenMouse 记录的 F1 Ultimate 2.0 `1/8`、A9 Ultimate `1/3`）时更新名称。Compx-OUT 查询期间仅对主集合发送输出报告，同时可对同一接收器的其他厂商输入集合（如 `FF05`、`FF06`）挂起只读监听以接收跨集合回复，并在诊断报告中输出每个集合的收发统计。
 
 | 家族 | 白名单请求与传输 | 运行状态 | 证据等级 |
 | --- | --- | --- | --- |
-| Compx-OUT | `08 04 00×14 49`，17 字节 Output / Input；先挂读再写 | ATK `101A/1031/11D9/1278` 匹配 `FF02:0002` 时允许查询。游狼 `3854` 的精确 Usage 未核实，仍禁止查询 | `11D9`、`3854` 多方开源实现一致，其余单一来源 |
+| Compx-OUT | 电量 `08 04 00×14 49`、在线心跳 `08 03 00×14 4A`、型号 CID/MID `08 10 00×14 3D`；17 字节 Output / Input，先挂读再写 | ATK `101A/1031/11D9/1278` 与满足三道安全门的通用 `373B` `FF02:0002` 允许查询；游狼 `3854` 的精确 Usage 未核实，仍禁止查询 | `04` 多方开源一致；`03` 来自 [atk-control](https://github.com/NasirA1991/atk-control/blob/main/atk_control/protocol.py) 与 [OpenMouse](https://github.com/OpenMouse-Project/mouse-protocol/blob/main/src/drivers/atk/hid.ts)；`10` 来自 OpenMouse、atk-control 与 [atkctl](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md) |
 | Compx-FEAT | 同一 17 字节 Compx 请求，SetFeature 发，Input 收 | ATK `111A` 在 `FF04` 的精确 Usage 未核实，仍禁止查询 | 单一来源 |
-| BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155` 匹配 `FF05:0001` 时允许查询。星闪接收器及分流未核实条目仅登记 | ZERO 无线路径多方开源实现一致 |
-| XVI-OLD | `00 00 02 8F 01 00×60`，65 字节 SetFeature / GetFeature | 启用 `33E4:2717` 的 `MI_02 / FFFF:0000`；其他候选仅登记 | 单一来源 |
-| XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 启用 `33E4:3617`（Fenrir Pro 8K）和 `33E4:5617`（HTX Ultra 8K）的 `MI_02 / FFFF:0000`；`3517` 存在两代协议证据，始终跳过 | `5617` 已实机验证，`3617` 单一来源，`3517` 自动分流未核实 |
+| BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155` 与满足三道安全门的通用 `373B` `FF05:0001` 允许查询；星闪 `1216`（带前置校验布局）及未核实条目保持禁用 | ZERO 无线路径多方开源实现一致 |
+| XVI-OLD | `00 00 02 8F 01 00×60`，65 字节 SetFeature / GetFeature | 从游狼官方网页驱动 [`https://mouse.xyz/Config/env-models.json`](https://mouse.xyz/Config/env-models.json)（`AppVer 1.0.0.51`，`XVI=1`、`IsNewProtocol=0`）导入启用：`2717`（HTX Mini 8K）、`3717`（Fenrir Max 8K）、`3917`（VUK）、`5317`（HTS Ultra）、`5403/5407/5417`（HTS Plus）、`5703/5707/5717`（HTX）、`5803/5807/5817`（HSK Pro）、`5903/5907/5917`（HSK Plus）、`7203`（HSK Lite）、`7713/7717`（HTR / HTR Pro）、`7913/7917`（HT-S2 / Pro） | 官方网页驱动型号表 + 单一开源实现 |
+| XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 从 `mouse.xyz/Config/env-models.json`（`XVI=1`、`IsNewProtocol=1`）导入启用：`3617`（Fenrir Pro 8K）、`3817`（HTM Plus）、`5617`（HTX Ultra 8K）、`6817`（HSK Pro 2.0 8K）；`3517` 存在两代协议冲突记录，保持禁用 | `5617` 已实机验证，其余来自官方网页驱动型号表 |
 
 Compx 回复核对 ID、命令、状态、地址、载荷长度及校验字节。校验为 `0x55` 减去前 16 字节之和后取低 8 位。只解析声明范围内的百分比及充电字节。游狼 Receiver RS 的公开回复尾字节与此校验式不一致，需复核完整原始帧后再考虑启用。离线测试使用 OpenMouse 的 X1 Pro Max 无线完整抓包核对 Compx 帧。Compx-FEAT 与其共享协议编解码，A9 Ultra 用同通道的真实版本回复核验校验和及电量解码对非电量命令的拒绝，独立电量抓包待补。[Compx-OUT 抓包](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/captures/atk-x1-pro-max/receiver.json) · [A9 Ultra 协议](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md#compx-a9-ultra-compatibility) · [A9 Ultra 版本回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/CompxTests.swift) · [Receiver RS 回复记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#6-the-compx-family)
 
@@ -75,6 +77,7 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 | `1000/f0` | 接受 1–100，并排除明确的电池无效、温度错误状态 |
 | `1001/f0` | 大端毫伏，3.5–4.2 V 按单节锂电工作区间线性映射到 0–100%，标为电压估算并保留 mV。超出区间只报告 mV，外部供电时，低三位状态 1 标记已充满、3–7 保持未知 |
 | HID++ 1.0 `83 B5` | 仅 Bolt/Unifying 在具备唯一短报告集合（`FF00:0001`、7 字节、Output ID `10`）且槽无应答或明确不可达时使用。向接收器地址 `FF` 读指定槽的配对表，长回复需回显选择字节 |
+| HID++ 1.0 `0x41 / 0x40`（只读被动监听） | 仅挂起 Input 读取接收器主动推送的设备连接/断开事件，不发送寄存器写入命令；`0x41` 载荷字节 4 的 bit6（`0x40`）置位判定为离线，清零判定为在线，`0x40` 解配判定为离线。来源：[Solaar notifications.py](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/notifications.py)、[Linux hid-logitech-hidpp.c](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c) |
 
 明确不可达或确认已配对但 Ping 无回复的槽显示“离线”。明确空槽和无法确认配对的静默槽不生成设备。未知 `046D` PID 只有产品字符串表明是接收器且匹配长报告描述符时才对槽 1 发送一次 Ping，应答有效后最多再查一次 Root `1004`，输出探测结果。地址 `FF` 仅用于允许的配对表读。寄存器写 `80/82`、配对控制、通知开关、DFU 及配置均不在白名单中。
 
@@ -149,4 +152,4 @@ V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机
 
 ## 本阶段验收
 
-0.2.1 在 macOS 上通过托管构建与离线测试，覆盖已有实机样本、只读请求、罗技长短通道和雷蛇诊断回放，以及托盘提醒、设置和数据恢复。Windows NativeAOT 产物、原生启动自检、安装升级和新增托盘交互需在 Windows 验收。
+0.2.2 在 macOS 上通过托管构建（零警告）与 206 项离线单元测试，覆盖通用协议家族识别、三道安全门、ATK `373B:11D9` 共享命名与 CID/MID 识别、跨集合被动监听、游狼官方型号表、轻量在线心跳、罗技推送监听、H9 INZONE Hub 退让、设备拓扑缓存、单调时钟、托盘多图标与面板排序、诊断扩展字段及脱敏验证。Windows NativeAOT 产物、插拔与休眠唤醒实机表现、ATK F1 Ultimate 2.0 实机复测及长时间内存观测需在 Windows 11 实机验收。

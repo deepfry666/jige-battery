@@ -5,9 +5,12 @@ using Jige.Core;
 
 namespace Jige.Tray;
 
+[JsonConverter(typeof(JsonStringEnumConverter<TrayDisplayMode>))]
+internal enum TrayDisplayMode { PerDevice, LowestBattery }
+
 internal sealed record TraySettings
 {
-    public string? PrimaryDeviceId { get; init; }
+    public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.PerDevice;
     public int LowBatteryThreshold { get; init; } = 15;
     public int PollSeconds { get; init; } = 60;
     public int GamePollSeconds { get; init; } = 300;
@@ -17,12 +20,18 @@ internal sealed record TraySettings
     public string[] GameProcessNames { get; init; } = [];
     public Dictionary<string, string> DeviceAliases { get; init; } = [];
     public string[] HiddenDeviceIds { get; init; } = [];
+    public string[] TrayExcludedDeviceIds { get; init; } = [];
 
-    public TraySettings WithPrimary(string? id) => this with
+    public bool IsInTray(string id) =>
+        !TrayExcludedDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+
+    public TraySettings ToggleTrayDevice(string id)
     {
-        PrimaryDeviceId = id,
-        HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray()
-    };
+        string[] excluded = IsInTray(id)
+            ? [.. TrayExcludedDeviceIds, id]
+            : TrayExcludedDeviceIds.Where(item => !StringComparer.OrdinalIgnoreCase.Equals(item, id)).ToArray();
+        return this with { TrayExcludedDeviceIds = excluded };
+    }
 
     public TraySettings WithAlias(string id, string name)
     {
@@ -43,8 +52,8 @@ internal sealed record TraySettings
         var settings = WithAlias(id, "");
         return settings with
         {
-            PrimaryDeviceId = StringComparer.OrdinalIgnoreCase.Equals(PrimaryDeviceId, id) ? null : PrimaryDeviceId,
-            HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray()
+            HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray(),
+            TrayExcludedDeviceIds = TrayExcludedDeviceIds.Where(excluded => !StringComparer.OrdinalIgnoreCase.Equals(excluded, id)).ToArray()
         };
     }
 
@@ -61,8 +70,10 @@ internal sealed record TraySettings
         }
 
         int normal = Math.Clamp(PollSeconds, 15, 86_400);
+        var mode = Enum.IsDefined(TrayMode) ? TrayMode : TrayDisplayMode.PerDevice;
         return this with
         {
+            TrayMode = mode,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
@@ -73,7 +84,10 @@ internal sealed record TraySettings
                 .Where(name => name.Length > 0 && !name.Contains('/') && !name.Contains('\\'))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             HiddenDeviceIds = (HiddenDeviceIds ?? [])
-                .Where(id => !string.IsNullOrWhiteSpace(id) && !StringComparer.OrdinalIgnoreCase.Equals(id, PrimaryDeviceId))
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            TrayExcludedDeviceIds = (TrayExcludedDeviceIds ?? [])
+                .Where(id => !string.IsNullOrWhiteSpace(id))
                 .Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
         };
     }
@@ -81,11 +95,17 @@ internal sealed record TraySettings
 
 internal sealed record SavedBattery(DeviceIdentity Device, int Percentage, bool IsEstimated, DateTimeOffset ReadAt);
 internal sealed record SavedReminder(DateTimeOffset? Due);
+internal sealed record SavedHistorySample(DateTimeOffset At, int Percentage, bool IsEstimated, ChargingState Charging);
+internal sealed record SavedDeviceHistory(
+    DateTimeOffset FirstSeen, DateTimeOffset? LastOnline, SavedHistorySample[] RecentReadings);
+
 internal sealed record TrayState
 {
     public Dictionary<string, SavedBattery> Readings { get; init; } = [];
     public Dictionary<string, SavedReminder> Reminders { get; init; } = [];
     public string[] RemovedOfflineDevices { get; init; } = [];
+    public Dictionary<string, SavedDeviceHistory> History { get; init; } = [];
+    public Dictionary<string, string> BlockedReceivers { get; init; } = [];
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]

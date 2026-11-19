@@ -15,19 +15,71 @@ using Windows.Win32.UI.WindowsAndMessaging;
 namespace Jige.Tray.Windows;
 
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
+internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) : IDisposable
 {
-    private const uint Id = 1;
+    // 复用主 STA 线程上的 WIC/D2D/DirectWrite 工厂，避免高 DPI 下多图标每次刷新重复创建与释放 COM 工厂（C3）。
+    private sealed class ScalableFactories : IDisposable
+    {
+        public IWICImagingFactory* Wic;
+        public ID2D1Factory* D2D;
+        public TextFactory Fonts;
+
+        public ScalableFactories()
+        {
+            var wicClass = new Guid("cacaf262-9370-4615-a13b-9f5539da4c0a");
+            var wicId = IWICImagingFactory.IID_Guid;
+            var d2dId = ID2D1Factory.IID_Guid;
+            IWICImagingFactory* wic = null;
+            ID2D1Factory* d2d = null;
+            try
+            {
+                Graphics.Check(PInvoke.CoCreateInstance(&wicClass, null, CLSCTX.CLSCTX_INPROC_SERVER, &wicId, (void**)&wic),
+                    "创建图标位图工厂");
+                Graphics.Check(PInvoke.D2D1CreateFactory(D2D1_FACTORY_TYPE.D2D1_FACTORY_TYPE_SINGLE_THREADED,
+                    &d2dId, null, (void**)&d2d), "创建 Direct2D 图标工厂");
+                Wic = wic;
+                D2D = d2d;
+                Fonts = new TextFactory();
+            }
+            catch
+            {
+                Graphics.Release(d2d);
+                Graphics.Release(wic);
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            Fonts.Dispose();
+            Graphics.Release(D2D);
+            D2D = null;
+            Graphics.Release(Wic);
+            Wic = null;
+        }
+    }
+
+    [ThreadStatic]
+    private static ScalableFactories? sharedFactories;
+
     private HICON icon;
     private IconAppearance? appearance;
     private int size;
     private string? tip;
     private bool registered;
+
+    public uint Id => id;
     public bool Registered => registered;
+
+    public static void DisposeSharedRenderer()
+    {
+        sharedFactories?.Dispose();
+        sharedFactories = null;
+    }
 
     public bool TryGetRect(out RECT rectangle)
     {
-        var identity = new NOTIFYICONIDENTIFIER { cbSize = (uint)sizeof(NOTIFYICONIDENTIFIER), hWnd = window, uID = Id };
+        var identity = new NOTIFYICONIDENTIFIER { cbSize = (uint)sizeof(NOTIFYICONIDENTIFIER), hWnd = window, uID = id };
         RECT bounds;
         var result = PInvoke.Shell_NotifyIconGetRect(&identity, &bounds);
         rectangle = bounds;
@@ -53,7 +105,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
         data.uCallbackMessage = callback;
         // NOTIFYICONDATAW 的提示缓冲区在结构内，包含末尾空字符。
         char* destination = (char*)&data.szTip;
-        nextTip.AsSpan().CopyTo(new Span<char>(destination, 127));
+        nextTip.AsSpan(0, Math.Min(nextTip.Length, 127)).CopyTo(new Span<char>(destination, 127));
 
         bool wasRegistered = registered;
         registered = PInvoke.Shell_NotifyIcon(wasRegistered ? NOTIFY_ICON_MESSAGE.NIM_MODIFY : NOTIFY_ICON_MESSAGE.NIM_ADD, &data);
@@ -78,7 +130,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
         tip = nextTip;
     }
 
-    private NOTIFYICONDATAW Data() => new() { cbSize = (uint)sizeof(NOTIFYICONDATAW), hWnd = window, uID = Id };
+    private NOTIFYICONDATAW Data() => new() { cbSize = (uint)sizeof(NOTIFYICONDATAW), hWnd = window, uID = id };
 
     public static HICON Draw(int size, IconAppearance appearance)
     {
@@ -147,21 +199,14 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
 
     private static void DrawScalable(Span<byte> pixels, int size, IconAppearance icon)
     {
-        var wicClass = new Guid("cacaf262-9370-4615-a13b-9f5539da4c0a");
-        var wicId = IWICImagingFactory.IID_Guid;
+        sharedFactories ??= new ScalableFactories();
+        var factories = sharedFactories;
         var pixelFormat = new Guid("6fddc324-4e03-4bfe-b185-3d77768dc910");
-        IWICImagingFactory* wic = null;
         IWICBitmap* image = null;
-        ID2D1Factory* factory = null;
         ID2D1RenderTarget* render = null;
         try
         {
-            Graphics.Check(PInvoke.CoCreateInstance(&wicClass, null, CLSCTX.CLSCTX_INPROC_SERVER, &wicId, (void**)&wic),
-                "创建图标位图工厂");
-            wic->CreateBitmap((uint)size, (uint)size, pixelFormat, WICBitmapCreateCacheOption.WICBitmapCacheOnLoad, &image);
-            var d2dId = ID2D1Factory.IID_Guid;
-            Graphics.Check(PInvoke.D2D1CreateFactory(D2D1_FACTORY_TYPE.D2D1_FACTORY_TYPE_SINGLE_THREADED,
-                &d2dId, null, (void**)&factory), "创建 Direct2D 图标工厂");
+            factories.Wic->CreateBitmap((uint)size, (uint)size, pixelFormat, WICBitmapCreateCacheOption.WICBitmapCacheOnLoad, &image);
             var properties = new D2D1_RENDER_TARGET_PROPERTIES
             {
                 dpiX = 96, dpiY = 96,
@@ -171,9 +216,8 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
                     alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED
                 }
             };
-            factory->CreateWicBitmapRenderTarget(image, in properties, &render);
-            using var fonts = new TextFactory();
-            using var canvas = new Canvas(render, fonts);
+            factories.D2D->CreateWicBitmapRenderTarget(image, in properties, &render);
+            using var canvas = new Canvas(render, factories.Fonts);
             render->BeginDraw();
             try
             {
@@ -199,9 +243,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback) : IDisposable
         finally
         {
             Graphics.Release(render);
-            Graphics.Release(factory);
             Graphics.Release(image);
-            Graphics.Release(wic);
         }
     }
 

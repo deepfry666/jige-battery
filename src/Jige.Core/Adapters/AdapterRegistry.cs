@@ -1,6 +1,10 @@
 namespace Jige.Core.Adapters;
 
-public sealed record DetectedDevice(IDeviceAdapter Adapter, DeviceTarget Target);
+public sealed record DetectedDevice(IDeviceAdapter Adapter, DeviceTarget Target)
+{
+    public PresenceProbeKind PresenceKind =>
+        Adapter is IPresenceAdapter presence ? presence.PresenceKind : PresenceProbeKind.FullPollOnly;
+}
 
 public sealed class AdapterRegistry
 {
@@ -15,17 +19,20 @@ public sealed class AdapterRegistry
 
     public AdapterRegistry(params IDeviceAdapter[] adapters) => this.adapters = [.. adapters];
 
-    public static AdapterRegistry CreateDefault(int sonyBaudRate = 115200) =>
-        new(new FinalmouseAdapter(), new SonyInzoneAdapter(sonyBaudRate), new MouseReceiverAdapter(),
-            new LogitechHidppAdapter(), new LogitechHeadsetAdapter(), new RazerFeatureAdapter(), new RazerHeadsetAdapter());
+    public static AdapterRegistry CreateDefault(
+        int sonyBaudRate = 115200,
+        SafetyGateStore? gates = null,
+        Func<bool>? isInzoneHubRunning = null) =>
+        new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
+            new MouseReceiverAdapter(gates), new LogitechHidppAdapter(), new LogitechHeadsetAdapter(),
+            new RazerFeatureAdapter(), new RazerHeadsetAdapter());
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
-    /// <summary>只为已收录的接收器读取 HID 描述符；托盘、探针、诊断共用这一判定。</summary>
+    /// <summary>只为支持的接收器家族或已收录接收器读取 HID 描述符；托盘、探针、诊断共用这一判定。</summary>
     public static bool IsKnownHidReceiver(ushort? vid, ushort? pid) =>
-        (vid == 0x361D && pid == 0x0100) || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||
+        vid == 0x361D || vid == 0x373B || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||
         vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null || pid == 0x0565);
-
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory).Select(target => new DetectedDevice(adapter, target)));
@@ -41,6 +48,40 @@ public sealed class AdapterRegistry
             ? ReadWithDeadlineAsync(device, token => multi.ReadDevicesAsync(device.Target, transport, trace, token),
                 issue => [issue], cancellationToken)
             : ReadSingleAsync(device, transport, trace, cancellationToken);
+
+    public async Task<PresenceUpdate?> CheckPresenceAsync(
+        DetectedDevice device, IReceiverTransport transport, CancellationToken cancellationToken)
+    {
+        if (device.Adapter is not IPresenceAdapter presence || presence.PresenceKind != PresenceProbeKind.Heartbeat)
+            return null;
+        try
+        {
+            return await OperationDeadline.RunAsync(
+                token => ReadLockedAsync(device.Target.Endpoint.ReceiverId,
+                    inner => presence.CheckPresenceAsync(device.Target, transport, inner), token),
+                TimeSpan.FromSeconds(3), cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, LinkState.Offline, ReadIssue.Timeout);
+        }
+        catch (TransportException error)
+        {
+            var link = error.Issue switch
+            {
+                ReadIssue.Busy => LinkState.Busy,
+                ReadIssue.Disconnected => LinkState.Offline,
+                _ => LinkState.Unknown
+            };
+            return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, link, error.Issue);
+        }
+    }
+
+    public Task ListenPushAsync(
+        DetectedDevice device, IReceiverTransport transport, Action<PresenceUpdate> onUpdate, CancellationToken cancellationToken) =>
+        device.Adapter is IPushPresenceAdapter push
+            ? push.ListenPushAsync(device.Target, transport, onUpdate, cancellationToken)
+            : Task.CompletedTask;
 
     private async Task<IReadOnlyList<BatteryReading>> ReadSingleAsync(
         DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken token) =>

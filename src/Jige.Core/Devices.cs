@@ -4,8 +4,13 @@ public enum DeviceKind { Mouse, Headset, Keyboard, Other }
 public enum LinkState { Online, Asleep, Offline, Busy, Unknown }
 public enum ChargingState { Unknown, NotCharging, Charging, Full }
 public enum ReadIssue { None, Timeout, AccessDenied, Busy, Disconnected, InvalidResponse, IoError }
+public enum AdaptationSource { Catalog, Generic }
+public enum PresenceProbeKind { Heartbeat, PushListener, FullPollOnly }
 
-public sealed record DeviceIdentity(string Id, string Name, DeviceKind Kind);
+public sealed record DeviceIdentity(string Id, string Name, DeviceKind Kind, AdaptationSource Source = AdaptationSource.Catalog);
+
+public sealed record PresenceUpdate(
+    string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None);
 
 public sealed record BatteryReading(
     DeviceIdentity Device, int? Percentage, bool IsEstimated, ChargingState Charging,

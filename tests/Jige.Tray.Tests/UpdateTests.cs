@@ -103,7 +103,7 @@ public sealed class UpdateTests : IDisposable
     public async Task ReplacesOldPackageAndPreservesSettingsAndCacheOnCleanup()
     {
         var trayFiles = new TrayFiles(dataFolder);
-        trayFiles.SaveSettings(new() { StartWithWindows = true, PrimaryDeviceId = "鼠标" });
+        trayFiles.SaveSettings(new() { StartWithWindows = true, TrayMode = TrayDisplayMode.LowestBattery });
         var readAt = DateTimeOffset.Parse("2026-01-01T00:00:00Z");
         trayFiles.SaveState(new() { Reminders = { ["鼠标"] = new(readAt) } });
         var folder = Path.Combine(dataFolder, "updates");
@@ -120,7 +120,7 @@ public sealed class UpdateTests : IDisposable
         Assert.False(Directory.Exists(folder));
         Assert.True(trayFiles.TryLoadSettings(out var settings));
         Assert.True(settings.StartWithWindows);
-        Assert.Equal("鼠标", settings.PrimaryDeviceId);
+        Assert.Equal(TrayDisplayMode.LowestBattery, settings.TrayMode);
         Assert.Equal(readAt, trayFiles.LoadState().Reminders["鼠标"].Due);
     }
 

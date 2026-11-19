@@ -204,12 +204,21 @@ section{margin-top:28px}
 .drow .nm:hover{background:var(--chip)}
 .drow input.nm{background:var(--flyout-solid);outline:2px solid var(--accent)}
 .drow .st{font-size:12px;color:var(--ink-3)}
-.badge{font-size:10.5px;padding:0 5px;border-radius:4px;background:var(--chip);color:var(--ink-2);font-weight:600}
+.badge{font-size:10.5px;padding:0 5px;border-radius:4px;background:var(--chip);color:var(--ink-2);font-weight:600;display:inline-block;line-height:16px}
 .badge.ok{background:color-mix(in srgb,var(--charge) 16%,transparent);color:var(--charge)}
+.badge.gen{background:var(--accent-soft);color:var(--accent)}
 .drow.hid .dev-ico,.drow.hid .meta{opacity:.45}
 .ib{width:30px;height:30px;border:0;border-radius:5px;background:transparent;color:var(--ink-3);display:grid;place-items:center;cursor:pointer}
 .ib:hover{background:var(--hover);color:var(--ink)}
 .ib.on{color:var(--accent)}
+.chk{width:16px;height:16px;border-radius:4px;border:1.4px solid var(--ink-3);display:grid;place-items:center;color:transparent;transition:background .12s,border-color .12s}
+.ib.on .chk{background:var(--accent);border-color:var(--accent);color:var(--flyout-solid)}
+.ib.muted .chk{opacity:.45}
+.off-toggle{display:flex;align-items:center;justify-content:space-between;width:100%;height:38px;padding:0 12px;margin-top:4px;border:0;border-top:1px solid var(--flyout-stroke);background:transparent;color:var(--ink-3);font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;border-radius:6px}
+.off-toggle:hover{background:var(--hover);color:var(--ink-2)}
+.off-toggle .chev{transition:transform .2s cubic-bezier(.1,.9,.2,1)}
+.off-toggle[aria-expanded="true"] .chev{transform:rotate(90deg)}
+.tray-icons{display:flex;align-items:center;gap:2px;height:100%}
 
 /* 电量指示：格子 / 细条 / 圆环 */
 .cells{display:flex;gap:3px}
@@ -339,20 +348,20 @@ section{margin-top:28px}
         </div>
         <div id="hero"></div>
         <div class="list" id="list"></div>
-        <div class="fo-foot"><span id="pollNote">每 60 秒查询 · 游戏中 5 分钟</span><button class="link" id="goDevices">管理设备</button></div>
+        <div class="fo-foot"><span></span><button class="link" id="goDevices">管理设备</button></div>
        </div>
 
        <div class="page right" id="pSettings" aria-label="设置">
         <div class="sub-head"><button class="icon-btn back" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button><b>设置</b></div>
         <div class="card" id="setCard"></div>
-        <div class="about"><span>几格 0.1.3</span><span class="sp"></span><button class="link">诊断信息</button><button class="link">检查更新</button></div>
+        <div class="about"><span>几格 0.2.2</span><span class="sp"></span><button class="link">诊断信息</button><button class="link">检查更新</button></div>
        </div>
 
        <div class="page right" id="pDevices" aria-label="管理设备">
         <div class="sub-head"><button class="icon-btn back" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button><b>管理设备</b></div>
-        <div class="sec" style="font-weight:400">点名称可以改名，图钉设为托盘显示，眼睛控制是否出现在面板里。</div>
+        <div class="sec" style="font-weight:400">点名称可改名，勾选在托盘显示，眼睛控制是否出现在面板里。</div>
         <div id="devList" style="padding-bottom:4px"></div>
-        <div class="about"><span>没看到你的设备？</span><span class="sp"></span><button class="link">导出诊断信息</button></div>
+        <div class="about"><span>没看到设备？</span><span class="sp"></span><button class="link" id="redetectBtn">重新检测</button><button class="link">导出诊断信息</button></div>
        </div>
        </div>
       </div>
@@ -378,7 +387,7 @@ section{margin-top:28px}
         <div class="tb-center"><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div><div class="tb-app"><i></i></div></div>
         <div class="tray">
           <div class="tray-btn"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M2 8l4-4 4 4"/></svg></div>
-          <div class="tray-btn hit on" id="trayIcon" title="" aria-label="几格"></div>
+          <div class="tray-icons" id="trayIcons"></div>
           <div class="sys">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
@@ -462,25 +471,47 @@ section{margin-top:28px}
   const PIN = '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M7.6 1.2l3.2 3.2-1.4.6-1.9 1.9.3 2.2-.9.9L4.7 7.8 2 10.5l-.5-.5L4.2 7.3 2 5.1l.9-.9 2.2.3L7 2.6z"/></svg>';
 
   const devices = [
-    {id:'ulx', name:'Finalmouse ULX', kind:'mouse', pct:72, est:true, primary:true},
-    {id:'h9', name:'INZONE H9', kind:'headset', pct:48},
-    {id:'atk', name:'ATK X1', kind:'mouse', pct:15},
-    {id:'gw', name:'G-Wolves HTX', kind:'mouse', pct:64},
-    {id:'lg', name:'Logitech 键盘', kind:'keyboard', pct:81},
+    {id:'ulx', name:'Finalmouse ULX', kind:'mouse', pct:72, est:true, inTray:true, lastSeen:4, badge:'generic'},
+    {id:'h9', name:'INZONE H9', kind:'headset', pct:48, inTray:true, lastSeen:5, badge:'verified'},
+    {id:'atk', name:'ATK 鼠标', kind:'mouse', pct:15, inTray:true, lastSeen:3, badge:'generic'},
+    {id:'gw', name:'G-Wolves HTX Ultra 8K', kind:'mouse', pct:64, inTray:false, lastSeen:2, badge:'verified'},
+    {id:'lg', name:'Logitech 键盘', kind:'keyboard', pct:81, inTray:false, lastSeen:1, badge:'protocol'},
   ];
   const sim = {charge:true, low:true, sleep:true, busy:true, game:false};
+  const prefs = {trayMode:'perDevice', threshold:'15%', poll:'1 分钟', silent:true, autostart:true};
   let style = 'cells';
+  let offlineExpanded = false;
 
-  function state(d){
-    if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中'};
-    if (d.id==='gw' && sim.sleep) return {k:'idle', c:'var(--idle)', text:'休眠 · 上次读数 8 分钟前', dim:true};
-    if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被 G HUB 占用 · 上次读数', dim:true};
-    const p = pctOf(d);
-    if (p<=15) return {k:'low', c:'var(--low)', text:'电量低，该充电了'};
-    if (p<=30) return {k:'warn', c:'var(--warn)', text:'2.4G 已连接'};
-    return {k:'ok', c:'var(--ok)', text: d.est ? '2.4G 已连接 · 电压估算' : '2.4G 已连接'};
+  function badgeMeta(b){
+    if (b==='verified') return {cls:'ok', text:'已实机验证'};
+    if (b==='generic') return {cls:'gen', text:'通用适配'};
+    return {cls:'', text:'按协议适配'};
   }
-  function pctOf(d){ return d.id==='atk' ? (sim.low?15:58) : d.pct; }
+  function isOnline(d){
+    if (d.id==='gw' && sim.sleep) return false;
+    if (d.id==='lg' && sim.busy) return false;
+    return true;
+  }
+  function state(d){
+    if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中', online:true};
+    if (d.id==='gw' && sim.sleep) return {k:'idle', c:'var(--idle)', text:'已断开 · 上次读数 · 8 分钟前', dim:true, online:false};
+    if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被占用 · 上次读数', dim:true, online:false};
+    const p = pctOf(d);
+    const th = parseInt(prefs.threshold, 10) || 15;
+    if (p<th) return {k:'low', c:'var(--low)', text:'电量低，该充电了', online:true};
+    if (p<=th+15) return {k:'warn', c:'var(--warn)', text:'电量偏低', online:true};
+    return {k:'ok', c:'var(--ok)', text: d.est ? '2.4G 已连接 · 电压估算' : '2.4G 已连接', online:true};
+  }
+  function pctOf(d){ return d.id==='atk' ? (sim.low?12:58) : d.pct; }
+
+  function buildMainPlan(){
+    const visible = devices.filter(d=>!d.hidden);
+    const online = visible.filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
+    const offline = visible.filter(d=>!isOnline(d)).sort((a,b)=>b.lastSeen-a.lastSeen);
+    if (online.length>0) return {hero:online[0], heroDisconnected:false, onlineRows:online.slice(1), offlineRows:offline};
+    if (offline.length>0) return {hero:offline[0], heroDisconnected:true, onlineRows:[], offlineRows:offline.slice(1)};
+    return {hero:null, heroDisconnected:false, onlineRows:[], offlineRows:[]};
+  }
 
   function indicator(d, s, big){
     const p = pctOf(d);
@@ -502,36 +533,58 @@ section{margin-top:28px}
       <circle class="val" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p/100)}"/></svg>`;
   }
 
+  function renderRow(d, i){
+    const s = state(d);
+    const numColor = s.k==='low' ? 'color:var(--low)' : s.k==='warn' ? 'color:var(--warn)' : s.k==='charge' ? 'color:var(--charge)' : '';
+    const bm = badgeMeta(d.badge);
+    const genTag = d.badge==='generic' ? `<span class="badge gen">${bm.text}</span>` : '';
+    return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
+      <div class="dev-ico">${ICON[d.kind]}</div>
+      <div class="meta"><div class="nm">${d.name} ${genTag}</div>
+        <div class="st" style="${s.k==='low'||s.k==='warn'||s.k==='charge'?`color:${s.c}`:''}">${s.text}</div></div>
+      ${indicator(d, s, false)}
+      <div class="num" style="${numColor}">${d.est?'≈':''}${pctOf(d)}<small>%</small></div>
+    </div>`;
+  }
+
   function render(){
-    const hero = devices.find(d=>d.primary), hs = state(hero);
-    document.getElementById('hero').innerHTML = `
-      <div class="hero">
-        <div class="hero-top">
-          <div class="dev-ico">${ICON[hero.kind]}</div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;gap:6px;align-items:center"><span class="name">${hero.name}</span><span class="tag">2.4G</span></div>
-            <div class="pin">${PIN}固定在托盘</div>
+    const plan = buildMainPlan();
+    if (plan.hero){
+      const hero = plan.hero, hs = state(hero), bm = badgeMeta(hero.badge);
+      const bigColor = hs.k==='low' ? 'color:var(--low)' : hs.k==='warn' ? 'color:var(--warn)' : hs.k==='charge' ? 'color:var(--charge)' : hs.k==='idle' ? 'color:var(--ink-3)' : '';
+      document.getElementById('hero').innerHTML = `
+        <div class="hero">
+          <div class="hero-top">
+            <div class="dev-ico" style="${plan.heroDisconnected?'background:var(--chip);color:var(--ink-3)':''}">${ICON[hero.kind]}</div>
+            <div style="flex:1;min-width:0">
+              <div style="display:flex;gap:6px;align-items:center"><span class="name">${hero.name}</span><span class="tag">2.4G</span></div>
+              <div style="margin-top:2px;display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--ink-3)">
+                ${plan.heroDisconnected?'<span>已断开 ·</span>':''}<span class="badge ${bm.cls}">${bm.text}</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="hero-mid">
-          <div class="big" style="${hs.k==='low'?'color:var(--low)':''}">${hero.est?'<span class="approx">≈</span>':''}${pctOf(hero)}<small>%</small></div>
-          ${indicator(hero, hs, true)}
-        </div>
-        <div class="sub"><span class="dot" style="color:${hs.c}"></span>${hs.text}</div>
-      </div>`;
-    const rows = devices.filter(d=>!d.primary && !d.hidden).map((d,i)=>{
-      const s = state(d);
-      const numColor = s.k==='low' ? 'color:var(--low)' : '';
-      return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
-        <div class="dev-ico">${ICON[d.kind]}</div>
-        <div class="meta"><div class="nm">${d.name}</div>
-          <div class="st" style="${s.k==='low'||s.k==='charge'?`color:${s.c}`:''}">${s.text}</div></div>
-        ${indicator(d, s, false)}
-        <div class="num" style="${numColor}">${pctOf(d)}<small>%</small></div>
-      </div>`;
-    }).join('');
-    document.getElementById('list').innerHTML = rows;
-    renderTray(); renderTip();
+          <div class="hero-mid">
+            <div class="big" style="${bigColor}">${hero.est?'<span class="approx">≈</span>':''}${pctOf(hero)}<small>%</small></div>
+            ${indicator(hero, hs, true)}
+          </div>
+          <div class="sub"><span class="dot" style="color:${hs.c}"></span>${hs.text}</div>
+        </div>`;
+    } else {
+      document.getElementById('hero').innerHTML = `<div style="padding:28px 16px;text-align:center;color:var(--ink-2)">未找到支持的设备</div>`;
+    }
+
+    let html = plan.onlineRows.map((d,i)=>renderRow(d,i)).join('');
+    if (plan.offlineRows.length>0){
+      html += `<button class="off-toggle" id="offToggle" aria-expanded="${offlineExpanded}">
+        <span>离线设备（${plan.offlineRows.length}）</span>${CHEV}</button>`;
+      if (offlineExpanded)
+        html += plan.offlineRows.map((d,i)=>renderRow(d, plan.onlineRows.length+i)).join('');
+    }
+    document.getElementById('list').innerHTML = html;
+    const tog = document.getElementById('offToggle');
+    if (tog) tog.onclick = e => { e.stopPropagation(); offlineExpanded = !offlineExpanded; render(); };
+
+    renderTray();
     if (typeof fit === 'function' && current === 'pMain') fit('pMain');
   }
 
@@ -546,28 +599,48 @@ section{margin-top:28px}
     const weight = size<=16 ? 700 : 650;
     const fs = text.length>=2 ? size*0.78 : size*0.9;
     const under = mode==='charge' ? `<rect x="${size*0.16}" y="${size*0.86}" width="${size*0.68}" height="${Math.max(1.5,size*0.1)}" rx="${size*0.05}" fill="${color}"/>` : '';
-    const lowDot = '';
     return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
       <text x="50%" y="${mode==='charge'?size*0.72:size*0.79}" text-anchor="middle" font-family="Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
-        font-size="${fs}" font-weight="${weight}" letter-spacing="${-size*0.03}" fill="${color||ink}" ${mode==='idle'?'opacity=".55"':''}>${text}</text>${under}${lowDot}</svg>`;
+        font-size="${fs}" font-weight="${weight}" letter-spacing="${-size*0.03}" fill="${color||ink}" ${mode==='idle'?'opacity=".55"':''}>${text}</text>${under}</svg>`;
   }
-  function trayOpt(){
-    const d = devices.find(x=>x.primary), s = state(d), p = pctOf(d);
-    if (p>=100) return {mode:'full'};
-    return {text:String(p), color: s.k==='ok' ? '' : s.c, mode: s.k==='charge'?'charge':(s.k==='idle'?'idle':'')};
+  function trayOptFor(d){
+    if (!d) return {text:'–', color:'', mode:'idle'};
+    const s = state(d), p = pctOf(d);
+    const resolved = s.k==='ok' ? '' : getComputedStyle(document.documentElement).getPropertyValue(s.c.slice(4,-1)).trim();
+    if (p>=100 && s.online) return {mode:'full', color:resolved};
+    return {text:String(p), color:resolved, mode: s.k==='charge'?'charge':(s.k==='idle'?'idle':'')};
+  }
+  function deviceTip(d){
+    const s = state(d), p = pctOf(d);
+    if (!s.online) return `${d.name} · 已断开 · 上次 ${d.est?'≈':''}${p}%`;
+    const tail = s.k==='charge' ? ' 充电中' : s.k==='low' ? ' 电量低' : s.k==='warn' ? ' 电量偏低' : '';
+    return `${d.name} ${d.est?'≈':''}${p}%${tail}`;
+  }
+  function summaryTip(){
+    const plan = buildMainPlan();
+    const list = [plan.hero, ...plan.onlineRows, ...plan.offlineRows].filter(Boolean);
+    return list.length ? list.map((d,i)=> i===0 ? `<b>${deviceTip(d)}</b>` : deviceTip(d)).join('<br>') : '几格 · 未找到支持的设备';
   }
   function renderTray(){
-    const o = trayOpt();
-    o.color = o.color ? getComputedStyle(document.documentElement).getPropertyValue(o.color.slice(4,-1)).trim() : '';
-    document.getElementById('trayIcon').innerHTML = trayIconSVG(16, o);
-  }
-  function renderTip(){
-    const parts = devices.map(d=>{
-      const s = state(d), p = pctOf(d);
-      const tail = s.k==='charge' ? ' 充电中' : s.k==='idle' ? '（上次）' : s.k==='low' ? ' 电量低' : '';
-      return `${d.primary?'<b>':''}${d.name} ${d.est?'≈':''}${p}%${tail}${d.primary?'</b>':''}`;
+    const box = document.getElementById('trayIcons');
+    const plan = buildMainPlan();
+    let slots = [];
+    if (prefs.trayMode==='lowest'){
+      slots = [{key:'single', device:plan.hero, tipHtml:summaryTip()}];
+    } else {
+      const checked = devices.filter(d=>d.inTray);
+      slots = checked.length ? checked.map(d=>({key:d.id, device:d, tipHtml:deviceTip(d)}))
+        : [{key:'single', device:null, tipHtml:'几格 · 点击打开面板'}];
+    }
+    const isOpen = fly.classList.contains('open');
+    box.innerHTML = slots.map((slot,i)=>
+      `<div class="tray-btn hit ${isOpen && i===slots.length-1?'on':''}" data-slot="${i}" aria-label="几格">${trayIconSVG(16, trayOptFor(slot.device))}</div>`
+    ).join('');
+    box.querySelectorAll('.tray-btn').forEach((btn,i)=>{
+      btn.onclick = e => { e.stopPropagation(); setOpen(!fly.classList.contains('open')); };
+      btn.onmouseenter = () => { if (!fly.classList.contains('open')){ tip.innerHTML = slots[i].tipHtml; tip.classList.add('show'); } };
+      btn.onmouseleave = () => tip.classList.remove('show');
     });
-    document.getElementById('tip').innerHTML = parts.join('<br>');
   }
 
   function renderIconGrid(){
@@ -577,7 +650,7 @@ section{margin-top:28px}
       {cap:'<b>≤ 30%</b> · 琥珀', o:{text:'26', color:css('--warn')}},
       {cap:'<b>≤ 15%</b> · 红色', o:{text:'9', color:css('--low')}},
       {cap:'<b>充电中</b> · 绿色 + 底线', o:{text:'48', color:css('--charge'), mode:'charge'}},
-      {cap:'<b>休眠/占用</b> · 上次读数变淡', o:{text:'64', mode:'idle'}},
+      {cap:'<b>已断开</b> · 变灰显示上次读数', o:{text:'64', mode:'idle'}},
       {cap:'<b>100%</b> · 换成满电图形', o:{mode:'full'}},
       {cap:'<b>未知</b> · 短横线', o:{text:'–', mode:'idle'}},
     ];
@@ -588,13 +661,10 @@ section{margin-top:28px}
   }
 
   // 交互
-  const fly = document.getElementById('flyout'), tray = document.getElementById('trayIcon'), tip = document.getElementById('tip');
+  const fly = document.getElementById('flyout'), tip = document.getElementById('tip');
   const toast = document.getElementById('toast'), game = document.getElementById('game'), queued = document.getElementById('queued');
   let pendingToast = false;
-  function setOpen(v){ if(!v) nav('pMain', true); fly.classList.toggle('open', v); tray.classList.toggle('on', v); if (v){ tip.classList.remove('show'); toast.classList.remove('show'); } }
-  tray.addEventListener('click', e=>{ e.stopPropagation(); setOpen(!fly.classList.contains('open')); });
-  tray.addEventListener('mouseenter', ()=>{ if(!fly.classList.contains('open')) tip.classList.add('show'); });
-  tray.addEventListener('mouseleave', ()=> tip.classList.remove('show'));
+  function setOpen(v){ if(!v) nav('pMain', true); fly.classList.toggle('open', v); renderTray(); if (v){ tip.classList.remove('show'); toast.classList.remove('show'); } }
   document.getElementById('stage').addEventListener('click', e=>{ if(!fly.contains(e.target)) setOpen(false); });
   document.addEventListener('keydown', e=>{ if(e.key!=='Escape') return; if(current!=='pMain') nav('pMain'); else setOpen(false); });
   document.getElementById('refresh').addEventListener('click', e=>{
@@ -650,7 +720,6 @@ section{margin-top:28px}
   const pages = document.getElementById('pages');
   const order = ['pMain','pSettings','pDevices'];
   let current = 'pMain';
-  const VERIFIED = {ulx:false, h9:true, atk:false, gw:true, lg:false};
   function fit(id){ const el = document.getElementById(id); if (el) pages.style.height = el.offsetHeight + 'px'; }
   if (window.ResizeObserver) new ResizeObserver(()=>fit(current)).observe(document.getElementById('pSettings'));
   function nav(id, instant){
@@ -671,12 +740,6 @@ section{margin-top:28px}
   document.getElementById('goSettings').addEventListener('click', e=>{ e.stopPropagation(); nav('pSettings'); });
   document.getElementById('goDevices').addEventListener('click', e=>{ e.stopPropagation(); nav('pDevices'); });
   document.querySelectorAll('.back').forEach(b=>b.addEventListener('click', e=>{ e.stopPropagation(); nav('pMain'); }));
-  document.querySelectorAll('.tg').forEach(t=>t.addEventListener('click', e=>{ e.stopPropagation(); t.setAttribute('aria-checked', t.getAttribute('aria-checked')!=='true'); }));
-  document.querySelectorAll('[data-chips]').forEach(g=>g.querySelectorAll('button').forEach(b=>b.addEventListener('click', e=>{
-    e.stopPropagation(); g.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed', x===b));
-    if (g.dataset.chips==='poll') document.getElementById('pollNote').textContent = `每 ${b.textContent.replace(' ','')} 查询 · 游戏中 5 分钟`;
-  })));
-  function setPrimary(id){ devices.forEach(d=>d.primary = d.id===id); devices.find(d=>d.primary).hidden=false; render(); }
   const GL = {
     tray:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1.5" y="9.5" width="13" height="5" rx="1.2"/><path d="M10.5 12h2"/></svg>',
     bell:'<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><path d="M4 11V7a4 4 0 0 1 8 0v4l1.2 1.5H2.8z"/><path d="M6.5 14a1.6 1.6 0 0 0 3 0" stroke-linecap="round"/></svg>',
@@ -686,15 +749,18 @@ section{margin-top:28px}
   };
   const CHEV = '<svg class="chev" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 2.5L8 6l-3.5 3.5"/></svg>';
   const CHECK = '<svg class="ck" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2l2.6 2.6L11 4.4"/></svg>';
-  const prefs = {threshold:'15%', poll:'60 秒', silent:true, autostart:true};
+  const TICK = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2l2.6 2.6L11 4.4"/></svg>';
   let expanded = null;
   function fillSettings(){
-    const primary = devices.find(d=>d.primary);
+    const trayVal = prefs.trayMode==='lowest' ? '最低电量' : '每台一个图标';
     const rows = [
-      {key:'tray', gl:'tray', name:'托盘显示', value:primary.name, options:devices.map(d=>({v:d.id, t:d.name, on:d.primary}))},
+      {key:'trayMode', gl:'tray', name:'托盘显示', value:trayVal, options:[
+        {v:'perDevice', t:'每台设备一个图标（默认）', on:prefs.trayMode==='perDevice'},
+        {v:'lowest', t:'只显示电量最低的设备', on:prefs.trayMode==='lowest'}
+      ]},
       {key:'threshold', gl:'bell', name:'低电量提醒', value:prefs.threshold, options:['10%','15%','20%','30%'].map(v=>({v, t:v==='15%'?'15%（默认）':v, on:prefs.threshold===v}))},
       {key:'silent', gl:'game', name:'游戏中不打扰', toggle:'silent'},
-      {key:'poll', gl:'clock', name:'查询间隔', value:prefs.poll, options:['30 秒','60 秒','2 分钟'].map(v=>({v, t:v==='60 秒'?'60 秒（默认）':v, on:prefs.poll===v}))},
+      {key:'poll', gl:'clock', name:'查询间隔', value:prefs.poll, options:['30 秒','1 分钟','2 分钟'].map(v=>({v, t:v==='1 分钟'?'1 分钟（默认）':v, on:prefs.poll===v}))},
       {key:'autostart', gl:'power', name:'开机自启', toggle:'autostart'}
     ];
     const card = document.getElementById('setCard');
@@ -707,13 +773,12 @@ section{margin-top:28px}
     card.querySelectorAll('.crow[data-key]').forEach(b=>b.onclick = e=>{
       e.stopPropagation(); const k=b.dataset.key; const opening = expanded!==k; expanded = opening?k:null;
       card.querySelectorAll('.crow[data-key]').forEach(x=>{ const on = x.dataset.key===expanded; x.setAttribute('aria-expanded', on); x.nextElementSibling.classList.toggle('open', on); });
-      setTimeout(()=>fit('pSettings'), 260); fit('pSettingsLive');
+      setTimeout(()=>fit('pSettings'), 260); fit('pSettings');
     });
     card.querySelectorAll('.opt').forEach(o=>o.onclick = e=>{
       e.stopPropagation(); const k=o.dataset.key, v=o.dataset.v;
-      if (k==='tray') setPrimary(v); else prefs[k]=v;
-      if (k==='poll') document.getElementById('pollNote').textContent = `每 ${v.replace(' ','')} 查询 · 游戏中 5 分钟`;
-      expanded = null; fillSettings(); setTimeout(()=>fit('pSettings'), 260);
+      prefs[k]=v;
+      expanded = null; fillSettings(); render(); setTimeout(()=>fit('pSettings'), 260);
     });
     requestAnimationFrame(()=>fit('pSettings'));
   }
@@ -721,18 +786,21 @@ section{margin-top:28px}
   const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2l12 12M6.4 3.8A6.6 6.6 0 0 1 8 3.5C12 3.5 14.5 8 14.5 8a12 12 0 0 1-1.9 2.4M10.5 10.9A5.4 5.4 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a12.6 12.6 0 0 1 2.7-3.2"/></svg>';
   function fillDevices(){
     const box = document.getElementById('devList');
-    box.innerHTML = devices.map(d=>`
-      <div class="drow ${d.hidden?'hid':''}" data-id="${d.id}">
+    const perMode = prefs.trayMode==='perDevice';
+    box.innerHTML = devices.map(d=>{
+      const bm = badgeMeta(d.badge);
+      return `<div class="drow ${d.hidden?'hid':''}" data-id="${d.id}">
         <div class="dev-ico">${ICON[d.kind]}</div>
         <div class="meta"><button class="nm" title="点击改名">${d.name}</button>
-          <div class="st">2.4G · <span class="badge ${VERIFIED[d.id]?'ok':''}">${VERIFIED[d.id]?'已实机验证':'按协议适配'}</span></div></div>
-        <button class="ib ${d.primary?'on':''}" data-act="pin" title="${d.primary?'托盘正在显示':'设为托盘显示'}">${PIN.replace('width="11" height="11"','width="14" height="14"')}</button>
-        <button class="ib" data-act="eye" title="${d.hidden?'在面板中显示':'在面板中隐藏'}" ${d.primary?'disabled style="opacity:.35"':''}>${d.hidden?EYE_OFF:EYE}</button>
-      </div>`).join('');
+          <div class="st">2.4G · <span class="badge ${bm.cls}">${bm.text}</span></div></div>
+        <button class="ib ${d.inTray?'on':''} ${perMode?'':'muted'}" data-act="tray" title="${d.inTray?'取消托盘显示':'勾选在托盘显示'}"><span class="chk">${TICK}</span></button>
+        <button class="ib" data-act="eye" title="${d.hidden?'在面板中显示':'在面板中隐藏'}">${d.hidden?EYE_OFF:EYE}</button>
+      </div>`;
+    }).join('');
     box.querySelectorAll('.drow').forEach(row=>{
       const d = devices.find(x=>x.id===row.dataset.id);
-      row.querySelector('[data-act="pin"]').onclick = e=>{ e.stopPropagation(); setPrimary(d.id); fillDevices(); };
-      row.querySelector('[data-act="eye"]').onclick = e=>{ e.stopPropagation(); if(d.primary) return; d.hidden=!d.hidden; render(); fillDevices(); };
+      row.querySelector('[data-act="tray"]').onclick = e=>{ e.stopPropagation(); d.inTray=!d.inTray; render(); fillDevices(); };
+      row.querySelector('[data-act="eye"]').onclick = e=>{ e.stopPropagation(); d.hidden=!d.hidden; render(); fillDevices(); };
       const nm = row.querySelector('.nm');
       nm.onclick = e=>{
         e.stopPropagation();

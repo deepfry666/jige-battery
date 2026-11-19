@@ -1,15 +1,31 @@
 namespace Jige.Core.Adapters;
 
+internal enum CompxQuery : byte
+{
+    Online = 0x03,
+    Battery = 0x04,
+    CidMid = 0x10
+}
+
 internal static class MouseBatteryProtocol
 {
     public static byte[] Request(MouseFamily family, bool charging = false) => (family, charging) switch
     {
-        (MouseFamily.CompxOut or MouseFamily.CompxFeature, false) => Padded("0804", 17, 0x49),
+        (MouseFamily.CompxOut or MouseFamily.CompxFeature, false) => CompxRequest(CompxQuery.Battery),
         (MouseFamily.BitMouse, false) => Padded("087D720200010701", 64),
         (MouseFamily.BitMouse, true) => Padded("0885720200010F01", 64),
         (MouseFamily.XviOld, false) => Padded("0000028F01", 65),
         (MouseFamily.XviNew, false) => Padded("00000002020083", 65),
         _ => throw new ArgumentOutOfRangeException(nameof(family))
+    };
+
+    // Compx 只读命令白名单：0x03 在线状态（atk-control / OpenMouse）、0x04 电量（多方一致）、0x10 CID/MID 型号识别（OpenMouse / atk-control）。
+    public static byte[] CompxRequest(CompxQuery query) => query switch
+    {
+        CompxQuery.Online => Padded("0803", 17, 0x4A),
+        CompxQuery.Battery => Padded("0804", 17, 0x49),
+        CompxQuery.CidMid => Padded("0810", 17, 0x3D),
+        _ => throw new ArgumentOutOfRangeException(nameof(query))
     };
 
     private static byte[] Padded(string prefix, int size, byte last = 0)
@@ -20,9 +36,18 @@ internal static class MouseBatteryProtocol
         return frame;
     }
 
-    public static bool Allows(MouseFamily family, ReadOnlySpan<byte> request) =>
-        family != MouseFamily.Unknown && (request.SequenceEqual(Request(family)) ||
-            (family == MouseFamily.BitMouse && request.SequenceEqual(Request(family, true))));
+    public static bool Allows(MouseFamily family, ReadOnlySpan<byte> request) => family switch
+    {
+        MouseFamily.CompxOut or MouseFamily.CompxFeature =>
+            request.SequenceEqual(CompxRequest(CompxQuery.Battery)) ||
+            request.SequenceEqual(CompxRequest(CompxQuery.Online)) ||
+            request.SequenceEqual(CompxRequest(CompxQuery.CidMid)),
+        MouseFamily.BitMouse =>
+            request.SequenceEqual(Request(family)) || request.SequenceEqual(Request(family, true)),
+        MouseFamily.XviOld or MouseFamily.XviNew =>
+            request.SequenceEqual(Request(family)),
+        _ => false
+    };
 
     public static byte CompxChecksum(ReadOnlySpan<byte> data) => unchecked((byte)(0x55 - Sum(data)));
     public static byte BitMouseChecksum(ReadOnlySpan<byte> data) => unchecked((byte)Sum(data));
@@ -44,6 +69,44 @@ internal static class MouseBatteryProtocol
             return false;
         level = frame[6];
         charging = Charge(frame[7]);
+        return true;
+    }
+
+    /// <summary>同接收器其他集合（如 FF05/FF06）可能返回更长的报告缓冲，校验前 17 字节是否含合法 Compx 电量帧。</summary>
+    public static bool TryCompxFromCollection(ReadOnlySpan<byte> frame, out int level, out ChargingState charging)
+    {
+        if (frame.Length >= 17)
+            return TryCompx(frame[..17], out level, out charging);
+        level = 0;
+        charging = ChargingState.Unknown;
+        return false;
+    }
+
+    public static bool TryCompxOnline(ReadOnlySpan<byte> frame, out bool online)
+    {
+        online = false;
+        if (frame.Length < 17)
+            return false;
+        var packet = frame[..17];
+        if (!packet[..5].SequenceEqual((ReadOnlySpan<byte>)[8, 3, 0, 0, 0]) ||
+            packet[5] is < 1 or > 10 || CompxChecksum(packet[..16]) != packet[16])
+            return false;
+        online = packet[6] == 1;
+        return true;
+    }
+
+    public static bool TryCompxCidMid(ReadOnlySpan<byte> frame, out byte cid, out byte mid)
+    {
+        cid = 0;
+        mid = 0;
+        if (frame.Length < 17)
+            return false;
+        var packet = frame[..17];
+        if (!packet[..5].SequenceEqual((ReadOnlySpan<byte>)[8, 0x10, 0, 0, 0]) ||
+            packet[5] is < 2 or > 10 || CompxChecksum(packet[..16]) != packet[16])
+            return false;
+        cid = packet[6];
+        mid = packet[7];
         return true;
     }
 

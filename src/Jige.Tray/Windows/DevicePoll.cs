@@ -8,25 +8,40 @@ namespace Jige.Tray.Windows;
 [SupportedOSPlatform("windows10.0.17763")]
 internal sealed class DevicePoll
 {
-    private readonly AdapterRegistry registry = AdapterRegistry.CreateDefault();
+    private readonly SafetyGateStore gates;
+    private readonly AdapterRegistry registry;
     private readonly WindowsReceiverTransport transport = new();
+    private readonly DeviceTopologyCache topology;
 
-    public async Task<PollResult> RunAsync(CancellationToken token)
+    public DevicePoll(SafetyGateStore gates)
+    {
+        this.gates = gates;
+        registry = AdapterRegistry.CreateDefault(gates: gates);
+        topology = new(registry, token => WindowsDeviceDiscovery.ScanAsync(token,
+            AdapterRegistry.IsKnownHidReceiver, includeUnknownHid: true));
+    }
+
+    public SafetyGateStore Gates => gates;
+    public void InvalidateTopology() => topology.Invalidate();
+
+    public async Task<(PollResult Result, DetectedDevice[] PushTargets)> RunAsync(bool forceRescan, CancellationToken token)
     {
         try
         {
-            // 未收录接收器只读描述符，不读取产品字符串或打开报告通道。
-            var inventory = await WindowsDeviceDiscovery.ScanAsync(token,
-                AdapterRegistry.IsKnownHidReceiver, includeUnknownHid: true).ConfigureAwait(false);
-            var detected = registry.Detect(inventory).ToArray();
+            var snapshot = await topology.GetOrScanAsync(forceRescan, token).ConfigureAwait(false);
+            var detected = snapshot.Detected;
             List<BatteryReading> readings = [];
+            bool disconnected = false;
             foreach (var device in detected)
             {
                 token.ThrowIfCancellationRequested();
                 try
                 {
                     // 罗技接收器下可能有多台设备，统一走多设备读取。
-                    readings.AddRange(await registry.ReadDevicesAsync(device, transport, null, token).ConfigureAwait(false));
+                    var batch = await registry.ReadDevicesAsync(device, transport, null, token).ConfigureAwait(false);
+                    readings.AddRange(batch);
+                    if (batch.Any(item => item.Issue == ReadIssue.Disconnected))
+                        disconnected = true;
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
@@ -35,11 +50,59 @@ internal sealed class DevicePoll
                         LinkState.Unknown, DateTimeOffset.UtcNow, ReadIssue.IoError));
                 }
             }
-            return new(readings, inventory.Warnings.Count > 0, PollResult.CountUnknown(inventory, detected));
+            if (disconnected)
+                topology.Invalidate();
+
+            bool hasHeartbeat = detected.Any(item => item.PresenceKind == PresenceProbeKind.Heartbeat);
+            var pushTargets = detected.Where(item => item.PresenceKind == PresenceProbeKind.PushListener).ToArray();
+            var result = new PollResult(
+                readings,
+                snapshot.Inventory.Warnings.Count > 0,
+                snapshot.UnknownCount,
+                snapshot.Changes,
+                snapshot.Unknowns,
+                hasHeartbeat,
+                snapshot.Scanned);
+            return (result, pushTargets);
         }
         catch (TimeoutException)
         {
-            return new([], true);
+            return (new([], true), []);
         }
     }
+
+    /// <summary>轻量在线心跳（B1）：不重新枚举，仅对支持心跳的非罗技/非 H9 设备发状态查询。</summary>
+    public async Task<PresenceUpdate[]> RunHeartbeatAsync(CancellationToken token)
+    {
+        try
+        {
+            var snapshot = await topology.GetOrScanAsync(forceRefresh: false, token).ConfigureAwait(false);
+            List<PresenceUpdate> updates = [];
+            bool disconnected = false;
+            foreach (var device in snapshot.Detected)
+            {
+                token.ThrowIfCancellationRequested();
+                if (device.PresenceKind != PresenceProbeKind.Heartbeat)
+                    continue;
+                var update = await registry.CheckPresenceAsync(device, transport, token).ConfigureAwait(false);
+                if (update is not null)
+                {
+                    updates.Add(update);
+                    if (update.Issue == ReadIssue.Disconnected)
+                        disconnected = true;
+                }
+            }
+            if (disconnected)
+                topology.Invalidate();
+            return [.. updates];
+        }
+        catch (TimeoutException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>罗技接收器被动连接/断开推送监听（B2）：仅只读等待输入事件。</summary>
+    public Task ListenPushAsync(DetectedDevice device, Action<PresenceUpdate> onUpdate, CancellationToken token) =>
+        registry.ListenPushAsync(device, transport, onUpdate, token);
 }

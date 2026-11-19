@@ -86,3 +86,8 @@ SetFocus
 SetLayeredWindowAttributes
 SetTextColor
 SetWindowSubclass
+RegisterDeviceNotificationW
+UnregisterDeviceNotification
+DEV_BROADCAST_DEVICEINTERFACE_W
+GetGuiResources
+GetCurrentProcess

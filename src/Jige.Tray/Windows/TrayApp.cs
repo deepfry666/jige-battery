@@ -4,6 +4,9 @@ using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Jige.Core;
+using Jige.Core.Adapters;
+using Jige.Core.Diagnostics;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Gdi;
@@ -26,24 +29,35 @@ internal sealed class TrayApp : IDisposable
     private const uint ForegroundMessage = 0x8003;
     private const uint MoveMessage = 0x8004;
     private const uint DiagnosticMessage = 0x8005;
+    private const uint HeartbeatMessage = 0x8006;
+    private const uint PushPresenceMessage = 0x8007;
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
-    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4, IconRetryTimer = 5;
+    private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
+        IconRetryTimer = 5, DeviceChangeTimer = 6;
+    private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
+    private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
     private enum TrayAction { Panel, Menu }
     private static TrayApp? current;
 
+    private readonly DateTimeOffset startedAt = DateTimeOffset.UtcNow;
     private readonly TrayFiles files = new(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Jige"));
     private readonly TrayModel model;
+    private readonly SafetyGateStore gates;
+    private readonly TrayEventTracker events = new(Desktop.Log);
     private readonly DiagnosticExport diagnostics;
-    private readonly PollSchedule schedule = new(DateTimeOffset.UtcNow);
-    private readonly DevicePoll poll = new();
-    private readonly ConcurrentQueue<PollResult?> results = new();
+    private readonly PollSchedule schedule = new(Environment.TickCount64);
+    private readonly DevicePoll poll;
+    private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets)> results = new();
+    private readonly ConcurrentQueue<PresenceUpdate[]> heartbeatResults = new();
+    private readonly ConcurrentQueue<PresenceUpdate> pushResults = new();
     private readonly HINSTANCE instance;
     private readonly uint taskbarCreated;
-    private readonly TrayIcon icon;
+    private readonly TrayIconManager icons;
     private HWND host;
+    private HDEVNOTIFY hidNotify, comNotify;
     private HWND foreground;
     private HWINEVENTHOOK foregroundHook, locationHook;
     private uint locationProcess, locationThread;
@@ -53,6 +67,11 @@ internal sealed class TrayApp : IDisposable
     private bool welcomePending;
     private bool iconRetryArmed;
     private int iconFailures;
+    private bool hasHeartbeatDevices;
+    private DetectedDevice[] currentPushTargets = [];
+    private CancellationTokenSource? pushCancellation;
+    private Task pushTask = Task.CompletedTask;
+    private uint? clickedIconId;
     private DateTimeOffset? nextWelcomeAttempt;
     private DateTimeOffset? welcomeExpires;
     private readonly CancellationTokenSource diagnosticCancellation = new();
@@ -69,6 +88,7 @@ internal sealed class TrayApp : IDisposable
     private readonly bool configLoaded;
     private bool startedInGame;
     private CancellationTokenSource? cancellation;
+    private CancellationTokenSource? heartbeatCancellation;
     private Task cancelWork = Task.CompletedTask;
     private Task stateWrite = Task.CompletedTask;
 
@@ -80,12 +100,16 @@ internal sealed class TrayApp : IDisposable
         welcomePending = settings.WelcomeShown == false;
         diagnostics = new(files.DiagnosticsPath);
         model = new(settings, files.LoadState());
+        gates = new(model.InitialBlockedReceivers);
+        gates.Rejected += events.LogSafetyGateRejection;
+        poll = new(gates);
         darkTaskbar = Desktop.DarkTaskbar;
 
         Register(HostClass, &HostCallback);
         Register(PopupClass, &PopupCallback);
         host = MakeWindow(HostClass, 0, WS_POPUP);
-        icon = new(host, TrayMessage);
+        icons = new(host, TrayMessage);
+        RegisterDeviceNotifications();
     }
 
     public static int Run(bool afterSetup)
@@ -147,6 +171,24 @@ internal sealed class TrayApp : IDisposable
             PInvoke.DispatchMessage(&message);
         }
         return result < 0 ? 1 : (int)message.wParam.Value;
+    }
+
+    private unsafe void RegisterDeviceNotifications()
+    {
+        hidNotify = RegisterInterfaceNotification(HidInterfaceGuid);
+        comNotify = RegisterInterfaceNotification(ComInterfaceGuid);
+    }
+
+    private unsafe HDEVNOTIFY RegisterInterfaceNotification(Guid classGuid)
+    {
+        var filter = new DEV_BROADCAST_DEVICEINTERFACE_W
+        {
+            dbcc_size = (uint)sizeof(DEV_BROADCAST_DEVICEINTERFACE_W),
+            dbcc_devicetype = 5, // DBT_DEVTYP_DEVICEINTERFACE
+            dbcc_classguid = classGuid
+        };
+        return PInvoke.RegisterDeviceNotification((HANDLE)host.Value, &filter,
+            REGISTER_NOTIFICATION_FLAGS.DEVICE_NOTIFY_WINDOW_HANDLE);
     }
 
     private unsafe void Register(string name, delegate* unmanaged[Stdcall]<HWND, uint, WPARAM, LPARAM, LRESULT> procedure)
@@ -263,7 +305,7 @@ internal sealed class TrayApp : IDisposable
     {
         if (message == taskbarCreated && taskbarCreated != 0)
         {
-            icon.Recover();
+            icons.Recover();
             StopIconRetry();
             RefreshDesktop();
             ProcessWork();
@@ -277,6 +319,12 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case ResultMessage:
                 CompletePoll();
+                return true;
+            case HeartbeatMessage:
+                CompleteHeartbeat();
+                return true;
+            case PushPresenceMessage:
+                CompletePushPresence();
                 return true;
             case DiagnosticMessage:
                 CompleteDiagnostics();
@@ -294,11 +342,31 @@ internal sealed class TrayApp : IDisposable
                     ReadGameMode();
                 ArmTimer(GameSettleTimer, 350);
                 return true;
+            case 0x0219: // WM_DEVICECHANGE（C1：设备插拔通知）
+                if (wParam.Value is 0x8000 or 0x8004 or 0x0007)
+                    ArmTimer(DeviceChangeTimer, 1_200);
+                return true;
+            case 0x0218: // WM_POWERBROADCAST（C2：睡眠/休眠恢复）
+                if (wParam.Value is 0x0012 or 0x0007) // PBT_APMRESUMEAUTOMATIC / PBT_APMRESUMESUSPEND
+                {
+                    Desktop.Log("系统从睡眠恢复，立即重新枚举并查询");
+                    poll.InvalidateTopology();
+                    schedule.NotifyPowerResume();
+                    ProcessWork();
+                }
+                return true;
             case 0x0113: // WM_TIMER
                 PInvoke.KillTimer(host, wParam.Value);
                 if (wParam.Value == UpdateCleanupTimer)
                 {
                     CleanupUpdates();
+                    return true;
+                }
+                if (wParam.Value == DeviceChangeTimer)
+                {
+                    poll.InvalidateTopology();
+                    schedule.NotifyDeviceChange();
+                    ProcessWork();
                     return true;
                 }
                 if (wParam.Value == IconRetryTimer)
@@ -317,7 +385,8 @@ internal sealed class TrayApp : IDisposable
                 // 系统设置、主题、DWM 合成和强调色变化。
                 RefreshDesktop(resetPopup: true);
                 return true;
-            case 0x001E: // WM_TIMECHANGE
+            case 0x001E: // WM_TIMECHANGE：调度使用单调时钟，仅刷新展示时间与提醒检查。
+                RenderPopup();
                 ProcessWork();
                 return true;
             case 0x0002: // WM_DESTROY
@@ -347,26 +416,18 @@ internal sealed class TrayApp : IDisposable
             active.SetAnchor(Anchor(null));
             RenderPopup(reset: resetPopup);
         }
-        ScheduleWork(DateTimeOffset.UtcNow);
+        ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
     }
 
-    private RECT Anchor(Point? preferred) => icon.TryGetRect(out var bounds) ? bounds : Desktop.TaskbarAnchor(preferred);
+    private RECT Anchor(Point? preferred) =>
+        icons.TryGetRect(clickedIconId, out var bounds) ? bounds : Desktop.TaskbarAnchor(preferred);
 
     private void RefreshIcon()
     {
-        if (iconRetryArmed && !icon.Registered)
+        if (iconRetryArmed && !icons.AnyRegistered)
             return;
-        bool hasLocation = icon.TryGetRect(out var bounds);
-        if (!hasLocation)
-            bounds = Desktop.TaskbarAnchor();
-        var appearance = Presentation.Icon(model.PrimaryDevice, darkTaskbar, model.Settings.LowBatteryThreshold);
-        var tip = game.BlockPopups ? "" : Presentation.Tooltip(model);
-        int size = IconSize(bounds);
-        icon.Update(appearance, size, tip);
-        // 首次注册前 Explorer 没有图标位置。注册后用实际位置校正一次 DPI。
-        if (!hasLocation && icon.TryGetRect(out var registeredBounds))
-            icon.Update(appearance, IconSize(registeredBounds), tip);
-        if (icon.Registered)
+        icons.Sync(model, darkTaskbar, game.BlockPopups);
+        if (icons.AllRegistered)
             StopIconRetry();
         else
         {
@@ -387,18 +448,13 @@ internal sealed class TrayApp : IDisposable
         iconFailures = 0;
     }
 
-    private static int IconSize(RECT bounds)
-    {
-        uint dpi = Desktop.Dpi(PInvoke.MonitorFromRect(in bounds, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST));
-        return Math.Clamp(PInvoke.GetSystemMetricsForDpi(SYSTEM_METRICS_INDEX.SM_CXSMICON, dpi), 8, 256);
-    }
-
     private void ReadGameMode()
     {
         var next = Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings);
         bool changed = next.BlockPopups != game.BlockPopups;
         bool enteredGame = next.Game && !game.Game;
         game = next;
+        events.LogGameMode(game.Game);
         if (enteredGame && schedule.Running && !startedInGame && !schedule.StartedByUser)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
@@ -416,13 +472,18 @@ internal sealed class TrayApp : IDisposable
     {
         ReadGameMode();
         var now = DateTimeOffset.UtcNow;
+        long nowTick = Environment.TickCount64;
         if (model.ExpireReadings(now))
         {
             RefreshIcon();
             RenderPopup();
         }
-        if (schedule.Due(model.Settings, now, game.Game) <= now)
-            StartPoll(now);
+        if (schedule.Due(model.Settings, nowTick, game.Game) <= nowTick)
+            StartPoll(nowTick);
+        else if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) <= nowTick)
+            StartHeartbeat(nowTick);
+
+        events.FlushReadFailuresIfDue(nowTick);
         if (textDue <= now)
             RenderPopup();
 
@@ -431,42 +492,54 @@ internal sealed class TrayApp : IDisposable
 
         if (!game.BlockPopups && !menuOpen && updateDialog is null && popup is null)
         {
-            if (welcomePending && icon.Registered && !(nextWelcomeAttempt > now))
+            if (welcomePending && icons.AnyRegistered && !(nextWelcomeAttempt > now))
                 ShowWelcome();
             else if (!schedule.Running && !(nextPopupAttempt > now) &&
                 model.ReadyReminder(now, false) is { } ready)
                 ShowPopup(ready.Device.Id, null);
         }
-        ScheduleWork(now);
+        ScheduleWork(now, nowTick);
     }
 
-    private void ScheduleWork(DateTimeOffset now)
+    private void ScheduleWork(DateTimeOffset now, long nowTick)
     {
-        DateTimeOffset? due = schedule.Due(model.Settings, now, game.Game);
+        long? dueMs = null;
+        if (schedule.Due(model.Settings, nowTick, game.Game) is long pollTick)
+            dueMs = Math.Max(0, pollTick - nowTick);
+        if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) is long hbTick)
+            dueMs = EarlierMs(dueMs, Math.Max(0, hbTick - nowTick));
+
+        DateTimeOffset? wallDue = null;
         if (popup?.NoticeId is { } id)
-            due = Earlier(due, model.ReminderExpires(id));
+            wallDue = Earlier(wallDue, model.ReminderExpires(id));
         if (popup is null && !menuOpen && updateDialog is null)
         {
             if (!schedule.Running && model.NextReminder(now) is { } reminder)
             {
                 // 有待办提醒时，兼顾没有伴随前台事件的系统状态变化。
-                due = Earlier(due, game.BlockPopups
+                wallDue = Earlier(wallDue, game.BlockPopups
                     ? Earlier(reminder > now ? reminder : null, now + GameRecheck)
                     : nextPopupAttempt is { } retry && retry > reminder ? retry : reminder);
             }
-            if (welcomePending && icon.Registered)
-                due = Earlier(due, game.BlockPopups ? now + GameRecheck : nextWelcomeAttempt ?? now);
+            if (welcomePending && icons.AnyRegistered)
+                wallDue = Earlier(wallDue, game.BlockPopups ? now + GameRecheck : nextWelcomeAttempt ?? now);
         }
         if (popup?.IsNotice == true)
-            due = Earlier(due, now + GameRecheck);
-        due = Earlier(Earlier(due, textDue), welcomeExpires);
-        if (due is { } time)
-            ArmTimer(WorkTimer, (uint)Math.Clamp(Math.Ceiling((time - now).TotalMilliseconds), 10, int.MaxValue));
+            wallDue = Earlier(wallDue, now + GameRecheck);
+        wallDue = Earlier(Earlier(wallDue, textDue), welcomeExpires);
+        if (wallDue is { } wallTime)
+            dueMs = EarlierMs(dueMs, Math.Max(0, (long)Math.Ceiling((wallTime - now).TotalMilliseconds)));
+
+        if (dueMs is { } ms)
+            ArmTimer(WorkTimer, (uint)Math.Clamp(ms, 10, int.MaxValue));
         else
             PInvoke.KillTimer(host, WorkTimer);
     }
 
     private static DateTimeOffset? Earlier(DateTimeOffset? a, DateTimeOffset? b) =>
+        a is null || b is not null && b < a ? b : a;
+
+    private static long? EarlierMs(long? a, long? b) =>
         a is null || b is not null && b < a ? b : a;
 
     private unsafe void ArmTimer(nuint id, uint milliseconds)
@@ -475,10 +548,12 @@ internal sealed class TrayApp : IDisposable
             PInvoke.SetTimer(host, id, milliseconds, null);
     }
 
-    private void StartPoll(DateTimeOffset now)
+    private void StartPoll(long nowTick)
     {
-        schedule.Start(now, game.Game);
+        bool forceRescan = schedule.Start(nowTick, game.Game);
         startedInGame = game.Game;
+        // 完整轮询期间暂停罗技被动推送监听，避免同一接收器短/长句柄争抢。
+        StopPushListeners();
         var source = new CancellationTokenSource();
         cancellation = source;
         cancelWork = Task.CompletedTask;
@@ -487,9 +562,10 @@ internal sealed class TrayApp : IDisposable
         _ = Task.Run(async () =>
         {
             PollResult? result;
+            DetectedDevice[] pushTargets = [];
             try
             {
-                result = await poll.RunAsync(token).ConfigureAwait(false);
+                (result, pushTargets) = await poll.RunAsync(forceRescan, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -500,7 +576,7 @@ internal sealed class TrayApp : IDisposable
                 Desktop.Log("查询设备失败", error);
                 result = new([], true);
             }
-            results.Enqueue(result);
+            results.Enqueue((result, pushTargets));
             PInvoke.PostMessage(destination, ResultMessage, default, default);
         });
         RenderPopup();
@@ -508,8 +584,9 @@ internal sealed class TrayApp : IDisposable
 
     private void CompletePoll()
     {
-        if (!results.TryDequeue(out var result))
+        if (!results.TryDequeue(out var item))
             return;
+        var (result, pushTargets) = item;
         bool cancelled = cancellation?.IsCancellationRequested == true;
         if (cancellation is { } completed)
             _ = DisposeCancellation(completed, cancelWork);
@@ -520,12 +597,143 @@ internal sealed class TrayApp : IDisposable
 
         if (result is not null && !cancelled)
         {
-            if (model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow, result.UnknownReceivers))
+            long nowTick = Environment.TickCount64;
+            hasHeartbeatDevices = result.HasHeartbeatDevices;
+            currentPushTargets = pushTargets;
+            events.LogReceiverChanges(result.ReceiverChanges);
+            events.LogUnknownReceivers(result.Unknowns);
+            foreach (var reading in result.Readings)
+                events.RecordReadFailure(reading.Issue, nowTick);
+            events.FlushReadFailuresIfDue(nowTick);
+
+            bool shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
+                result.UnknownReceivers, events.LogDeviceLinkChange);
+            if (shouldSave || gates.BlockedCount != model.InitialBlockedReceivers.Count)
                 SaveState();
             RefreshIcon();
+            StartPushListeners(pushTargets);
+        }
+        else if (currentPushTargets.Length > 0)
+        {
+            StartPushListeners(currentPushTargets);
         }
         RenderPopup();
         ProcessWork();
+    }
+
+    private void StartHeartbeat(long nowTick)
+    {
+        schedule.StartHeartbeat(nowTick);
+        var source = new CancellationTokenSource();
+        heartbeatCancellation = source;
+        var token = source.Token;
+        var destination = host;
+        _ = Task.Run(async () =>
+        {
+            PresenceUpdate[] updates;
+            try
+            {
+                updates = await poll.RunHeartbeatAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                updates = [];
+            }
+            catch (Exception error)
+            {
+                Desktop.Log("在线心跳检查失败", error);
+                updates = [];
+            }
+            heartbeatResults.Enqueue(updates);
+            PInvoke.PostMessage(destination, HeartbeatMessage, default, default);
+        });
+    }
+
+    private void CompleteHeartbeat()
+    {
+        if (!heartbeatResults.TryDequeue(out var updates))
+            return;
+        heartbeatCancellation?.Dispose();
+        heartbeatCancellation = null;
+        schedule.CompleteHeartbeat();
+
+        if (updates.Length > 0)
+        {
+            long nowTick = Environment.TickCount64;
+            foreach (var update in updates)
+                events.RecordReadFailure(update.Issue, nowTick);
+            var (uiChanged, needsRefresh) = model.ApplyPresence(updates, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
+            if (uiChanged)
+            {
+                RefreshIcon();
+                RenderPopup();
+            }
+            if (needsRefresh)
+                schedule.Request(userInitiated: false);
+        }
+        ProcessWork();
+    }
+
+    private void StartPushListeners(DetectedDevice[] targets)
+    {
+        StopPushListeners();
+        if (targets.Length == 0 || exitRequested)
+            return;
+        var cts = new CancellationTokenSource();
+        pushCancellation = cts;
+        var token = cts.Token;
+        var destination = host;
+        pushTask = Task.WhenAll(targets.Select(target => Task.Run(async () =>
+        {
+            try
+            {
+                await poll.ListenPushAsync(target, update =>
+                {
+                    pushResults.Enqueue(update);
+                    PInvoke.PostMessage(destination, PushPresenceMessage, default, default);
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+            }
+            catch (TransportException)
+            {
+                // 接收器拔出或暂时被占用，等待插拔通知或下轮轮询重建监听。
+            }
+            catch (Exception error)
+            {
+                Desktop.Log("罗技推送监听异常", error);
+            }
+        })));
+    }
+
+    private void StopPushListeners()
+    {
+        if (pushCancellation is not { } active)
+            return;
+        pushCancellation = null;
+        _ = DisposeCancellation(active, active.CancelAsync());
+    }
+
+    private void CompletePushPresence()
+    {
+        List<PresenceUpdate> batch = [];
+        while (pushResults.TryDequeue(out var update))
+            batch.Add(update);
+        if (batch.Count == 0)
+            return;
+
+        var (uiChanged, needsRefresh) = model.ApplyPresence(batch, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
+        if (uiChanged)
+        {
+            RefreshIcon();
+            RenderPopup();
+        }
+        if (needsRefresh)
+        {
+            schedule.Request(userInitiated: false);
+            ProcessWork();
+        }
     }
 
     private static async Task DisposeCancellation(CancellationTokenSource source, Task cancelling)
@@ -542,7 +750,7 @@ internal sealed class TrayApp : IDisposable
 
     private void SaveState()
     {
-        var snapshot = model.Snapshot();
+        var snapshot = model.Snapshot(gates.Snapshot());
         var previous = stateWrite;
         stateWrite = Task.Run(async () =>
         {
@@ -593,7 +801,7 @@ internal sealed class TrayApp : IDisposable
 
     private bool TryChangeSettings(TraySettings settings, string? remove = null)
     {
-        if (settings == model.Settings)
+        if (settings == model.Settings && remove is null)
             return false;
         settings = settings.Normalize();
         bool autostartChanged = settings.StartWithWindows != model.Settings.StartWithWindows;
@@ -626,8 +834,10 @@ internal sealed class TrayApp : IDisposable
     private void HandleTray(WPARAM wParam, LPARAM lParam)
     {
         uint kind = (ushort)lParam.Value;
-        if ((ushort)(lParam.Value >> 16) != 1)
+        uint iconId = (ushort)(lParam.Value >> 16);
+        if (!icons.TryGetById(iconId, out _))
             return;
+        clickedIconId = iconId;
         var point = PopupWindow.MessagePoint(unchecked((nint)wParam.Value));
         switch (kind)
         {
@@ -652,7 +862,7 @@ internal sealed class TrayApp : IDisposable
         ReadGameMode();
         Desktop.Log($"托盘{(action == TrayAction.Panel ? "单击" : "右键")} game={game.Game} block={game.BlockPopups}");
         ExecuteTrayAction(action, point);
-        ScheduleWork(DateTimeOffset.UtcNow);
+        ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
     }
 
     private void ExecuteTrayAction(TrayAction action, Point point)
@@ -761,8 +971,7 @@ internal sealed class TrayApp : IDisposable
                     return true;
                 }
                 Desktop.Log($"面板失焦关闭（msg=0x{message:X4}，前台 {category}）");
-                if (icon.TryGetRect(out var bounds) && PInvoke.GetCursorPos(out var cursor) &&
-                    cursor.X >= bounds.left && cursor.X < bounds.right && cursor.Y >= bounds.top && cursor.Y < bounds.bottom)
+                if (PInvoke.GetCursorPos(out var cursor) && icons.ContainsCursor(cursor))
                     lostFocusByTray = Environment.TickCount64;
                 ClosePopup();
                 return true;
@@ -841,7 +1050,7 @@ internal sealed class TrayApp : IDisposable
                 break;
             case PopupAction.Refresh:
                 active.Spin();
-                schedule.Request();
+                schedule.Request(userInitiated: true);
                 ProcessWork();
                 break;
             case PopupAction.Settings:
@@ -853,10 +1062,13 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.Back:
                 active.Navigate(PanelPage.Main);
                 break;
+            case PopupAction.ToggleOffline:
+                active.ToggleOffline();
+                break;
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.PrimaryDevice or PopupAction.Threshold or PopupAction.PollInterval:
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval:
                 active.SelectSetting(target, ChangeSettings);
                 break;
             case PopupAction.GameSilent:
@@ -865,8 +1077,8 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.Autostart:
                 ChangeSettings(model.Settings with { StartWithWindows = !model.Settings.StartWithWindows });
                 break;
-            case PopupAction.Pin when target.DeviceId is { } pin:
-                ChangeSettings(model.Settings.WithPrimary(pin));
+            case PopupAction.TrayToggle when target.DeviceId is { } toggleId:
+                ChangeSettings(model.ToggleTrayDevice(toggleId));
                 break;
             case PopupAction.Visibility when target.DeviceId is { } visibility:
                 ChangeSettings(model.ToggleVisibility(visibility));
@@ -886,6 +1098,9 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.Remove when target.DeviceId is { } removed && model.CanRemove(removed):
                 TryChangeSettings(model.Settings.WithoutDevice(removed), removed);
                 break;
+            case PopupAction.Redetect:
+                RedetectDevices();
+                break;
             case PopupAction.Diagnostics:
                 ShowDiagnostics();
                 break;
@@ -898,6 +1113,17 @@ internal sealed class TrayApp : IDisposable
                 ShowUpdates();
                 break;
         }
+    }
+
+    private void RedetectDevices()
+    {
+        gates.Clear();
+        events.ResetSafetyGateLog();
+        poll.InvalidateTopology();
+        SaveState();
+        Desktop.Log("用户触发重新检测，已清除安全门拦截并刷新设备缓存");
+        schedule.Request(userInitiated: true, rescan: true);
+        ProcessWork();
     }
 
     private void CompleteEdit(PopupWindow active, bool save)
@@ -961,7 +1187,7 @@ internal sealed class TrayApp : IDisposable
         menuOpen = true;
         try
         {
-            Add("立即刷新", () => { schedule.Request(); ProcessWork(); });
+            Add("立即刷新", () => { schedule.Request(userInitiated: true); ProcessWork(); });
             Add("设置…", () => ShowPopup(null, point, PanelPage.Settings));
             Add("检查更新…", ShowUpdates);
             Add("诊断信息…", ShowDiagnostics);
@@ -1007,7 +1233,7 @@ internal sealed class TrayApp : IDisposable
 
     private void ShowUpdates()
     {
-        var dialog = new UpdateDialog(host, files.Updates, InGameForInstall);
+        var dialog = new UpdateDialog(host, files.Updates, InGameForInstall, events.LogUpdateCheck);
         updateDialog = dialog;
         try
         {
@@ -1053,7 +1279,8 @@ internal sealed class TrayApp : IDisposable
     private void ShowDiagnostics()
     {
         var token = diagnosticCancellation.Token;
-        if (diagnostics.Start(() => GenerateDiagnosticsAsync(token)))
+        var context = BuildDiagnosticContext();
+        if (diagnostics.Start(() => GenerateDiagnosticsAsync(context, token)))
         {
             var destination = host;
             _ = diagnostics.Work!.ContinueWith(_ => PInvoke.PostMessage(destination, DiagnosticMessage, default, default),
@@ -1064,14 +1291,36 @@ internal sealed class TrayApp : IDisposable
         RenderPopup();
     }
 
-    private async Task<bool> GenerateDiagnosticsAsync(CancellationToken token)
+    private DiagnosticContext BuildDiagnosticContext()
+    {
+        events.FlushReadFailuresIfDue(Environment.TickCount64, force: true);
+        var settings = model.Settings;
+        var summary = new DiagnosticSettingsSummary(
+            Presentation.TrayModeLabel(settings.TrayMode),
+            settings.LowBatteryThreshold,
+            settings.PollSeconds,
+            settings.GamePollSeconds,
+            PollSchedule.HeartbeatSeconds,
+            PollSchedule.GameHeartbeatSeconds,
+            settings.GameSilent,
+            settings.GameProcessNames.Length,
+            settings.StartWithWindows,
+            gates.BlockedCount);
+        return new(
+            DeviceHistories: model.DiagnosticHistories(),
+            ProcessMetrics: Desktop.CollectProcessMetrics(startedAt),
+            SettingsSummary: summary,
+            Gates: gates);
+    }
+
+    private async Task<bool> GenerateDiagnosticsAsync(DiagnosticContext context, CancellationToken token)
     {
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
-            string report = await Jige.Core.Diagnostics.DiagnosticReport
-                .GenerateWindowsAsync(timeout.Token).ConfigureAwait(false);
+            string report = await DiagnosticReport
+                .GenerateWindowsAsync(timeout.Token, context).ConfigureAwait(false);
             report += "\r\n# 请先完整检查报告，再自行决定是否复制、发送。几格不会上传。\r\n";
             string log = Desktop.RecentLog(80);
             if (log.Length > 0)
@@ -1097,7 +1346,7 @@ internal sealed class TrayApp : IDisposable
             diagnostics.Status == DiagnosticStatus.Ready)
             OpenDiagnostics();
         RenderPopup();
-        ScheduleWork(DateTimeOffset.UtcNow);
+        ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
     }
 
     private void OpenDiagnostics()
@@ -1136,12 +1385,17 @@ internal sealed class TrayApp : IDisposable
 
     public void Dispose()
     {
+        StopPushListeners();
+        if (!hidNotify.IsNull)
+            PInvoke.UnregisterDeviceNotification(hidNotify);
+        if (!comNotify.IsNull)
+            PInvoke.UnregisterDeviceNotification(comNotify);
         if (!foregroundHook.IsNull)
             PInvoke.UnhookWinEvent(foregroundHook);
         if (!locationHook.IsNull)
             PInvoke.UnhookWinEvent(locationHook);
         DestroyPopup();
-        icon.Dispose();
+        icons.Dispose();
         var window = host;
         host = default;
         PInvoke.DestroyWindow(window);
@@ -1150,9 +1404,16 @@ internal sealed class TrayApp : IDisposable
             _ = DisposeCancellation(active, active.IsCancellationRequested ? cancelWork : active.CancelAsync());
             cancellation = null;
         }
+        if (heartbeatCancellation is { } hb)
+        {
+            _ = DisposeCancellation(hb, hb.CancelAsync());
+            heartbeatCancellation = null;
+        }
         diagnosticCancellation.Cancel();
         diagnostics.Work?.GetAwaiter().GetResult();
         diagnosticCancellation.Dispose();
+        try { pushTask.GetAwaiter().GetResult(); }
+        catch { }
         stateWrite.GetAwaiter().GetResult();
     }
 }

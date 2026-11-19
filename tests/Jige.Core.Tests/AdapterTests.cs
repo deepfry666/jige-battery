@@ -15,11 +15,14 @@ public sealed class AdapterTests
         var registry = AdapterRegistry.CreateDefault();
         var devices = registry.Detect(new(
             [Ulx with { Path = "mouse", UsagePage = 1 }, Ulx, Ulx with { ReceiverId = "ulx-2", Path = "vendor-2" },
-             Ulx with { ReceiverId = "wired", ProductId = 0x0102 }],
+             Ulx with { ReceiverId = "wired", ProductId = 0x0102, Path = "vendor-generic" },
+             Ulx with { ReceiverId = "bad-shape", ProductId = 0x0103, UsagePage = 0xFF01 }],
             [Sony, Sony with { ReceiverId = "sony-2", HardwareIds = [@"USB\VID_054C&PID_0E53&MI_060"] }], [])).ToArray();
 
-        Assert.Equal(["vendor", "vendor-2", "serial"], devices.Select(device => device.Target.Endpoint.Path));
-        Assert.Equal(3, devices.Select(device => device.Target.Device.Id).Distinct().Count());
+        Assert.Equal(["vendor", "vendor-2", "vendor-generic", "serial"], devices.Select(device => device.Target.Endpoint.Path));
+        Assert.Equal(AdaptationSource.Catalog, devices[0].Target.Device.Source);
+        Assert.Equal(AdaptationSource.Generic, devices[2].Target.Device.Source);
+        Assert.Equal(4, devices.Select(device => device.Target.Device.Id).Distinct().Count());
     }
 
     [Fact]

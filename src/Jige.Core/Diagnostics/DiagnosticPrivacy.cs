@@ -6,7 +6,7 @@ using Jige.Core.Adapters;
 
 namespace Jige.Core.Diagnostics;
 
-internal static partial class DiagnosticPrivacy
+public static partial class DiagnosticPrivacy
 {
     [GeneratedRegex(@"^USB\\(VID_[A-F0-9]{4}&PID_[A-F0-9]{4})(?:&(REV_[A-F0-9]{4}))?(?:&(MI_[A-F0-9]{2}))?(?=&|\\|#|$)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
@@ -17,7 +17,37 @@ internal static partial class DiagnosticPrivacy
         ["ATK ZERO", "ATK Zero", "ATK A9 Air+", "ATK A9 Ultimate", "ATK F1 Ultimate",
          "Finalmouse UltralightX", "UltralightX", "G-Wolves Receiver RS", "Receiver RS"];
 
-    public static string Product(string? product, byte[] salt)
+    // 已知品牌前缀白名单：用于设备历史和日志中的安全设备名称，杜绝用户自定义别名、路径或序列号泄漏。
+    private static readonly string[] SafeDevicePrefixes =
+        ["ATK ", "ATK鼠标", "G-Wolves ", "Finalmouse ", "Sony INZONE", "INZONE ", "Razer ", "Logitech ", "ASTRO "];
+
+    public static string SafeDeviceLabel(DeviceIdentity device)
+    {
+        string raw = device.Name?.Trim() ?? "";
+        if (raw.Length is > 0 and <= 48 &&
+            !raw.Contains('\\') && !raw.Contains('/') && !raw.Contains(':') &&
+            SafeDevicePrefixes.Any(prefix => raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
+            return raw;
+        return device.Kind switch
+        {
+            DeviceKind.Mouse => "无线鼠标",
+            DeviceKind.Headset => "无线耳机",
+            DeviceKind.Keyboard => "无线键盘",
+            _ => "无线外设"
+        };
+    }
+
+    public static string SanitizeText(string? text, int maxLength = 64)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return "-";
+        string clean = text.ReplaceLineEndings(" ").Trim();
+        if (clean.Contains('\\') || clean.Contains('/') || clean.Contains('@'))
+            return "[已遮蔽]";
+        return clean.Length <= maxLength ? clean : clean[..maxLength];
+    }
+
+    internal static string Product(string? product, byte[] salt)
     {
         if (string.IsNullOrEmpty(product))
             return "-";
@@ -25,7 +55,7 @@ internal static partial class DiagnosticPrivacy
         return known ?? $"[已遮蔽 {Convert.ToHexString(HMACSHA256.HashData(salt, Encoding.UTF8.GetBytes(product)).AsSpan(0, 6))}]";
     }
 
-    public static string? UsbId(string raw)
+    internal static string? UsbId(string raw)
     {
         var match = UsbIdPattern().Match(raw);
         if (!match.Success)
@@ -34,7 +64,7 @@ internal static partial class DiagnosticPrivacy
             .Select(group => group.Value.ToUpperInvariant()));
     }
 
-    public static byte[] HidReply(IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw,
+    internal static byte[] HidReply(IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw,
         ReadOnlySpan<byte> request, Dictionary<(byte Slot, byte Index), HidppFeature> features)
     {
         var result = new byte[raw.Length];
@@ -65,11 +95,7 @@ internal static partial class DiagnosticPrivacy
         switch (route?.Family)
         {
             case MouseFamily.CompxOut or MouseFamily.CompxFeature:
-                if (MouseBatteryProtocol.TryCompx(raw, out _, out _))
-                {
-                    raw[..8].CopyTo(result);
-                    result[^1] = MouseBatteryProtocol.CompxChecksum(result.AsSpan(0, 16));
-                }
+                CopyCompx(raw, result);
                 break;
             case MouseFamily.BitMouse:
                 if (MouseBatteryProtocol.TryBitMouse(raw, route.BitReply, false, out _) ||
@@ -90,8 +116,34 @@ internal static partial class DiagnosticPrivacy
                         result[4] = 0;
                 }
                 break;
+            default:
+                // 同接收器其他厂商集合（如 FF05、FF06）上收到的 Compx 回复也按同规则脱敏保留。
+                if (adapter is MouseReceiverAdapter)
+                    CopyCompx(raw, result);
+                break;
         }
         return result;
+    }
+
+    private static void CopyCompx(ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (MouseBatteryProtocol.TryCompxFromCollection(raw, out _, out _))
+        {
+            raw[..8].CopyTo(result);
+            result[16] = MouseBatteryProtocol.CompxChecksum(result[..16]);
+        }
+        else if (MouseBatteryProtocol.TryCompxOnline(raw, out _))
+        {
+            // 0x03 在线状态回复只保留状态字节 [6]，清除 [7..15] 中的 RF ID 并重算校验。
+            raw[..7].CopyTo(result);
+            result[16] = MouseBatteryProtocol.CompxChecksum(result[..16]);
+        }
+        else if (MouseBatteryProtocol.TryCompxCidMid(raw, out _, out _))
+        {
+            // 0x10 CID/MID 回复只保留型号字节 [6..7]，清除其余字节并重算校验。
+            raw[..8].CopyTo(result);
+            result[16] = MouseBatteryProtocol.CompxChecksum(result[..16]);
+        }
     }
 
     private static void CopyHidpp(ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result,
@@ -191,7 +243,7 @@ internal static partial class DiagnosticPrivacy
         result[62] = RazerHeadsetProtocol.Checksum(result, 1);
     }
 
-    public static byte[] SerialReplies(ReadOnlySpan<byte> raw)
+    internal static byte[] SerialReplies(ReadOnlySpan<byte> raw)
     {
         var result = new byte[raw.Length];
         for (int offset = 0; offset + 3 <= raw.Length; )

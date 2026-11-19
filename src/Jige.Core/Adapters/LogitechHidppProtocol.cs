@@ -87,6 +87,31 @@ internal static class LogitechHidppProtocol
 
     public static bool IsSuccess(byte[]? frame) => frame is not null && frame[2] is not (0x8F or 0xFF);
 
+    /// <summary>
+    /// 解析罗技接收器被动推送的连接/断开事件（HID++ 1.0 sub_id 0x41 / 0x40，只读监听）。
+    /// 参考 Solaar notifications.py 与 Linux hid-logitech-hidpp.c：0x41 载荷字节 4 的 bit6 (0x40) 置位表示链路断开。
+    /// </summary>
+    public static bool TryParseConnectionEvent(ReadOnlySpan<byte> report, out byte slot, out bool connected)
+    {
+        slot = 0;
+        connected = false;
+        if (report.Length < ShortLength || report[0] is not (0x10 or 0x11) || report[1] is < 1 or > 6)
+            return false;
+        if (report[2] == 0x40)
+        {
+            slot = report[1];
+            connected = false;
+            return true;
+        }
+        if (report[2] == 0x41 && report[3] > 0)
+        {
+            slot = report[1];
+            connected = (report[4] & 0x40) == 0;
+            return true;
+        }
+        return false;
+    }
+
     public static DeviceKind NameKind(byte type) => type switch
     {
         0 or 2 => DeviceKind.Keyboard,

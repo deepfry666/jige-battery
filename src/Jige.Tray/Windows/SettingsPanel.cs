@@ -1,6 +1,6 @@
 namespace Jige.Tray.Windows;
 
-internal enum SettingRow { Primary, Threshold, GameSilent, PollInterval, Autostart }
+internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
@@ -12,7 +12,13 @@ internal sealed class SettingsPanel(int availableHeight)
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.Primary, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart];
+        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart];
+
+    public static readonly SettingChoice[] TrayModeChoices =
+    [
+        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.PerDevice), "每台设备一个图标（默认）"),
+        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery), "只显示电量最低的设备")
+    ];
 
     public static readonly SettingChoice[] ThresholdChoices =
     [
@@ -33,25 +39,18 @@ internal sealed class SettingsPanel(int availableHeight)
     private readonly float[] from = new float[Rows.Length];
     private readonly int[] offsets = new int[Rows.Length];
     private long started;
-    private int deviceCount;
 
     public SettingRow? Expanded { get; private set; }
     public bool Animating { get; private set; }
     private int Capacity => Math.Clamp((availableHeight - PanelLayout.SettingsHeight) / OptionHeight, 1, MaxVisibleOptions);
     public int SurfaceHeight => PanelLayout.SettingsHeight + Capacity * OptionHeight;
-    public float ExtraHeight => VisibleHeight(SettingRow.Primary) + VisibleHeight(SettingRow.Threshold) +
+    public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
         VisibleHeight(SettingRow.PollInterval);
     public float Height => PanelLayout.SettingsHeight + ExtraHeight;
 
-    public void SetDeviceCount(int count)
+    private static int Count(SettingRow row) => row switch
     {
-        deviceCount = count;
-        offsets[(int)SettingRow.Primary] = Math.Min(Offset(SettingRow.Primary), MaxOffset(SettingRow.Primary));
-    }
-
-    private int Count(SettingRow row) => row switch
-    {
-        SettingRow.Primary => deviceCount,
+        SettingRow.TrayMode => TrayModeChoices.Length,
         SettingRow.Threshold => ThresholdChoices.Length,
         SettingRow.PollInterval => PollChoices.Length,
         _ => 0
@@ -149,9 +148,8 @@ internal sealed class SettingsPanel(int availableHeight)
         var settings = model.Settings;
         TraySettings? next = (Expanded, target.Action) switch
         {
-            (SettingRow.Primary, PopupAction.PrimaryDevice) when target.DeviceId is { } id &&
-                model.OrderedDevices().Any(device => StringComparer.OrdinalIgnoreCase.Equals(device.Device.Id, id)) =>
-                settings.WithPrimary(id),
+            (SettingRow.TrayMode, PopupAction.TrayMode) when TrayModeChoices.Any(choice => choice.Target == target) =>
+                settings with { TrayMode = (TrayDisplayMode)target.Value },
             (SettingRow.Threshold, PopupAction.Threshold) when ThresholdChoices.Any(choice => choice.Target == target) =>
                 settings with { LowBatteryThreshold = target.Value },
             (SettingRow.PollInterval, PopupAction.PollInterval) when PollChoices.Any(choice => choice.Target == target) =>

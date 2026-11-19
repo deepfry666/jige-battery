@@ -3,7 +3,14 @@ using Jige.Core.Adapters;
 
 namespace Jige.Tray;
 
-internal sealed record PollResult(IReadOnlyList<BatteryReading> Readings, bool ScanFailed, int UnknownReceivers = 0)
+internal sealed record PollResult(
+    IReadOnlyList<BatteryReading> Readings,
+    bool ScanFailed,
+    int UnknownReceivers = 0,
+    ReceiverChange[]? ReceiverChanges = null,
+    UnknownReceiverInfo[]? Unknowns = null,
+    bool HasHeartbeatDevices = false,
+    bool Scanned = false)
 {
     public static int CountUnknown(DeviceInventory inventory, IEnumerable<DetectedDevice> detected)
     {

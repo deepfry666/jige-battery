@@ -1,8 +1,25 @@
 namespace Jige.Core.Adapters;
 
-internal sealed class RazerHeadsetAdapter : IDeviceAdapter
+internal sealed class RazerHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
 {
     private static int nextSequence;
+
+    public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
+
+    public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
+        DeviceTarget target, IReceiverTransport transport, CancellationToken token)
+    {
+        if (target.Endpoint is not HidInterface endpoint || !Matches(endpoint))
+            return null;
+        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 2, RequiredOutputReportId = 2 }, token);
+        var sequence = (byte)(Interlocked.Increment(ref nextSequence) & 0x1F);
+        var request = RazerHeadsetProtocol.EncodeMediaTek(0x0565, RazerHeadsetQuery.Link, sequence);
+        var frame = await HidQuery.OutputAsync(session, session, request, RazerHeadsetProtocol.ReportLength,
+            packet => RazerHeadsetProtocol.TryMediaTek(packet, request, 0x0565, out _), null, token).ConfigureAwait(false);
+        if (frame is null || !RazerHeadsetProtocol.TryMediaTek(frame, request, 0x0565, out byte linkValue))
+            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline, ReadIssue.Timeout);
+        return new(endpoint.ReceiverId, null, target.Device.Id, linkValue == 0 ? LinkState.Offline : LinkState.Online);
+    }
 
     // PA 需切换远程模式，V3 系列冷启动有会话与断链风险。只注册 V2 HyperSpeed 纯查询路径。
     private static bool Matches(HidInterface hid) => hid is

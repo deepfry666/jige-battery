@@ -4,9 +4,39 @@ using System.Security.Cryptography;
 
 namespace Jige.Core.Adapters;
 
-internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter
+internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter, IPushPresenceAdapter
 {
     private static int nextMarker;
+
+    public PresenceProbeKind PresenceKind => PresenceProbeKind.PushListener;
+
+    // 罗技在线状态依靠接收器被动推送的 0x41/0x40 事件更新，不走定时心跳。
+    public ValueTask<PresenceUpdate?> CheckPresenceAsync(
+        DeviceTarget target, IReceiverTransport transport, CancellationToken cancellationToken) =>
+        ValueTask.FromResult<PresenceUpdate?>(null);
+
+    public async Task ListenPushAsync(
+        DeviceTarget target, IReceiverTransport transport, Action<PresenceUpdate> onUpdate, CancellationToken token)
+    {
+        if (target.Endpoint is not HidInterface longHid || !IsLong(longHid) || !IsKnownReceiver(longHid.ProductId))
+            return;
+
+        // 优先监听短报告集合（0x41 连接推送走 HID++ 1.0 短报告），缺失短集合时回退长集合。
+        var listenEndpoint = target.ShortHid is { } shortHid && IsShort(shortHid)
+            ? shortHid with { RequiredInputReportId = 0x10 }
+            : longHid with { RequiredInputReportId = 0x11 };
+
+        using var session = transport.OpenHid(listenEndpoint, token);
+        var buffer = new byte[listenEndpoint.InputLength ?? LogitechHidppProtocol.LongLength];
+        while (!token.IsCancellationRequested)
+        {
+            int count = await session.ReadInputAsync(buffer, token).ConfigureAwait(false);
+            if (count == 0)
+                break;
+            if (LogitechHidppProtocol.TryParseConnectionEvent(buffer.AsSpan(0, count), out byte slot, out bool connected))
+                onUpdate(new(longHid.ReceiverId, slot, null, connected ? LinkState.Online : LinkState.Offline));
+        }
+    }
 
     internal static bool UsesReceiverName(HidInterface hid) => !IsKnownReceiver(hid.ProductId) && IsLong(hid);
 
