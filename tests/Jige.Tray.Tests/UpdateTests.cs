@@ -223,6 +223,52 @@ public sealed class UpdateTests : IDisposable
         Assert.False(Directory.Exists(folder));
     }
 
+    [Fact]
+    public async Task PreparedPackageIsReverifiedBeforeInstallAndRedownloadedWhenChanged()
+    {
+        int packageRequests = 0;
+        using var http = new HttpClient(new Responses((uri, _) => Task.FromResult(uri.AbsoluteUri switch
+        {
+            ReleaseRoot + AvailableUpdate.ChecksumsName => Ok(Sums),
+            ReleaseRoot + Package => Count("abc"),
+            _ => throw new InvalidOperationException($"意外请求 {uri}")
+        })));
+        var release = JsonSerializer.Deserialize(Json(), ReleaseJsonContext.Default.ReleaseResponse);
+        var update = Assert.IsType<AvailableUpdate>(AvailableUpdate.Select(release, Current));
+        var client = new UpdateClient(http);
+        string folder = Path.Combine(dataFolder, "updates");
+        var files = new UpdateFiles(folder);
+
+        // 后台预先下载：返回路径、大小和 SHA-256，供稍后安装前再次核对。
+        var ready = await client.DownloadVerifiedAsync(update, files, progress: null, default);
+        Assert.Equal(1, packageRequests);
+        Assert.Equal(3, ready.Size);
+        Assert.Equal(Convert.FromHexString(Hash), ready.Sha256);
+        Assert.True(UpdateFiles.TryReverify(ready));
+
+        string? launched = null;
+        string Prepared() => UpdateFiles.TryReverify(ready) ? ready.Path : DownloadVerifiedPackage(client, update, files);
+        Assert.True(UpdateInstallation.Run(files, Prepared, isClosing: () => false, launch: path => launched = path));
+        Assert.Equal(ready.Path, launched);
+        Assert.Equal(1, packageRequests);
+
+        // 安装包被改动或删除时不再信任，改为重新下载并校验。
+        await File.WriteAllTextAsync(ready.Path, "abd");
+        Assert.False(UpdateFiles.TryReverify(ready));
+        File.Delete(ready.Path);
+        Assert.False(UpdateFiles.TryReverify(ready));
+        launched = null;
+        Assert.True(UpdateInstallation.Run(files, Prepared, isClosing: () => false, launch: path => launched = path));
+        Assert.Equal(2, packageRequests);
+        Assert.Equal("abc", await File.ReadAllTextAsync(launched!));
+
+        HttpResponseMessage Count(string payload)
+        {
+            packageRequests++;
+            return Ok(payload);
+        }
+    }
+
     private static string DownloadVerifiedPackage(UpdateClient client, AvailableUpdate update, UpdateFiles files) =>
         client.DownloadAsync(update, files, default).GetAwaiter().GetResult();
 

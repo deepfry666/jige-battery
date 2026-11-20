@@ -40,7 +40,7 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -107,6 +107,9 @@ internal sealed partial class TrayApp : IDisposable
     private CancellationTokenSource? updateCancellation;
     private Task updateWork = Task.CompletedTask;
     private int updateOperationId;
+    // 当前更新任务由后台自动检查发起时记录其编号；用户操作会换新编号，从而接管或取消后台任务。
+    private int? backgroundUpdateId;
+    private readonly BackgroundUpdateSchedule autoUpdate = new(Environment.TickCount64);
     private bool MenuOpen => menu is not null;
     private bool UpdateActive => updateState.IsBusy;
     private int cleanupAttempts;
@@ -195,6 +198,7 @@ internal sealed partial class TrayApp : IDisposable
         RefreshIcon();
         ArmTimer(GameSettleTimer, 750);
         ProcessWork();
+        ScheduleAutoUpdate();
 
         MSG message;
         int result;
@@ -463,6 +467,7 @@ internal sealed partial class TrayApp : IDisposable
                     schedule.NotifyPowerResume();
                     RefreshStripGeometry();
                     ProcessWork();
+                    ScheduleAutoUpdate();
                 }
                 return true;
             case 0x0113: // WM_TIMER
@@ -470,6 +475,11 @@ internal sealed partial class TrayApp : IDisposable
                 if (wParam.Value == UpdateCleanupTimer)
                 {
                     CleanupUpdates();
+                    return true;
+                }
+                if (wParam.Value == AutoUpdateTimer)
+                {
+                    RunAutoUpdate();
                     return true;
                 }
                 if (wParam.Value == DeviceChangeTimer)
@@ -1062,6 +1072,7 @@ internal sealed partial class TrayApp : IDisposable
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
         bool themeChanged = settings.Theme != model.Settings.Theme;
+        bool autoUpdateChanged = settings.AutoUpdateEnabled != model.Settings.AutoUpdateEnabled;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
         if (remove is not null)
             model.RemoveOffline(remove);
@@ -1069,6 +1080,14 @@ internal sealed partial class TrayApp : IDisposable
             SetForegroundTracking();
         if (displayLocationChanged)
             RefreshStripGeometry();
+        if (autoUpdateChanged)
+        {
+            if (settings.AutoUpdateEnabled)
+                autoUpdate.Enabled(Environment.TickCount64);
+            else
+                CancelBackgroundUpdate();
+            ScheduleAutoUpdate();
+        }
         if (bluetoothChanged)
         {
             if (cancellation is { } activePoll)
@@ -1505,6 +1524,9 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.Autostart:
                 ChangeSettings(model.Settings with { StartWithWindows = !model.Settings.StartWithWindows });
                 break;
+            case PopupAction.AutoUpdate:
+                ChangeSettings(model.Settings with { AutoCheckUpdates = !model.Settings.AutoUpdateEnabled });
+                break;
             case PopupAction.TrayToggle when target.DeviceId is { } toggleId:
                 ChangeSettings(model.ToggleTrayDevice(toggleId));
                 break;
@@ -1546,6 +1568,9 @@ internal sealed partial class TrayApp : IDisposable
                 StartUpdateCheck();
                 break;
             case PopupAction.InstallUpdate:
+                // 主面板底栏的「新版已就绪」先切到更新页，让用户看到校验与重启过程。
+                if (active.CurrentPage == PanelPage.Main)
+                    active.Navigate(PanelPage.Updates);
                 StartUpdateInstall();
                 break;
             case PopupAction.OpenReleasePage:
@@ -1765,7 +1790,8 @@ internal sealed partial class TrayApp : IDisposable
     private void OpenUpdatesPage(PopupWindow? activePopup, Point? point)
     {
         DestroyHoverCard();
-        bool shouldCheck = !UpdateActive &&
+        // 后台已下载好新版时直接展示「重启并升级」，不重新检查，以免丢掉已校验的安装包。
+        bool shouldCheck = !UpdateActive && !updateState.IsReady &&
             !(updateState.Phase == UpdatePhase.Available &&
               updateState.CheckedAt is { } checkedAt &&
               DateTimeOffset.UtcNow - checkedAt < TimeSpan.FromMinutes(10));
@@ -1779,16 +1805,30 @@ internal sealed partial class TrayApp : IDisposable
         RenderPopup();
     }
 
-    private void StartUpdateCheck()
+    private void StartUpdateCheck() => StartUpdateCheck(background: false);
+
+    /// <summary>
+    /// 检查最新正式版。后台检查不切换界面状态，失败只写日志；查到新版本后自动预先下载并校验，
+    /// 安装仍要等用户点「重启并升级」。
+    /// </summary>
+    private void StartUpdateCheck(bool background)
     {
         CancelUpdateTask();
         int opId = ++updateOperationId;
+        backgroundUpdateId = background ? opId : null;
+        string prefix = background ? "后台检查：" : "";
         string current = ReleaseVersion.Current;
         string currentLabel = updateState.CurrentVersionLabel;
         bool installed = updateState.IsInstalled;
         if (!ReleaseVersion.TryParseInstalled(current, out var version, out _, out _))
         {
-            events.LogUpdateCheck("失败（InvalidVersion）");
+            events.LogUpdateCheck($"{prefix}失败（InvalidVersion）");
+            if (background)
+            {
+                autoUpdate.Failed(Environment.TickCount64);
+                ScheduleAutoUpdate();
+                return;
+            }
             updateState = UpdateViewState.Failed(currentLabel, installed, $"无法识别当前版本 {current}。");
             RenderPopup();
             return;
@@ -1797,8 +1837,11 @@ internal sealed partial class TrayApp : IDisposable
         var source = new CancellationTokenSource();
         updateCancellation = source;
         var token = source.Token;
-        updateState = UpdateViewState.Checking(currentLabel, installed);
-        RenderPopup();
+        if (!background)
+        {
+            updateState = UpdateViewState.Checking(currentLabel, installed);
+            RenderPopup();
+        }
 
         updateWork = Task.Run(async () =>
         {
@@ -1814,17 +1857,28 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    if (background)
+                        autoUpdate.Succeeded(Environment.TickCount64);
                     if (update is null)
                     {
-                        events.LogUpdateCheck($"已是最新版本 {currentLabel}");
-                        updateState = UpdateViewState.UpToDate(currentLabel, installed, checkedAt);
+                        events.LogUpdateCheck($"{prefix}已是最新版本 {currentLabel}");
+                        if (!background || updateState.Phase is UpdatePhase.Idle or UpdatePhase.UpToDate)
+                            updateState = UpdateViewState.UpToDate(currentLabel, installed, checkedAt);
+                    }
+                    else if (background && updateState.IsReady && updateState.Available?.Version == update.Version)
+                    {
+                        // 同一版本已经下载好，保留现有安装包，不重复下载。
+                        updateState = updateState with { CheckedAt = checkedAt };
                     }
                     else
                     {
-                        events.LogUpdateCheck($"发现新版本 v{update.Version}（当前 {currentLabel}，来源：{update.EffectiveSource.Name}）");
+                        events.LogUpdateCheck($"{prefix}发现新版本 v{update.Version}（当前 {currentLabel}，来源：{update.EffectiveSource.Name}）");
                         updateState = UpdateViewState.Found(currentLabel, installed, update, checkedAt);
+                        if (background)
+                            StartUpdateDownload(install: false, background: true);
                     }
                     RenderPopup();
+                    ScheduleAutoUpdate();
                 });
             }
             catch (OperationCanceledException)
@@ -1834,6 +1888,13 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    if (background)
+                    {
+                        events.LogUpdateCheck(timedOut ? "后台检查：失败（Timeout）" : "后台检查：已取消");
+                        autoUpdate.Failed(Environment.TickCount64);
+                        ScheduleAutoUpdate();
+                        return;
+                    }
                     if (timedOut)
                     {
                         events.LogUpdateCheck("失败（Timeout）");
@@ -1856,7 +1917,13 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
-                    events.LogUpdateCheck($"失败（{kind}）");
+                    events.LogUpdateCheck($"{prefix}失败（{kind}）");
+                    if (background)
+                    {
+                        autoUpdate.Failed(Environment.TickCount64);
+                        ScheduleAutoUpdate();
+                        return;
+                    }
                     updateState = UpdateViewState.Failed(currentLabel, installed, message);
                     RenderPopup();
                 });
@@ -1864,19 +1931,31 @@ internal sealed partial class TrayApp : IDisposable
         });
     }
 
-    private void StartUpdateInstall()
+    private void StartUpdateInstall() => StartUpdateDownload(install: true, background: false);
+
+    /// <summary>
+    /// 下载并校验新版安装包。install 为 false 时只预先下载（后台），完成后进入「已就绪」；
+    /// install 为 true 时优先复用已就绪的安装包（重新核对 SHA-256），否则重新下载，然后启动静默安装。
+    /// </summary>
+    private void StartUpdateDownload(bool install, bool background)
     {
         if (UpdateActive || updateState.Available is not { } update || !updateState.IsInstalled)
+            return;
+        var ready = updateState.Ready;
+        if (!install && ready is not null)
             return;
 
         CancelUpdateTask();
         int opId = ++updateOperationId;
+        backgroundUpdateId = background ? opId : null;
         var source = new CancellationTokenSource();
         updateCancellation = source;
         var token = source.Token;
         string currentLabel = updateState.CurrentVersionLabel;
         bool installed = updateState.IsInstalled;
-        updateState = updateState.WithProgress(new(0, update.Installer.Size, Verifying: false));
+        updateState = updateState.WithProgress(ready is null
+            ? new(0, update.Installer.Size, Verifying: false)
+            : new(update.Installer.Size, update.Installer.Size, Verifying: true));
         RenderPopup();
 
         long lastPostedTick = 0;
@@ -1895,6 +1974,9 @@ internal sealed partial class TrayApp : IDisposable
             });
         });
 
+        // 安装路径失败或取消时 UpdateInstallation 会清空更新目录，已就绪的安装包随之失效。
+        UpdateViewState Interrupted(UpdateViewState state) => install ? state with { Ready = null } : state;
+
         updateWork = Task.Run(() =>
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -1903,9 +1985,29 @@ internal sealed partial class TrayApp : IDisposable
             {
                 using var http = UpdateClient.CreateHttpClient();
                 var client = new UpdateClient(http);
+                if (!install)
+                {
+                    var package = client.DownloadVerifiedAsync(update, files.Updates, progress, timeout.Token)
+                        .GetAwaiter().GetResult();
+                    PostUpdateCallback(() =>
+                    {
+                        if (opId != updateOperationId || exitRequested)
+                            return;
+                        events.LogUpdateCheck($"新版本 v{update.Version} 已下载并通过校验，等待重启升级");
+                        updateState = updateState.WithReady(package);
+                        if (background)
+                            autoUpdate.Succeeded(Environment.TickCount64);
+                        RenderPopup();
+                        ScheduleAutoUpdate();
+                    });
+                    return;
+                }
+
                 bool launched = UpdateInstallation.Run(
                     files.Updates,
-                    () => client.DownloadAsync(update, files.Updates, progress, timeout.Token).GetAwaiter().GetResult(),
+                    () => ready is not null && UpdateFiles.TryReverify(ready)
+                        ? ready.Path
+                        : client.DownloadAsync(update, files.Updates, progress, timeout.Token).GetAwaiter().GetResult(),
                     () => exitRequested || token.IsCancellationRequested,
                     LaunchInstaller);
                 if (launched)
@@ -1927,7 +2029,14 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
-                    if (timedOut)
+                    if (timedOut && background)
+                    {
+                        events.LogUpdateCheck("后台下载：失败（Timeout）");
+                        autoUpdate.Failed(Environment.TickCount64);
+                        updateState = updateState.BackToAvailable();
+                        ScheduleAutoUpdate();
+                    }
+                    else if (timedOut)
                     {
                         events.LogUpdateCheck("失败（Timeout）");
                         updateState = UpdateViewState.Failed(currentLabel, installed, "下载超时，请检查网络后重试。", update);
@@ -1935,7 +2044,7 @@ internal sealed partial class TrayApp : IDisposable
                     else
                     {
                         events.LogUpdateCheck("已取消");
-                        updateState = updateState.BackToAvailable();
+                        updateState = Interrupted(updateState.BackToAvailable());
                     }
                     RenderPopup();
                 });
@@ -1949,12 +2058,58 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
-                    events.LogUpdateCheck($"失败（{kind}）");
-                    updateState = UpdateViewState.Failed(currentLabel, installed, message, update);
+                    if (background)
+                    {
+                        // 后台下载失败不显示错误页，回到「发现新版本」，用户仍可手动下载；稍后再自动重试。
+                        events.LogUpdateCheck($"后台下载：失败（{kind}）");
+                        autoUpdate.Failed(Environment.TickCount64);
+                        updateState = updateState.BackToAvailable();
+                        ScheduleAutoUpdate();
+                    }
+                    else
+                    {
+                        events.LogUpdateCheck($"失败（{kind}）");
+                        updateState = UpdateViewState.Failed(currentLabel, installed, message, update);
+                    }
                     RenderPopup();
                 });
             }
         });
+    }
+
+    private void ScheduleAutoUpdate()
+    {
+        if (host.IsNull || exitRequested)
+            return;
+        if (autoUpdate.Delay(Environment.TickCount64, model.Settings.AutoUpdateEnabled, updateState.IsInstalled) is long ms)
+            ArmTimer(AutoUpdateTimer, (uint)Math.Clamp(ms, 1_000, int.MaxValue));
+        else
+            PInvoke.KillTimer(host, AutoUpdateTimer);
+    }
+
+    private void RunAutoUpdate()
+    {
+        ReadGameMode();
+        if (autoUpdate.TryStart(Environment.TickCount64, model.Settings.AutoUpdateEnabled, updateState.IsInstalled,
+                game.Game, UpdateActive))
+            StartUpdateCheck(background: true);
+        ScheduleAutoUpdate();
+    }
+
+    /// <summary>关闭「自动检查更新」时停止正在进行的后台检查或下载；已就绪的安装包保留。</summary>
+    private void CancelBackgroundUpdate()
+    {
+        if (backgroundUpdateId != updateOperationId || updateCancellation is null)
+            return;
+        bool downloading = UpdateActive;
+        CancelUpdateTask();
+        backgroundUpdateId = null;
+        if (downloading)
+        {
+            events.LogUpdateCheck("已关闭自动检查更新，停止后台下载");
+            updateState = updateState.BackToAvailable();
+        }
+        RenderPopup();
     }
 
     private void OpenReleasePage()
@@ -2028,6 +2183,9 @@ internal sealed partial class TrayApp : IDisposable
 
     private void CleanupUpdates()
     {
+        // 后台预先下载好的安装包要留到用户点「重启并升级」。
+        if (updateState.Ready is not null)
+            return;
         if (UpdateActive)
         {
             ArmTimer(UpdateCleanupTimer, 5_000);
@@ -2081,7 +2239,8 @@ internal sealed partial class TrayApp : IDisposable
             settings.ShowBluetoothDevices)
         {
             ActualDisplayLocation = stripDisplay.Actual,
-            DisplayLocationReason = stripDisplay.Description
+            DisplayLocationReason = stripDisplay.Description,
+            AutoCheckUpdates = settings.AutoUpdateEnabled
         };
         return new(
             DeviceHistories: model.DiagnosticHistories(),

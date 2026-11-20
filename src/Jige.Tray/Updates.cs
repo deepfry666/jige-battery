@@ -174,6 +174,9 @@ internal sealed record AvailableUpdate(
     }
 }
 
+/// <summary>已下载并通过大小与 SHA-256 校验的安装包；安装前会按同一校验值再核对一次。</summary>
+internal sealed record VerifiedPackage(string Path, long Size, byte[] Sha256);
+
 internal static class UpdateInstallation
 {
     public static bool Run(UpdateFiles files, Func<string> downloadVerifiedPackage,
@@ -234,6 +237,20 @@ internal sealed class UpdateFiles(string path)
         return match is null
             ? throw new InvalidDataException("SHA256SUMS.txt 缺少安装包校验值。")
             : Convert.FromHexString(match);
+    }
+
+    /// <summary>重新核对之前下载好的安装包；文件被删除、改动或无法读取时返回 false，由调用方改为重新下载。</summary>
+    public static bool TryReverify(VerifiedPackage package)
+    {
+        try
+        {
+            VerifyAsync(package.Path, package.Size, package.Sha256, CancellationToken.None).GetAwaiter().GetResult();
+            return true;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     public static async Task VerifyAsync(string path, long size, byte[] checksum, CancellationToken token)
@@ -323,6 +340,10 @@ internal sealed class UpdateClient(
         DownloadAsync(update, files, progress: null, token);
 
     public async Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files,
+        IProgress<UpdateProgress>? progress, CancellationToken token) =>
+        (await DownloadVerifiedAsync(update, files, progress, token).ConfigureAwait(false)).Path;
+
+    public async Task<VerifiedPackage> DownloadVerifiedAsync(AvailableUpdate update, UpdateFiles files,
         IProgress<UpdateProgress>? progress, CancellationToken token)
     {
         try
@@ -339,7 +360,7 @@ internal sealed class UpdateClient(
         }
     }
 
-    private async Task<string> DownloadFromSourceAsync(AvailableUpdate update, UpdateFiles files,
+    private async Task<VerifiedPackage> DownloadFromSourceAsync(AvailableUpdate update, UpdateFiles files,
         IProgress<UpdateProgress>? progress, CancellationToken token)
     {
         string path = files.PreparePackage(update.Installer.Name!);
@@ -361,7 +382,7 @@ internal sealed class UpdateClient(
             progress?.Report(new(update.Installer.Size, update.Installer.Size, Verifying: true));
             await UpdateFiles.VerifyAsync(path, update.Installer.Size, hash, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            return path;
+            return new(path, update.Installer.Size, hash);
         }
         catch
         {

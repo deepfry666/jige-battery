@@ -62,10 +62,14 @@ internal sealed record UpdateViewState(
     UpdateNoteBlock[]? NoteBlocks = null,
     UpdateProgress? Progress = null,
     string? ErrorMessage = null,
-    DateTimeOffset? CheckedAt = null)
+    DateTimeOffset? CheckedAt = null,
+    VerifiedPackage? Ready = null)
 {
     public UpdateNoteBlock[] Notes => NoteBlocks ?? [];
     public bool IsBusy => Phase is UpdatePhase.Checking or UpdatePhase.Downloading or UpdatePhase.Verifying;
+
+    /// <summary>后台已下载并校验好新版安装包，等待用户点「重启并升级」。</summary>
+    public bool IsReady => Phase == UpdatePhase.Available && Available is not null && Ready is not null && IsInstalled;
 
     public static UpdateViewState Idle(string currentVersionLabel, bool isInstalled) =>
         new(UpdatePhase.Idle, currentVersionLabel, isInstalled);
@@ -88,6 +92,14 @@ internal sealed record UpdateViewState(
         Phase = progress.Verifying ? UpdatePhase.Verifying : UpdatePhase.Downloading,
         Progress = progress,
         ErrorMessage = null
+    };
+
+    public UpdateViewState WithReady(VerifiedPackage package) => this with
+    {
+        Phase = UpdatePhase.Available,
+        Progress = null,
+        ErrorMessage = null,
+        Ready = package
     };
 
     public UpdateViewState BackToAvailable() => Available is null
