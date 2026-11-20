@@ -13,18 +13,18 @@ public sealed class TrayModelTests
     public void ShowingOrBlockingAReportDoesNotAcknowledgeIt()
     {
         var model = new TrayModel(new(), new());
-        model.ApplyPoll([Reading(Mouse, 15)], false, Now);
+        model.ApplyPoll([Reading(Mouse, 16)], false, Now);
         Assert.Null(model.ReadyReminder(Now, false));
 
-        model.ApplyPoll([Reading(Mouse, 14)], false, Now);
+        model.ApplyPoll([Reading(Mouse, 15)], false, Now);
         Assert.Equal(Mouse, model.ReadyReminder(Now, false)?.Device);
         Assert.Null(model.ReadyReminder(Now.AddSeconds(10), true));
         Assert.Equal(Mouse, model.ReadyReminder(Now.AddSeconds(11), false)?.Device);
         model.SetReminder(Mouse.Id, null);
         Assert.Null(model.ReadyReminder(Now.AddSeconds(12), false));
 
+        model.ApplyPoll([Reading(Mouse, 16)], false, Now);
         model.ApplyPoll([Reading(Mouse, 15)], false, Now);
-        model.ApplyPoll([Reading(Mouse, 14)], false, Now);
         Assert.Equal(Mouse, model.ReadyReminder(Now, false)?.Device);
     }
 
@@ -93,9 +93,9 @@ public sealed class TrayModelTests
         Assert.Equal(20, trayIcon.Percentage);
 
         model.ApplyPoll([Reading(Headset, 20)], false, Now);
-        model.ApplySettings(model.Settings with { LowBatteryThreshold = 20 }, Now);
+        model.ApplySettings(model.Settings with { LowBatteryThreshold = 19 }, Now);
         Assert.Null(model.ReadyReminder(Now, false));
-        model.ApplySettings(model.Settings with { LowBatteryThreshold = 21 }, Now);
+        model.ApplySettings(model.Settings with { LowBatteryThreshold = 20 }, Now);
         Assert.Equal(Headset, model.ReadyReminder(Now, false)?.Device);
     }
 

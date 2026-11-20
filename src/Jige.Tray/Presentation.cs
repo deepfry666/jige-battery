@@ -55,14 +55,14 @@ internal static class Presentation
     public static BatteryTone Tone(DeviceStatus? device, int threshold) => device switch
     {
         { Fresh: true, Percentage: { } } when device.IsFull || device.IsCharging => BatteryTone.Charging,
-        { Fresh: true, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Fresh: true, Percentage: { } percent } when percent <= threshold => BatteryTone.Low,
         { Fresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         { Fresh: true, Percentage: { } } => BatteryTone.Normal,
         // R1 / R3：设备休眠（或刚从休眠唤醒等待刷新）时保留上次读数且图标不变灰，按上次读数着色（不显示充电态）。
-        { Link: LinkState.Asleep, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Link: LinkState.Asleep, Percentage: { } percent } when percent <= threshold => BatteryTone.Low,
         { Link: LinkState.Asleep, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         { Link: LinkState.Asleep, Percentage: { } } => BatteryTone.Normal,
-        { Link: LinkState.Online, PendingRefresh: true, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Link: LinkState.Online, PendingRefresh: true, Percentage: { } percent } when percent <= threshold => BatteryTone.Low,
         { Link: LinkState.Online, PendingRefresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         { Link: LinkState.Online, PendingRefresh: true, Percentage: { } } => BatteryTone.Normal,
         _ => BatteryTone.Idle
