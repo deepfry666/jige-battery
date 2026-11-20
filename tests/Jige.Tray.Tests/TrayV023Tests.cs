@@ -394,4 +394,32 @@ public sealed class TrayV023Tests
             """;
         return JsonSerializer.Deserialize(json, ReleaseJsonContext.Default.ReleaseResponse)!;
     }
+
+    [Fact]
+    public void R3_InputWakeBacksOffWhenAsleepDeviceNeverAnswers()
+    {
+        long t = 1_000_000;
+        var schedule = new PollSchedule(t);
+        uint input = 1000;
+        schedule.SyncLastInputTick(input);
+
+        // 设备一直不回复：每次补心跳后冷却依次为 2、4、8、16、30、30 秒。
+        long[] expected = [2_000, 4_000, 8_000, 16_000, 30_000, 30_000];
+        Assert.True(schedule.ShouldWakeHeartbeatOnInput(++input, t, hasAsleepHeartbeatDevices: true));
+        foreach (long cooldown in expected)
+        {
+            schedule.StartHeartbeat(t, inputWake: true);
+            schedule.CompleteHeartbeat();
+            Assert.Equal(cooldown, schedule.InputWakeCooldown);
+            Assert.False(schedule.ShouldWakeHeartbeatOnInput(++input, t + cooldown - 1, hasAsleepHeartbeatDevices: true));
+            t += cooldown;
+            Assert.True(schedule.ShouldWakeHeartbeatOnInput(++input, t, hasAsleepHeartbeatDevices: true));
+        }
+
+        // 设备重新进入休眠（主循环同步输入基线）后，冷却回到 2 秒。
+        schedule.SyncLastInputTick(input);
+        schedule.StartHeartbeat(t, inputWake: true);
+        schedule.CompleteHeartbeat();
+        Assert.Equal(2_000, schedule.InputWakeCooldown);
+    }
 }

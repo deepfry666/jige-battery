@@ -10,6 +10,11 @@ internal sealed class PollSchedule(long createdMs)
     public const int GameHeartbeatSeconds = 30;
     /// <summary>R3：键鼠输入触发的休眠设备补心跳冷却时长，最多每 2 秒一次。</summary>
     public const int InputWakeCooldownMs = 2_000;
+    /// <summary>
+    /// 休眠设备一直不回复时（例如协议不通，或设备确实关着），补心跳的冷却按 2、4、8、16 秒翻倍，最长 30 秒；
+    /// 避免用户持续操作电脑时，每 2 秒占用一次接收器。设备重新进入休眠时从 2 秒重新开始。
+    /// </summary>
+    public const int InputWakeMaxCooldownMs = 30_000;
     /// <summary>R3：存在休眠设备时检查 GetLastInputInfo 的轮询步长（仅在非游戏中且有休眠设备时启用）。</summary>
     public const int InputCheckIntervalMs = 500;
 
@@ -17,6 +22,7 @@ internal sealed class PollSchedule(long createdMs)
     private long? lastHeartbeatStartedMs;
     private uint? lastObservedInputTick;
     private long lastInputWakeMs = long.MinValue / 2;
+    private int inputWakeStreak;
     private bool requested;
     private bool userRequested;
     private bool urgentRescan;
@@ -97,7 +103,10 @@ internal sealed class PollSchedule(long createdMs)
     {
         HeartbeatRunning = true;
         if (inputWake)
+        {
             lastInputWakeMs = nowMs;
+            inputWakeStreak++;
+        }
         else
             lastHeartbeatStartedMs = nowMs;
     }
@@ -109,7 +118,12 @@ internal sealed class PollSchedule(long createdMs)
     {
         if (currentInputTick is uint tick)
             lastObservedInputTick = tick;
+        inputWakeStreak = 0;
     }
+
+    /// <summary>当前补心跳冷却：首次唤醒后 2 秒，此后每次翻倍，最长 30 秒。</summary>
+    public long InputWakeCooldown =>
+        Math.Min(InputWakeMaxCooldownMs, (long)InputWakeCooldownMs << Math.Clamp(inputWakeStreak - 1, 0, 8));
 
     /// <summary>
     /// R3：用户有新的键鼠输入（GetLastInputInfo 的 dwTime 发生变化）且存在休眠设备时，
@@ -124,7 +138,7 @@ internal sealed class PollSchedule(long createdMs)
         lastObservedInputTick = tick;
         if (!inputChanged || !hasAsleepHeartbeatDevices || game || Running || HeartbeatRunning)
             return false;
-        return nowMs - lastInputWakeMs >= InputWakeCooldownMs;
+        return nowMs - lastInputWakeMs >= InputWakeCooldown;
     }
 }
 
