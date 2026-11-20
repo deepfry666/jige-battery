@@ -43,7 +43,7 @@ internal static unsafe class Graphics
 [SupportedOSPlatform("windows10.0.17763")]
 internal sealed unsafe class TextFactory : IDisposable
 {
-    private readonly Dictionary<(float Size, int Weight, bool Number), nint> formats = [];
+    private readonly Dictionary<(float Size, int Weight, bool Number, bool Wrap), nint> formats = [];
     private IDWriteFactory* factory;
     private IDWriteTypography* tabular;
 
@@ -72,9 +72,9 @@ internal sealed unsafe class TextFactory : IDisposable
         }
     }
 
-    private IDWriteTextFormat* Format(float size, int weight, bool number)
+    private IDWriteTextFormat* Format(float size, int weight, bool number, bool wrap = false)
     {
-        var key = (size, weight, number);
+        var key = (size, weight, number, wrap);
         if (formats.TryGetValue(key, out nint existing))
             return (IDWriteTextFormat*)existing;
 
@@ -87,8 +87,12 @@ internal sealed unsafe class TextFactory : IDisposable
             DWRITE_FONT_STRETCH.DWRITE_FONT_STRETCH_NORMAL, size, "zh-CN", &format);
         try
         {
-            format->SetWordWrapping(DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
-            format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            format->SetWordWrapping(wrap
+                ? DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_EMERGENCY_BREAK
+                : DWRITE_WORD_WRAPPING.DWRITE_WORD_WRAPPING_NO_WRAP);
+            format->SetParagraphAlignment(wrap
+                ? DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_NEAR
+                : DWRITE_PARAGRAPH_ALIGNMENT.DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             formats.Add(key, (nint)format);
             return format;
         }
@@ -100,9 +104,9 @@ internal sealed unsafe class TextFactory : IDisposable
     }
 
     public IDWriteTextLayout* Layout(string text, float size, int weight, bool number, float width, float height,
-        DWRITE_TEXT_ALIGNMENT alignment, bool ellipsis)
+        DWRITE_TEXT_ALIGNMENT alignment, bool ellipsis, bool wrap = false)
     {
-        var format = Format(size, weight, number);
+        var format = Format(size, weight, number, wrap);
         IDWriteTextLayout* layout = null;
         factory->CreateTextLayout(text, (uint)text.Length, format, width, height, &layout);
         try
@@ -385,6 +389,41 @@ internal sealed unsafe class Canvas : IDisposable
         {
             layout->GetMetrics(out var metrics);
             return metrics.widthIncludingTrailingWhitespace;
+        }
+        finally
+        {
+            Graphics.Release(layout);
+        }
+    }
+
+    public float TextWrapped(string text, float x, float y, float w, float h, float size, Color color, int weight = 400,
+        DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_LEADING)
+    {
+        if (text.Length == 0 || w <= 0 || h <= 0)
+            return 0;
+        var layout = fonts.Layout(text, size, weight, number: false, w, h, align, ellipsis: false, wrap: true);
+        try
+        {
+            target->DrawTextLayout(Graphics.Point(x, y), layout, Brush(color), D2D1_DRAW_TEXT_OPTIONS.D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            layout->GetMetrics(out var metrics);
+            return metrics.height;
+        }
+        finally
+        {
+            Graphics.Release(layout);
+        }
+    }
+
+    public float MeasureWrappedHeight(string text, float w, float size, int weight = 400)
+    {
+        if (text.Length == 0 || w <= 0)
+            return 0;
+        var layout = fonts.Layout(text, size, weight, number: false, w, 4096,
+            DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_LEADING, ellipsis: false, wrap: true);
+        try
+        {
+            layout->GetMetrics(out var metrics);
+            return metrics.height;
         }
         finally
         {

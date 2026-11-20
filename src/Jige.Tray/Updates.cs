@@ -117,7 +117,7 @@ internal sealed record AvailableUpdate(Version Version, string Notes, Uri Page, 
         if (string.IsNullOrEmpty(notes))
             notes = "此版本未附更新说明。";
         else
-            notes = Presentation.Shorten(notes, 361);
+            notes = Presentation.Shorten(notes, 1600);
 
         return new(version, notes, new($"{Repository}/releases/tag/{tag}"), installer, checksums);
 
@@ -233,20 +233,28 @@ internal sealed class UpdateClient(HttpClient http)
         return AvailableUpdate.Select(release, current);
     }
 
-    public async Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files, CancellationToken token)
+    public Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files, CancellationToken token) =>
+        DownloadAsync(update, files, progress: null, token);
+
+    public async Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files,
+        IProgress<UpdateProgress>? progress, CancellationToken token)
     {
         string path = files.PreparePackage(update.Installer.Name!);
         try
         {
+            progress?.Report(new(0, update.Installer.Size, Verifying: false));
             using var checksums = new MemoryStream();
-            await CopyAssetAsync(update.Checksums, checksums, token).ConfigureAwait(false);
+            await CopyAssetAsync(update.Checksums, checksums, onBytes: null, token).ConfigureAwait(false);
             string manifest = System.Text.Encoding.UTF8.GetString(checksums.GetBuffer(), 0, (int)checksums.Length);
             var hash = UpdateFiles.ReadChecksum(manifest, update.Installer.Name!);
             await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 bufferSize: 64 * 1024, useAsync: true))
             {
-                await CopyAssetAsync(update.Installer, file, token).ConfigureAwait(false);
+                await CopyAssetAsync(update.Installer, file,
+                    downloaded => progress?.Report(new(downloaded, update.Installer.Size, Verifying: false)),
+                    token).ConfigureAwait(false);
             }
+            progress?.Report(new(update.Installer.Size, update.Installer.Size, Verifying: true));
             await UpdateFiles.VerifyAsync(path, update.Installer.Size, hash, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
             return path;
@@ -258,7 +266,7 @@ internal sealed class UpdateClient(HttpClient http)
         }
     }
 
-    private async Task CopyAssetAsync(ReleaseAsset asset, Stream destination, CancellationToken token)
+    private async Task CopyAssetAsync(ReleaseAsset asset, Stream destination, Action<long>? onBytes, CancellationToken token)
     {
         var url = new Uri(asset.DownloadUrl!);
         for (int redirect = 0; redirect <= 3; redirect++)
@@ -289,6 +297,7 @@ internal sealed class UpdateClient(HttpClient http)
                 if (total > asset.Size)
                     break;
                 await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+                onBytes?.Invoke(total);
             }
             if (total != asset.Size)
                 throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");

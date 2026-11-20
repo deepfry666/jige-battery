@@ -1,4 +1,3 @@
-AppendMenuW
 BeginPaint
 CoCreateInstance
 CoInitializeEx
@@ -6,7 +5,6 @@ CoUninitialize
 CreateBitmap
 CreateDIBSection
 CreateIconIndirect
-CreatePopupMenu
 CreateWindowExW
 D2D1CreateDevice
 D2D1CreateFactory
@@ -15,13 +13,11 @@ DCompositionCreateDevice2
 DefWindowProcW
 DeleteObject
 DestroyIcon
-DestroyMenu
 DestroyWindow
 DispatchMessageW
 DwmExtendFrameIntoClientArea
 DwmGetWindowAttribute
 DwmSetWindowAttribute
-EndMenu
 EndPaint
 FindWindowW
 GetCursorPos
@@ -66,11 +62,7 @@ Shell_NotifyIconGetRect
 Shell_NotifyIconW
 ShowWindow
 SystemParametersInfoW
-TaskDialogIndirect
-TASKDIALOG_MESSAGES
-TASKDIALOG_NOTIFICATIONS
 TrackMouseEvent
-TrackPopupMenuEx
 TranslateMessage
 UnhookWinEvent
 Windows.Win32.Graphics.DirectWrite.DWriteCreateFactory

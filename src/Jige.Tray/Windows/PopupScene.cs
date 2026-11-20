@@ -8,7 +8,8 @@ internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
     GameSilent, Autostart, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
-    OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect
+    OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
+    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -75,10 +76,15 @@ internal sealed partial class PopupScene : IDisposable
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
     private Composition.Layer? bluetoothThumb;
+    private Composition.Layer? updatePulse;
     private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion;
     private string? error;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
+    private UpdateViewState updateState = UpdateViewState.Idle("", false);
+    private float updateNotesScroll;
+    private float updateNotesMaxScroll;
+    private Version? lastUpdateNotesVersion;
     private bool HasDiagnosticReport => diagnosticStatus is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed
         or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
     private int Threshold => model.Settings.LowBatteryThreshold;
@@ -135,7 +141,7 @@ internal sealed partial class PopupScene : IDisposable
     public int SurfaceHeight => Settings?.SurfaceHeight ?? height;
     public Composition.Layer Visual => frame;
     private bool IsNotice => Page is PanelPage.Notice or PanelPage.Welcome;
-    private bool IsSubPage => Page is PanelPage.Settings or PanelPage.Devices;
+    private bool IsSubPage => Page is PanelPage.Settings or PanelPage.Devices or PanelPage.Updates;
     private IReadOnlyList<HitBox> Buttons => Page switch
     {
         PanelPage.Notice => NoticeButtons,
@@ -155,9 +161,15 @@ internal sealed partial class PopupScene : IDisposable
         : item;
 
     public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing,
-        DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded)
+        DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded, UpdateViewState update)
     {
         offlineExpanded = showOfflineExpanded;
+        updateState = update;
+        if (update.Phase != UpdatePhase.Available || update.Available?.Version != lastUpdateNotesVersion)
+        {
+            updateNotesScroll = 0;
+            lastUpdateNotesVersion = update.Phase == UpdatePhase.Available ? update.Available?.Version : null;
+        }
         if (Page == PanelPage.Main)
         {
             mainPlan = model.BuildMainPanel();
@@ -196,6 +208,7 @@ internal sealed partial class PopupScene : IDisposable
         foreach (var pulse in pulses)
             pulse.Dispose();
         pulses.Clear();
+        UpdatePulseLayer();
 
         Redraw();
         for (int i = 0; i < rows.Length; i++)
@@ -209,6 +222,23 @@ internal sealed partial class PopupScene : IDisposable
             if (offset + i < mainEntries.Length && mainEntries[offset + i].Device is { IsCharging: true } row)
                 AddPulse(rows[i], row, 217, 17, 5, 14, 1.5f, 5);
         }
+    }
+
+    private void UpdatePulseLayer()
+    {
+        bool needPulse = Page == PanelPage.Updates && animations &&
+            updateState.Phase is UpdatePhase.Checking or UpdatePhase.Idle;
+        if (!needPulse)
+        {
+            updatePulse?.Dispose();
+            updatePulse = null;
+            return;
+        }
+        if (updatePulse is not null)
+            return;
+        updatePulse = new(composition, frame, 112, 174, 120, 4);
+        updatePulse.Draw(canvas => canvas.Fill(0, 0, 120, 4, 2, colors.Accent));
+        updatePulse.Breathe();
     }
 
     private void RebuildMainButtons()
@@ -344,6 +374,16 @@ internal sealed partial class PopupScene : IDisposable
     {
         if (Settings is { } settings)
             return settings.Scroll(step);
+        if (Page == PanelPage.Updates)
+        {
+            if (updateNotesMaxScroll <= 0)
+                return false;
+            float nextScroll = Math.Clamp(updateNotesScroll + step * 28f, 0, updateNotesMaxScroll);
+            if (MathF.Abs(nextScroll - updateNotesScroll) < 0.5f)
+                return false;
+            updateNotesScroll = nextScroll;
+            return true;
+        }
         int next = Math.Clamp(offset + step, 0, MaxOffset);
         if (next == offset)
             return false;
@@ -636,6 +676,7 @@ internal sealed partial class PopupScene : IDisposable
         gameThumb?.Dispose();
         autostartThumb?.Dispose();
         bluetoothThumb?.Dispose();
+        updatePulse?.Dispose();
         frame.Dispose();
     }
 }
