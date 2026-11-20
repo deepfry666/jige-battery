@@ -151,23 +151,43 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 }
             }
         }
-        return ids.Count == 0 ? null : string.Join(',', ids);
+        return ids.Count == 0 ? "00(raw)" : string.Join(',', ids);
     }
 
     private static unsafe void VerifyReportId(nint data, int reportType, byte? id, ushort length)
     {
         if (id is not byte reportId)
             return;
+        if (length == 0)
+            throw new TransportException(ReadIssue.IoError, $"HID 描述符报告长度为 0（类型 {reportType}，ID {reportId:X2}）");
 
         // 只在内存中初始化描述符指定的报告，验证编号时无 USB 发包。
         var buffer = new byte[length];
         fixed (byte* report = buffer)
         {
             int status = Native.InitializeReportForId(reportType, reportId, data, report, length);
-            if (status != 0x00110000)
-                throw new TransportException(ReadIssue.IoError,
-                    $"HID 描述符未确认报告 ID {reportId:X2}（类型 {reportType}，0x{status:X8}）");
+            if (status == 0x00110000)
+                return;
+
+            // 部分设备（如雷蛇 90B 鼠标 MI_00 的 91B Feature 报告）在 HID 描述符里使用无编号的常量/原始项，
+            // HidP_GetCaps 会公布正确的 FeatureLength，但 HidP_InitializeReportForID 对所有 ID（含 00）均返回不存在。
+            // 若要求的是隐式无编号报告 ID 0 且描述符中未声明任何非零报告 ID，则视为合法的无编号报告放行。
+            if (reportId == 0 && !HasNumberedReportId(data, reportType, report, length))
+                return;
+
+            throw new TransportException(ReadIssue.IoError,
+                $"HID 描述符未确认报告 ID {reportId:X2}（类型 {reportType}，0x{status:X8}）", nativeCode: status);
         }
+    }
+
+    private static unsafe bool HasNumberedReportId(nint data, int reportType, byte* report, ushort length)
+    {
+        for (int candidate = 1; candidate <= byte.MaxValue; candidate++)
+        {
+            if (Native.InitializeReportForId(reportType, (byte)candidate, data, report, length) == 0x00110000)
+                return true;
+        }
+        return false;
     }
 
     private static unsafe void ConfigureSerial(SafeFileHandle handle, int baudRate)
