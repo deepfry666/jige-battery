@@ -1,5 +1,11 @@
 # 更新记录
 
+## [0.2.8]
+
+- **国内镜像加速更新与自动回退**：检查更新与下载安装包默认优先使用国内镜像（`download.imfourj.cn`），无代理环境也可流畅更新；当镜像超时、不可达或异常时自动回退 GitHub Release，全程保持安装包大小与 SHA-256 严格校验。
+- **Fluent Acrylic 右键菜单**：托盘右键菜单改为自绘 Windows 11 Fluent 亚克力风格，跟随系统深浅色与圆角视觉。
+- **面板内置检查更新页面**：检查更新不再弹出传统系统对话框，改为集成在主面板内的专属更新页，支持滚动查看格式化更新说明、实时显示下载字节进度条与校验状态，并可随时取消返回。
+
 ## [0.2.7]
 
 - **雷蛇无线鼠键全面适配**：Razer 90B 协议全量对齐 OpenRazer，从 17 个扩充到 87 个 PID（72 个鼠标 PID + 15 个键盘 PID），覆盖经典与新款 Viper、DeathAdder、Basilisk、Naga、Cobra、Orochi、Pro Click、Mamba、Lancehead、Atheris 鼠标，以及 BlackWidow V3/V4、DeathStalker V2 Pro / TKL 与 Joro 键盘，同时支持无线接收器、`00B3` HyperPolling 4K/8K 接收器和 USB-C 有线充电模式。
