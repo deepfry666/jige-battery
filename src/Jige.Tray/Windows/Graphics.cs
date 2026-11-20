@@ -310,11 +310,10 @@ internal sealed unsafe class Canvas : IDisposable
         }
     }
 
-    /// <summary>绘制 24px/32px 等高 DPI 托盘图标上方的矢量设备类型图形，裁剪在指定矩形内不越界。</summary>
     public void TrayDeviceGlyph(DeviceKind kind, IconRect rect, Color ink)
     {
         float x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
-        float stroke = MathF.Max(1.0f, h * 0.16f);
+        float stroke = MathF.Max(0.8f, h * 0.12f);
         float half = stroke / 2f;
         PushClip(new PanelRect(x, y, w, h));
         try
@@ -322,43 +321,32 @@ internal sealed unsafe class Canvas : IDisposable
             switch (kind)
             {
                 case DeviceKind.Mouse:
-                    Stroke(x + half, y + half, MathF.Max(1, w - stroke), MathF.Max(1, h - stroke),
-                        MathF.Max(1, (w - stroke) / 2f), ink, stroke);
-                    Line(x + w / 2f, y + half, x + w / 2f, y + h * 0.48f, ink, stroke);
-                    Line(x + half, y + h * 0.46f, x + w - half, y + h * 0.46f, ink, MathF.Max(0.85f, stroke * 0.8f));
+                    Stroke(x + half, y + half, w - stroke, h - stroke, w * 0.42f, ink, stroke);
+                    Line(x + w * 0.50f, y + half, x + w * 0.50f, y + h * 0.48f, ink, stroke);
+                    Line(x + half, y + h * 0.48f, x + w - half, y + h * 0.48f, ink, stroke * 0.8f);
                     break;
                 case DeviceKind.Keyboard:
-                    Stroke(x + half, y + half, MathF.Max(1, w - stroke), MathF.Max(1, h - stroke),
-                        MathF.Max(1.1f, h * 0.2f), ink, stroke);
-                    float keyY = y + h * 0.36f;
-                    float leftKey = x + stroke + MathF.Max(1.2f, w * 0.10f);
-                    float rightKey = x + w - stroke - MathF.Max(1.2f, w * 0.10f);
-                    float dotR = MathF.Max(0.55f, h * 0.08f);
-                    for (int i = 0; i < 4; i++)
-                        Dot(leftKey + (rightKey - leftKey) * i / 3f, keyY, dotR, ink);
-                    Line(x + w * 0.28f, y + h * 0.68f, x + w * 0.72f, y + h * 0.68f, ink, MathF.Max(0.9f, stroke * 0.85f));
+                    Stroke(x + half, y + half, w - stroke, h - stroke, h * 0.18f, ink, stroke);
+                    for (int row = 0; row < 2; row++)
+                    {
+                        for (int key = 0; key < 5; key++)
+                            Dot(x + w * (0.21f + key * 0.135f + row * 0.04f), y + h * (0.32f + row * 0.20f),
+                                stroke * 0.48f, ink);
+                    }
+                    Line(x + w * 0.29f, y + h * 0.74f, x + w * 0.71f, y + h * 0.74f, ink, stroke);
                     break;
                 case DeviceKind.Headset:
-                    float earW = MathF.Max(2.0f, w * 0.24f);
-                    float archCy = y + h * 0.56f;
-                    float archR = MathF.Max(1.5f, MathF.Min(w / 2f - earW * 0.45f, archCy - y - half));
-                    Arc(x + w / 2f, archCy, archR, MathF.PI, 2f * MathF.PI, ink, stroke);
-                    float earY = y + h * 0.44f;
-                    float earH = h - (earY - y);
-                    Fill(x, earY, earW, earH, MathF.Min(earW * 0.42f, earH * 0.42f), ink);
-                    Fill(x + w - earW, earY, earW, earH, MathF.Min(earW * 0.42f, earH * 0.42f), ink);
+                    float earWidth = w * 0.25f;
+                    float bandY = y + h * 0.52f;
+                    float bandRadius = MathF.Min((w - earWidth) / 2f, bandY - y - half);
+                    Arc(x + w / 2f, bandY, bandRadius, MathF.PI, 2f * MathF.PI, ink, stroke);
+                    Fill(x, bandY, earWidth, h * 0.48f, earWidth * 0.42f, ink);
+                    Fill(x + w - earWidth, bandY, earWidth, h * 0.48f, earWidth * 0.42f, ink);
                     break;
                 default:
-                    float nubW = MathF.Max(1.3f, w * 0.13f);
-                    float nubGap = MathF.Max(0.6f, stroke * 0.4f);
-                    float bodyW = MathF.Max(3f, w - nubW - nubGap);
-                    Stroke(x + half, y + half, MathF.Max(1, bodyW - stroke), MathF.Max(1, h - stroke),
-                        MathF.Max(1.0f, h * 0.18f), ink, stroke);
-                    Fill(x + w - nubW, y + h * 0.26f, nubW, h * 0.48f, nubW * 0.35f, ink);
-                    float innerPad = stroke + MathF.Max(0.8f, h * 0.10f);
-                    float innerW = MathF.Max(1.2f, (bodyW - innerPad * 2f) * 0.72f);
-                    float innerH = MathF.Max(1.2f, h - innerPad * 2f);
-                    Fill(x + innerPad, y + innerPad, innerW, innerH, MathF.Min(0.6f, innerH * 0.3f), ink);
+                    Stroke(x + half, y + half, w - stroke, h - stroke, h * 0.24f, ink, stroke);
+                    Dot(x + w * 0.33f, y + h * 0.36f, stroke * 0.75f, ink);
+                    Line(x + w * 0.33f, y + h * 0.68f, x + w * 0.67f, y + h * 0.68f, ink, stroke);
                     break;
             }
         }

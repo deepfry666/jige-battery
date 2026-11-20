@@ -1,3 +1,4 @@
+using Jige.Core.Diagnostics;
 using Jige.Tray;
 
 namespace Jige.Tray.Tests;
@@ -83,37 +84,68 @@ public sealed class PollScheduleTests
     }
 
     [Theory]
-    [InlineData(2)]
-    [InlineData(3)]
-    [InlineData(4)]
-    public void WindowsBusyD3dAndPresentationAlwaysEnableProtection(int state)
+    [InlineData(3, (int)GameDetectionReason.D3dFullscreen, "D3D 全屏")]
+    [InlineData(4, (int)GameDetectionReason.Presentation, "演示模式")]
+    public void D3dAndPresentationEnableProtectionRegardlessOfSettings(int state, int reason, string label)
     {
-        Assert.Equal(new GameMode(true, true), GameMode.Evaluate(state, false, false));
-        Assert.Equal(new GameMode(true, true), GameMode.Evaluate(state, false, true));
+        foreach (bool silent in new[] { false, true })
+        {
+            var game = GameMode.Evaluate(state, ForegroundGame.None, silent);
+            Assert.True(game.Game);
+            Assert.True(game.BlockPopups);
+            Assert.Equal(new DiagnosticGameState(state, (GameDetectionReason)reason), game.Status);
+            Assert.Equal($"通知状态={state}，依据={label}", game.Status.Describe());
+        }
     }
 
     [Theory]
-    [InlineData(5)]
-    [InlineData(6)]
-    public void EnhancedProtectionExtendsOnlyToForegroundGameWindows(int state)
+    [InlineData((int)ForegroundGame.None, false)]
+    [InlineData((int)ForegroundGame.Fullscreen, true)]
+    [InlineData((int)ForegroundGame.BorderlessWorkArea, false)]
+    [InlineData((int)ForegroundGame.ProcessName, false)]
+    public void BusyRequiresTheForegroundToCoverTheDisplay(int foreground, bool expected)
     {
-        Assert.Equal(new GameMode(false, false), GameMode.Evaluate(state, true, false));
-        Assert.Equal(new GameMode(false, false), GameMode.Evaluate(state, false, true));
-        Assert.Equal(new GameMode(true, true), GameMode.Evaluate(state, true, true));
+        foreach (bool silent in new[] { false, true })
+        {
+            var game = GameMode.Evaluate(2, (ForegroundGame)foreground, silent);
+            Assert.Equal(expected, game.Game);
+            Assert.Equal(expected, game.BlockPopups);
+            Assert.Equal(2, game.Status.NotificationState);
+            Assert.Equal(expected ? GameDetectionReason.BusyFullscreen : GameDetectionReason.None, game.Status.Reason);
+        }
     }
 
     [Theory]
-    [InlineData((int)ForegroundKind.Other, 1080, true, false, true)]
-    [InlineData((int)ForegroundKind.Other, 1040, false, false, true)]
-    [InlineData((int)ForegroundKind.Other, 1040, true, false, false)]
-    [InlineData((int)ForegroundKind.Other, 900, false, false, false)]
-    [InlineData((int)ForegroundKind.Other, 900, true, true, true)]
-    [InlineData((int)ForegroundKind.System, 1080, false, true, false)]
-    [InlineData((int)ForegroundKind.Own, 1080, false, true, false)]
-    public void GameWindowClassificationHandlesBorderlessNamedGamesAndShellWindows(int kind,
-        int bottom, bool hasCaption, bool knownGame, bool expected)
+    [InlineData(5, (int)ForegroundGame.None, (int)GameDetectionReason.None)]
+    [InlineData(5, (int)ForegroundGame.Fullscreen, (int)GameDetectionReason.ForegroundGeometry)]
+    [InlineData(5, (int)ForegroundGame.BorderlessWorkArea, (int)GameDetectionReason.ForegroundGeometry)]
+    [InlineData(6, (int)ForegroundGame.ProcessName, (int)GameDetectionReason.ProcessName)]
+    [InlineData(0, (int)ForegroundGame.ProcessName, (int)GameDetectionReason.ProcessName)]
+    public void ForegroundGeometryAndProcessNameRequireGameSilent(int state, int foreground, int reason)
     {
-        Assert.Equal(expected, GameMode.IsGameWindow((ForegroundKind)kind, new(-1920, 0, 0, bottom),
-            new(-1920, 0, 0, 1080), new(-1920, 0, 0, 1040), hasCaption, knownGame));
+        var background = GameMode.Evaluate(state, (ForegroundGame)foreground, gameSilent: false);
+        var enhanced = GameMode.Evaluate(state, (ForegroundGame)foreground, gameSilent: true);
+        Assert.False(background.Game);
+        Assert.Equal(new DiagnosticGameState(state, GameDetectionReason.None), background.Status);
+        Assert.Equal(new DiagnosticGameState(state, (GameDetectionReason)reason), enhanced.Status);
+    }
+
+    [Theory]
+    [InlineData((int)ForegroundKind.Other, 1080, true, (int)ForegroundGame.Fullscreen)]
+    [InlineData((int)ForegroundKind.Other, 1078, false, (int)ForegroundGame.Fullscreen)]
+    [InlineData((int)ForegroundKind.Other, 1040, false, (int)ForegroundGame.BorderlessWorkArea)]
+    [InlineData((int)ForegroundKind.Other, 1040, true, (int)ForegroundGame.None)]
+    [InlineData((int)ForegroundKind.Other, 900, false, (int)ForegroundGame.None)]
+    [InlineData((int)ForegroundKind.System, 1080, false, (int)ForegroundGame.None)]
+    [InlineData((int)ForegroundKind.Own, 1080, false, (int)ForegroundGame.None)]
+    public void GameWindowClassificationDistinguishesScreenAndWorkArea(int kind,
+        int bottom, bool hasCaption, int expected)
+    {
+        var foreground = GameMode.ClassifyWindow((ForegroundKind)kind, new(-1920, 0, 0, bottom),
+            new(-1920, 0, 0, 1080), new(-1920, 0, 0, 1040), hasCaption);
+
+        Assert.Equal((ForegroundGame)expected, foreground);
+        Assert.Equal((ForegroundGame)expected == ForegroundGame.Fullscreen,
+            GameMode.Evaluate(2, foreground, gameSilent: false).Game);
     }
 }

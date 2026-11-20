@@ -25,11 +25,33 @@ public sealed record DiagnosticSettingsSummary(
     int HeartbeatSeconds, int GameHeartbeatSeconds, bool GameSilent, int CustomGameProcessCount,
     bool StartWithWindows, int BlockedReceiverCount, bool ShowBluetoothDevices = true);
 
+public enum GameDetectionReason { None, D3dFullscreen, Presentation, BusyFullscreen, ForegroundGeometry, ProcessName }
+
+public readonly record struct DiagnosticGameState(int NotificationState, GameDetectionReason Reason)
+{
+    public bool Active => Reason != GameDetectionReason.None;
+
+    public string Describe()
+    {
+        string basis = Reason switch
+        {
+            GameDetectionReason.D3dFullscreen => "D3D 全屏",
+            GameDetectionReason.Presentation => "演示模式",
+            GameDetectionReason.BusyFullscreen => "BUSY 且前台全屏",
+            GameDetectionReason.ForegroundGeometry => "前台几何",
+            GameDetectionReason.ProcessName => "进程名",
+            _ => "未触发"
+        };
+        return FormattableString.Invariant($"通知状态={NotificationState}，依据={basis}");
+    }
+}
+
 public sealed record DiagnosticContext(
     IReadOnlyList<DiagnosticDeviceHistory>? DeviceHistories = null,
     DiagnosticProcessMetrics? ProcessMetrics = null,
     DiagnosticSettingsSummary? SettingsSummary = null,
-    SafetyGateStore? Gates = null);
+    SafetyGateStore? Gates = null,
+    DiagnosticGameState? GameState = null);
 
 /// <summary>在用户主动请求后调用，返回供完整预览的纯文本。</summary>
 public static class DiagnosticReport
@@ -271,6 +293,9 @@ public static class DiagnosticReport
             report.AppendLine(FormattableString.Invariant(
                 $"设置|托盘模式={DiagnosticPrivacy.SanitizeText(summary.TrayMode)}|低电量阈值={summary.LowBatteryThreshold}%|查询间隔={summary.PollSeconds}s/游戏中{summary.GamePollSeconds}s|心跳={summary.HeartbeatSeconds}s/游戏中{summary.GameHeartbeatSeconds}s|游戏中不打扰={(summary.GameSilent ? "开" : "关")}|自定义游戏进程数={summary.CustomGameProcessCount}|开机自启={(summary.StartWithWindows ? "开" : "关")}|显示蓝牙设备={(summary.ShowBluetoothDevices ? "开" : "关")}|安全门拦截数={summary.BlockedReceiverCount}"));
         }
+
+        if (context.GameState is { } game)
+            report.AppendLine($"当前游戏判定：{(game.Active ? "游戏中" : "非游戏中")}（{game.Describe()}）");
     }
 
     private static string FormatDuration(TimeSpan duration)

@@ -16,23 +16,7 @@ public sealed class PresentationTests
     {
         var icon = Presentation.Icon(Device(percent), dark, 15);
         Assert.Equal((BatteryTone)tone, icon.Tone);
-        Assert.Equal(new Color(rgb), icon.Ink);
-    }
-
-    [Fact]
-    public void ChargingOverridesLowAndCachedValueUsesFadedTaskbarInk()
-    {
-        var charging = Device(5) with { Charging = ChargingState.Charging };
-        var lit = Presentation.Icon(charging, true, 15);
-        Assert.Equal(new Color(0x6ccb5f), lit.Ink);
-        Assert.True(lit.Underline);
-
-        var stale = Presentation.Icon(charging with { Fresh = false }, true, 15);
-        Assert.Equal(new Color(0xf3f3f3, 140), stale.Ink);
-        Assert.False(stale.Underline);
-
-        Assert.True(Presentation.Icon(Device(100), false, 15).Full);
-        Assert.Null(Presentation.Icon(null, false, 15).Percentage);
+        Assert.Equal(new Color(rgb), icon.FillInk);
     }
 
     [Theory]
@@ -49,29 +33,8 @@ public sealed class PresentationTests
     }
 
     [Fact]
-    public void GlyphUsesWholePixelsAndChargingUnderline()
+    public void FilledCellsRoundHalfUp()
     {
-        var pixels = new uint[256];
-        var icon = new IconAppearance(48, BatteryTone.Charging, new(0x0f7b0f));
-        PixelDigits.Draw(pixels, icon);
-        const uint green = 0xff0f7b0f;
-        Assert.All(pixels, pixel => Assert.True(pixel is 0 or green));
-        Assert.Equal(green, pixels[2 * 16 + 1]);
-        Assert.Equal(green, pixels[2 * 16 + 10]);
-        Assert.Equal(0u, pixels[5 * 16 + 8]);
-        Assert.All(pixels.AsSpan(13 * 16 + 3, 10).ToArray(), pixel => Assert.Equal(green, pixel));
-    }
-
-    [Fact]
-    public void FullAndUnknownUseDifferentShapes()
-    {
-        var full = new uint[256];
-        var unknown = new uint[256];
-        PixelDigits.Draw(full, new(100, BatteryTone.Normal, new(0x1b1b1b)));
-        PixelDigits.Draw(unknown, new(null, BatteryTone.Idle, new(0x1b1b1b, 140)));
-        Assert.Equal(0xff1b1b1bu, full[7 * 16 + 14]);
-        Assert.Equal(0x8c0e0e0eu, unknown[7 * 16 + 5]);
-        Assert.Equal(12, unknown.Count(pixel => pixel != 0));
         Assert.Equal(2, Presentation.FilledCells(15, 10));
         Assert.Equal(1, Presentation.FilledCells(15, 5));
     }

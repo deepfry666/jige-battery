@@ -132,6 +132,29 @@ internal sealed record AvailableUpdate(Version Version, string Notes, Uri Page, 
     }
 }
 
+internal static class UpdateInstallation
+{
+    public static bool Run(UpdateFiles files, Func<string> downloadVerifiedPackage,
+        Func<bool> isClosing, Action<string> launch)
+    {
+        bool started = false;
+        try
+        {
+            string package = downloadVerifiedPackage();
+            if (isClosing())
+                return false;
+            launch(package);
+            started = true;
+            return true;
+        }
+        finally
+        {
+            if (!started)
+                files.Clear();
+        }
+    }
+}
+
 internal sealed class UpdateFiles(string path)
 {
     public string PreparePackage(string name)

@@ -177,15 +177,16 @@ internal sealed class TrayEventTracker(Action<string> write)
             write(summary);
     }
 
-    public void LogGameMode(bool inGame)
+    public void LogGameMode(GameMode game)
     {
+        bool inGame = game.Game;
         if (lastGameMode == inGame)
             return;
         bool hadPrevious = lastGameMode.HasValue;
         lastGameMode = inGame;
         if (!hadPrevious && !inGame)
             return;
-        write(inGame ? "进入游戏模式" : "退出游戏模式");
+        write(inGame ? $"进入游戏模式（{game.Status.Describe()}）" : "退出游戏模式");
     }
 
     public void LogUpdateCheck(string result) =>

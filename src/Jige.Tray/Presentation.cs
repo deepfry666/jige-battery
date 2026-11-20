@@ -48,16 +48,9 @@ internal sealed record Palette(Color Ink, Color Secondary, Color Muted, Color Ca
 }
 
 internal readonly record struct IconAppearance(
-    int? Percentage,
-    BatteryTone Tone,
-    Color Ink,
-    bool AlreadyFull = false,
-    DeviceKind? Kind = null,
-    Color? GlyphInk = null)
+    int? Percentage, BatteryTone Tone, Color FillInk, DeviceKind? Kind, Color GlyphInk)
 {
-    public bool Full => Percentage == 100;
-    public bool Underline => Tone == BatteryTone.Charging && !Full && !AlreadyFull;
-    public Color EffectiveGlyphInk => GlyphInk ?? Ink;
+    public Color TrackInk => GlyphInk.WithAlpha(64);
 }
 
 internal static class Presentation
@@ -88,8 +81,8 @@ internal static class Presentation
             BatteryTone.Normal => palette.Ink,
             _ => palette.Status(tone)
         };
-        var glyphColor = tone == BatteryTone.Idle ? palette.Ink.WithAlpha(140) : palette.Ink;
-        return new(device?.Percentage, tone, color, device?.IsFull == true, device?.Device.Kind, glyphColor);
+        int? percentage = tone == BatteryTone.Idle ? null : device?.Percentage;
+        return new(percentage, tone, color, device?.Device.Kind, palette.Ink);
     }
 
     public static int FilledCells(int? percent, int count) => ((percent ?? 0) * count + 50) / 100;

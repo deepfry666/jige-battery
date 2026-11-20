@@ -212,12 +212,16 @@ public sealed class TrayV022Tests
         Assert.Contains("Timeout=1，Busy=1", lines[^1]);
 
         // 6. 进入、退出游戏仅在变化时记录
-        tracker.LogGameMode(false); // 初始非游戏不记
-        tracker.LogGameMode(true);
-        tracker.LogGameMode(true);
-        tracker.LogGameMode(false);
-        tracker.LogGameMode(false);
-        Assert.Single(lines, line => line == "进入游戏模式");
+        var desktop = GameMode.Evaluate(5, ForegroundGame.None, gameSilent: false);
+        var busy = GameMode.Evaluate(2, ForegroundGame.Fullscreen, gameSilent: false);
+        var d3d = GameMode.Evaluate(3, ForegroundGame.None, gameSilent: false);
+        tracker.LogGameMode(desktop); // 初始非游戏不记
+        tracker.LogGameMode(busy);
+        tracker.LogGameMode(d3d); // 仍在游戏，只记录进入时的依据
+        tracker.LogGameMode(desktop);
+        tracker.LogGameMode(desktop);
+        Assert.Equal("进入游戏模式（通知状态=2，依据=BUSY 且前台全屏）",
+            Assert.Single(lines, line => line.StartsWith("进入游戏模式", StringComparison.Ordinal)));
         Assert.Single(lines, line => line == "退出游戏模式");
 
         // 7. 检查更新结果

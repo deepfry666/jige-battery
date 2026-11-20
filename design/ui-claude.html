@@ -350,7 +350,7 @@ section{margin-top:28px}
       <img src="brand/fourj-mark.svg" width="40" height="40" alt="">
       <div>
         <h1>几格 · 交互原型</h1>
-        <p class="lead">点任务栏右下角的数字展开面板，悬停查看提示。下方按钮可以模拟各种状态。</p>
+        <p class="lead">点任务栏右下角的设备图标展开面板，悬停查看电量百分比。下方按钮可以模拟各种状态。</p>
       </div>
     </div>
     <div class="ctl-row">
@@ -451,8 +451,8 @@ section{margin-top:28px}
   </section>
 
   <section>
-    <h2>托盘图标（0.2.5 方案 A）</h2>
-    <p class="note">上方是设备类型图形（鼠标、键盘、耳机、其他），下方是电量数字（16px 下数字高 10px，24px 下 15px，32px 下 20px）。右侧为 16px 放大 3 倍像素对照。</p>
+    <h2>托盘图标（0.2.6）</h2>
+    <p class="note">两种托盘模式都用设备图形和底部电量条，悬停可看百分比。依次展示 16、24、32px 和放大 3 倍的 16px 图标。</p>
     <div class="grid" id="iconGrid"></div>
   </section>
 
@@ -657,121 +657,65 @@ section{margin-top:28px}
     if (typeof fit === 'function' && current === 'pMain') fit('pMain');
   }
 
-  // 0.2.5 方案 A：16px 像素版与 24/32px 矢量版（与 PixelDigits.cs / Graphics.cs 保持一致）
-  const PX_GLYPH5 = {
-    mouse:    ['.#.#.','##.##','#####','#####','.###.'],
-    keyboard: ['.#########.','#.#.#.#.#.#','###########','###.....###','.#########.'],
-    headset:  ['..######..','.#......#.','##......##','##......##','.#......#.'],
-    other:    ['########.','#......##','#.####.##','#......##','########.']
+  // 16px 像素版与高 DPI 矢量版（与 PixelTrayIcon.cs 和 Graphics.cs 一致）
+  const trayGlyphPixels = {
+    mouse: ['..####..', '.##..##.', '##.##.##', '#..##..#', '#..##..#', '########', '#......#', '#......#', '#......#', '##....##', '.##..##.', '..####..'],
+    keyboard: ['.############.', '##..........##', '#............#', '#.#.#.#.#.#..#', '#............#', '#..#.#.#.#.#.#', '#............#', '#...######...#', '#............#', '##..........##', '.############.'],
+    headset: ['...######...', '..##....##..', '.##......##.', '.#........#.', '.#........#.', '##........##', '###......###', '###......###', '###......###', '###......###', '.##......##.', '..#......#..'],
+    other: ['..########..', '.##......##.', '##........##', '#..##......#', '#..##......#', '#..........#', '#...####...#', '#..........#', '##........##', '.##......##.', '..########..']
   };
-  const PX_GLYPH4 = {
-    mouse:    ['.#.#.','##.##','#####','.###.'],
-    keyboard: ['#.#.#.#.#.#','###########','###.....###','.#########.'],
-    headset:  ['..######..','.#......#.','##......##','##......##'],
-    other:    ['#######.','#.....##','#.....##','#######.']
-  };
-  const PX_ROWS10 = [
-    [30,63,51,51,51,51,51,51,63,30],[12,14,15,12,12,12,12,12,63,63],[30,63,51,48,48,24,12,6,63,63],
-    [31,63,48,48,30,30,48,48,63,31],[51,51,51,51,63,62,48,48,48,48],[63,63,3,3,31,63,48,48,63,31],
-    [30,63,3,3,31,63,51,51,63,30],[63,63,48,48,24,24,12,12,6,6],[30,63,51,51,30,30,51,51,63,30],
-    [30,63,51,51,63,62,48,48,63,30]
-  ];
-  const PX_ROWS9 = [
-    [30,63,51,51,51,51,51,63,30],[12,14,15,12,12,12,12,63,63],[30,63,51,48,24,12,6,63,63],
-    [31,63,48,30,30,48,48,63,31],[51,51,51,63,62,48,48,48,48],[63,63,3,31,63,48,48,63,31],
-    [30,63,3,31,63,51,51,63,30],[63,63,48,24,24,12,12,6,6],[30,63,51,30,30,51,51,63,30],
-    [30,63,51,63,62,48,48,63,30]
-  ];
-  const PX_100 = [
-    '.##..###...###.','###.#####.#####','.##.##.##.##.##','.##.##.##.##.##','.##.##.##.##.##',
-    '.##.##.##.##.##','.##.##.##.##.##','.##.##.##.##.##','.##.#####.#####','.##..###...###.'
-  ];
-  function pxMask(rows, x0, y0, fill, op){
-    let out = '';
-    const a = op ? ` opacity="${op}"` : '';
-    rows.forEach((r,y)=>[...r].forEach((c,x)=>{ if(c==='#') out += `<rect x="${x0+x}" y="${y0+y}" width="1" height="1" fill="${fill}"${a}/>`; }));
-    return out;
+  function pxMask(rows, left, top, ink){
+    let pixels = '';
+    rows.forEach((row,y)=>[...row].forEach((pixel,x)=>{
+      if (pixel==='#') pixels += `<rect x="${left+x}" y="${top+y}" width="1" height="1" fill="${ink}"/>`;
+    }));
+    return pixels;
   }
-  function pxDigit(d, x0, y0, h, fill, op){
-    const rows = (h===9 ? PX_ROWS9 : PX_ROWS10)[d];
-    let out = '';
-    const a = op ? ` opacity="${op}"` : '';
-    for (let y=0;y<rows.length;y++)
-      for (let x=0;x<6;x++)
-        if (rows[y] & (1<<x)) out += `<rect x="${x0+x}" y="${y0+y}" width="1" height="1" fill="${fill}"${a}/>`;
-    return out;
-  }
-  function vectorGlyph(kind, x, y, w, h, ink, op){
-    const s = Math.max(1, h * 0.16), half = s / 2;
-    const a = op ? ` opacity="${op}"` : '';
-    if (kind==='mouse')
-      return `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${(w-s)/2}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><line x1="${x+w/2}" y1="${y+half}" x2="${x+w/2}" y2="${y+h*0.48}" stroke="${ink}" stroke-width="${s}"${a}/><line x1="${x+half}" y1="${y+h*0.46}" x2="${x+w-half}" y2="${y+h*0.46}" stroke="${ink}" stroke-width="${Math.max(0.85,s*0.8)}"${a}/>`;
+  function vectorGlyph(kind, x, y, w, h, ink){
+    const s = Math.max(0.8, h * 0.12), half = s / 2;
+    const outline = r => `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${r}" fill="none" stroke="${ink}" stroke-width="${s}"/>`;
+    const line = (ax, ay, bx, by, width=s) => `<path d="M ${ax} ${ay} L ${bx} ${by}" stroke="${ink}" stroke-width="${width}"/>`;
+    const dot = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${ink}"/>`;
+    if (kind==='mouse'){
+      const middle = y+h*0.48;
+      return outline(w*0.42) + line(x+w/2,y+half,x+w/2,middle) + line(x+half,middle,x+w-half,middle,s*0.8);
+    }
     if (kind==='keyboard'){
-      const ky = y + h * 0.36, lk = x + s + Math.max(1.2, w * 0.1), rk = x + w - s - Math.max(1.2, w * 0.1), r = Math.max(0.55, h * 0.08);
-      let dots = '';
-      for (let i=0;i<4;i++) dots += `<circle cx="${lk+(rk-lk)*i/3}" cy="${ky}" r="${r}" fill="${ink}"${a}/>`;
-      return `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${Math.max(1.1,h*0.2)}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/>${dots}<line x1="${x+w*0.28}" y1="${y+h*0.68}" x2="${x+w*0.72}" y2="${y+h*0.68}" stroke="${ink}" stroke-width="${Math.max(0.9,s*0.85)}"${a}/>`;
+      let keys = '';
+      for (let row=0;row<2;row++)
+        for (let key=0;key<5;key++)
+          keys += dot(x+w*(0.21+key*0.135+row*0.04),y+h*(0.32+row*0.20),s*0.48);
+      return outline(h*0.18) + keys + line(x+w*0.29,y+h*0.74,x+w*0.71,y+h*0.74);
     }
     if (kind==='headset'){
-      const earW = Math.max(2, w * 0.24), cy = y + h * 0.56, r = Math.max(1.5, Math.min(w/2 - earW*0.45, cy - y - half)), ey = y + h * 0.44, eh = h - (ey - y);
-      return `<path d="M ${x+w/2-r} ${cy} A ${r} ${r} 0 0 1 ${x+w/2+r} ${cy}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><rect x="${x}" y="${ey}" width="${earW}" height="${eh}" rx="${Math.min(earW*0.42,eh*0.42)}" fill="${ink}"${a}/><rect x="${x+w-earW}" y="${ey}" width="${earW}" height="${eh}" rx="${Math.min(earW*0.42,eh*0.42)}" fill="${ink}"${a}/>`;
+      const earW = w*0.25, cy = y+h*0.52, r = Math.min((w-earW)/2,cy-y-half);
+      const ear = left => `<rect x="${left}" y="${cy}" width="${earW}" height="${h*0.48}" rx="${earW*0.42}" fill="${ink}"/>`;
+      return `<path d="M ${x+w/2-r} ${cy} A ${r} ${r} 0 0 1 ${x+w/2+r} ${cy}" fill="none" stroke="${ink}" stroke-width="${s}"/>` + ear(x) + ear(x+w-earW);
     }
-    const nubW = Math.max(1.3, w * 0.13), bw = Math.max(3, w - nubW - Math.max(0.6, s * 0.4)), pad = s + Math.max(0.8, h * 0.1);
-    return `<rect x="${x+half}" y="${y+half}" width="${bw-s}" height="${h-s}" rx="${Math.max(1,h*0.18)}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><rect x="${x+w-nubW}" y="${y+h*0.26}" width="${nubW}" height="${h*0.48}" rx="${nubW*0.35}" fill="${ink}"${a}/><rect x="${x+pad}" y="${y+pad}" width="${Math.max(1.2,(bw-pad*2)*0.72)}" height="${Math.max(1.2,h-pad*2)}" rx="0.5" fill="${ink}"${a}/>`;
+    return outline(h*0.24) + dot(x+w*0.33,y+h*0.36,s*0.75) + line(x+w*0.33,y+h*0.68,x+w*0.67,y+h*0.68);
   }
-  function trayIconSVG(size, opt, zoom=1){
-    const {text, color, mode, kind} = opt;
+  function trayIconSVG(size, {percentage, color, kind}, zoom=1){
     const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
-    const digitCol = color || ink;
-    const op = mode==='idle' ? '0.55' : '';
-    const w = size * zoom, h = size * zoom;
+    const display = size * zoom;
     if (!kind){
-      // 无活跃设备时的「几格」默认短横线图标保持现状
-      return `<svg width="${w}" height="${h}" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="7" width="6" height="2" fill="${digitCol}" opacity="${op||'1'}"/></svg>`;
+      return `<svg width="${display}" height="${display}" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="7" width="6" height="2" fill="${ink}" opacity="0.55"/></svg>`;
     }
-    const under = mode==='charge';
-    if (size === 16){
-      const gRows = (under ? PX_GLYPH4 : PX_GLYPH5)[kind] || (under ? PX_GLYPH4.other : PX_GLYPH5.other);
-      const gx = Math.floor((16 - gRows[0].length) / 2);
-      let body = pxMask(gRows, gx, 0, ink, op);
-      const dTop = under ? 5 : 6, dH = under ? 9 : 10;
-      if (text === '100'){
-        body += pxMask(PX_100, 0, dTop, digitCol, op);
-      } else if (/^\d+$/.test(text)){
-        const v = parseInt(text, 10);
-        if (v >= 10) body += pxDigit(Math.floor(v/10), 1, dTop, dH, digitCol, op);
-        body += pxDigit(v%10, v>=10 ? 9 : 5, dTop, dH, digitCol, op);
-      } else {
-        body += `<rect x="5" y="${dTop+4}" width="6" height="2" fill="${digitCol}"${op?` opacity="${op}"`:''}/>`;
-      }
-      if (under) body += `<rect x="3" y="15" width="10" height="1" fill="${digitCol}"/>`;
-      return `<svg width="${w}" height="${h}" viewBox="0 0 16 16" shape-rendering="crispEdges">${body}</svg>`;
-    }
-    const digitH = Math.floor(size * 10 / 16);
-    const uH = under ? Math.max(1, Math.floor(size / 16)) : 0;
-    const uGap = under ? Math.max(1, Math.floor(size / 24)) : 0;
-    const gGap = under ? Math.max(1, Math.floor(size / 24)) : (size >= 24 ? Math.max(2, Math.round(size / 16)) : 1);
-    const gH = size - digitH - gGap - uGap - uH;
-    const ratio = kind==='mouse' ? 0.75 : kind==='keyboard' ? 2.0 : kind==='headset' ? 1.75 : 1.65;
-    const maxW = kind==='mouse' ? Math.max(4, Math.min(size - 2, gH - 1)) : Math.max(4, size - 2);
-    let gW = Math.min(maxW, Math.max(4, Math.round(gH * ratio)));
-    if ((size - gW) % 2 !== 0){ if (gW + 1 <= maxW) gW++; else if (gW - 1 >= 4) gW--; }
-    const gX = Math.floor((size - gW) / 2);
-    const dY = gH + gGap;
-    const fs = text.length >= 3 ? Math.min(digitH / 0.78, size * 0.54) : text.length === 2 ? digitH / 0.74 : digitH / 0.72;
-    const uW = Math.round(size * 0.68);
-    const underSvg = under ? `<rect x="${(size-uW)/2}" y="${size-uH}" width="${uW}" height="${uH}" rx="${uH/2}" fill="${digitCol}"/>` : '';
-    return `<svg width="${w}" height="${h}" viewBox="0 0 ${size} ${size}">
-      ${vectorGlyph(kind, gX, 0, gW, gH, ink, op)}
-      <text x="50%" y="${dY + digitH * 0.86}" text-anchor="middle" font-family="Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
-        font-size="${fs.toFixed(2)}" font-weight="700" letter-spacing="${text.length>=3?(-size*0.04):(-size*0.02)}" fill="${digitCol}"${op?` opacity="${op}"`:''}>${text}</text>${underSvg}</svg>`;
+    const rows = trayGlyphPixels[kind] || trayGlyphPixels.other;
+    const scale = pixels => Math.round(pixels*size/16);
+    const w = scale(rows[0].length), h = scale(rows.length);
+    const x = Math.floor((size-w)/2), y = Math.floor((scale(12)-h)/2);
+    const glyph = size===16 ? pxMask(rows,x,y,ink) : vectorGlyph(kind,x,y,w,h,ink);
+    const margin = scale(1), barH = scale(2), barW = size-2*margin, barY = size-barH;
+    const fillW = Math.round(barW*Math.min(100,Math.max(0,percentage ?? 0))/100);
+    const bar = (width, fill, opacity=1) => `<rect x="${margin}" y="${barY}" width="${width}" height="${barH}" fill="${fill}" opacity="${opacity}" shape-rendering="crispEdges"/>`;
+    return `<svg width="${display}" height="${display}" viewBox="0 0 ${size} ${size}"${size===16?' shape-rendering="crispEdges"':''}>
+      ${glyph}${bar(barW,ink,0.25)}${fillW>0?bar(fillW,color || ink):''}</svg>`;
   }
   function trayOptFor(d){
-    if (!d) return {text:'–', color:'', mode:'idle', kind:null};
-    const s = state(d), p = pctOf(d);
-    const resolved = s.k==='ok' ? '' : getComputedStyle(document.documentElement).getPropertyValue(s.c.slice(4,-1)).trim();
-    const chargingLine = s.k==='charge' && !s.full && p < 100;
-    return {text:String(p), color:resolved, mode: chargingLine ? 'charge' : (s.k==='idle' ? 'idle' : ''), kind:d.kind};
+    if (!d) return {kind:null};
+    const s = state(d);
+    const color = s.k==='ok' || s.k==='idle' ? '' : getComputedStyle(document.documentElement).getPropertyValue(s.c.slice(4,-1)).trim();
+    return {percentage:s.k==='idle' ? null : pctOf(d), color, kind:d.kind};
   }
 
   function hoverStatusSingle(d, s){
@@ -872,13 +816,14 @@ section{margin-top:28px}
   function renderIconGrid(){
     const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
     const cases = [
-      {cap:'<b>鼠标</b> · ≤ 30% 琥珀', o:{text:'20', color:css('--warn'), kind:'mouse'}},
-      {cap:'<b>键盘</b> · 正常 80%', o:{text:'80', kind:'keyboard'}},
-      {cap:'<b>耳机</b> · 充电中 + 底线', o:{text:'48', color:css('--charge'), mode:'charge', kind:'headset'}},
-      {cap:'<b>其他</b> · 正常 67%', o:{text:'67', kind:'other'}},
-      {cap:'<b>鼠标</b> · ≤ 15% 低电量', o:{text:'9', color:css('--low'), kind:'mouse'}},
-      {cap:'<b>键盘</b> · 100% 不截断', o:{text:'100', color:css('--charge'), kind:'keyboard'}},
-      {cap:'<b>无活跃设备</b> · 几格默认图标', o:{text:'–', mode:'idle', kind:null}},
+      {cap:'<b>鼠标</b> · 电量偏低 20%', o:{percentage:20, color:css('--warn'), kind:'mouse'}},
+      {cap:'<b>键盘</b> · 正常 80%', o:{percentage:80, kind:'keyboard'}},
+      {cap:'<b>耳机</b> · 充电中 48%', o:{percentage:48, color:css('--charge'), kind:'headset'}},
+      {cap:'<b>其他</b> · 正常 67%', o:{percentage:67, kind:'other'}},
+      {cap:'<b>鼠标</b> · 电量过低 9%', o:{percentage:9, color:css('--low'), kind:'mouse'}},
+      {cap:'<b>键盘</b> · 已充满', o:{percentage:100, color:css('--charge'), kind:'keyboard'}},
+      {cap:'<b>耳机</b> · 等待读取', o:{percentage:null, kind:'headset'}},
+      {cap:'<b>无活跃设备</b> · 几格默认图标', o:{kind:null}},
     ];
     document.getElementById('iconGrid').innerHTML = cases.map(c=>`
       <div class="cardx"><div class="icons">
