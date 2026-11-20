@@ -53,7 +53,10 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
         {
             var endpoint = group.First();
             var identity = new DeviceIdentity($"inzone-h9:{group.Key}", "Sony INZONE H9（一代接收器）",
-                DeviceKind.Headset, AdaptationSource.Catalog, DeviceCatalog.VerificationFor(0x054C, 0x0E53));
+                DeviceKind.Headset, AdaptationSource.Catalog, DeviceCatalog.VerificationFor(0x054C, 0x0E53))
+            {
+                SourceLabel = "Sony INZONE 接收器"
+            };
             yield return new(identity, endpoint, "0");
         }
     }

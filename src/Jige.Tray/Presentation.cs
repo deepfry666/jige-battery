@@ -47,10 +47,17 @@ internal sealed record Palette(Color Ink, Color Secondary, Color Muted, Color Ca
     };
 }
 
-internal readonly record struct IconAppearance(int? Percentage, BatteryTone Tone, Color Ink, bool AlreadyFull = false)
+internal readonly record struct IconAppearance(
+    int? Percentage,
+    BatteryTone Tone,
+    Color Ink,
+    bool AlreadyFull = false,
+    DeviceKind? Kind = null,
+    Color? GlyphInk = null)
 {
     public bool Full => Percentage == 100;
     public bool Underline => Tone == BatteryTone.Charging && !Full && !AlreadyFull;
+    public Color EffectiveGlyphInk => GlyphInk ?? Ink;
 }
 
 internal static class Presentation
@@ -81,7 +88,8 @@ internal static class Presentation
             BatteryTone.Normal => palette.Ink,
             _ => palette.Status(tone)
         };
-        return new(device?.Percentage, tone, color, device?.IsFull == true);
+        var glyphColor = tone == BatteryTone.Idle ? palette.Ink.WithAlpha(140) : palette.Ink;
+        return new(device?.Percentage, tone, color, device?.IsFull == true, device?.Device.Kind, glyphColor);
     }
 
     public static int FilledCells(int? percent, int count) => ((percent ?? 0) * count + 50) / 100;
@@ -92,6 +100,26 @@ internal static class Presentation
         DeviceConnection.UsbCable => "USB",
         _ => "2.4G"
     };
+
+    public static string SourceLabel(DeviceIdentity device)
+    {
+        if (!string.IsNullOrWhiteSpace(device.SourceLabel))
+            return device.SourceLabel;
+        if (device.Connection == DeviceConnection.Bluetooth)
+            return device.NameFromHidpp ? "罗技蓝牙" : "Windows 蓝牙";
+        if (device.Connection == DeviceConnection.UsbCable)
+            return device.Id.StartsWith("logitech-", StringComparison.OrdinalIgnoreCase) ? "罗技 USB 直连" : "USB 直连";
+        if (device.Id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) ||
+            device.Id.StartsWith("logitech-headset:", StringComparison.OrdinalIgnoreCase))
+            return "罗技无线接收器";
+        if (device.Id.StartsWith("inzone-h9:", StringComparison.OrdinalIgnoreCase))
+            return "Sony INZONE 接收器";
+        if (device.Id.StartsWith("ulx:", StringComparison.OrdinalIgnoreCase))
+            return "Finalmouse 接收器";
+        if (device.Id.StartsWith("razer-", StringComparison.OrdinalIgnoreCase))
+            return "雷蛇无线接收器";
+        return "无线接收器";
+    }
 
     public static string Status(DeviceStatus device, DateTimeOffset now, int threshold)
     {

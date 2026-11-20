@@ -102,7 +102,8 @@ public static class BluetoothBattery
         var device = new DeviceIdentity(DeviceId(endpoint.Container, endpoint.Address), endpoint.Name, endpoint.Kind,
             AdaptationSource.Generic, Connection: DeviceConnection.Bluetooth)
         {
-            BluetoothContainerKey = DeviceId(endpoint.Container, null)
+            BluetoothContainerKey = DeviceId(endpoint.Container, null),
+            SourceLabel = "Windows 蓝牙"
         };
         return new(device, link == LinkState.Online ? endpoint.Percentage : null, false, ChargingState.Unknown, link, now)
         {

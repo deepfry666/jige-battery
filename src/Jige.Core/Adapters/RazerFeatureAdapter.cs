@@ -47,7 +47,10 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             var model = Match(endpoint)!;
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"razer-90b:{endpoint.ReceiverId}", $"Razer {model.Name}", model.Kind,
-                AdaptationSource.Catalog, tier), endpoint, "0");
+                AdaptationSource.Catalog, tier)
+            {
+                SourceLabel = "雷蛇无线接收器"
+            }, endpoint, "0");
         }
     }
 

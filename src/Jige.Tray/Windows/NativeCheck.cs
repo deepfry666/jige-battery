@@ -1,4 +1,5 @@
 using System.Runtime.Versioning;
+using Jige.Core;
 using Windows.Win32;
 using Windows.Win32.System.Com;
 
@@ -19,9 +20,10 @@ internal static class NativeCheck
             {
                 foreach (var sample in new IconAppearance[]
                 {
-                    new(72, BatteryTone.Normal, new(0x1b1b1b)),
-                    new(48, BatteryTone.Charging, new(0x0f7b0f)),
-                    new(100, BatteryTone.Normal, new(0xf3f3f3)),
+                    new(72, BatteryTone.Normal, new(0x1b1b1b), false, DeviceKind.Mouse, new(0x1b1b1b)),
+                    new(80, BatteryTone.Normal, new(0xf3f3f3), false, DeviceKind.Keyboard, new(0xf3f3f3)),
+                    new(48, BatteryTone.Charging, new(0x0f7b0f), false, DeviceKind.Headset, new(0x1b1b1b)),
+                    new(100, BatteryTone.Charging, new(0x6ccb5f), true, DeviceKind.Other, new(0xf3f3f3)),
                     new(null, BatteryTone.Idle, new(0xf3f3f3, 140))
                 })
                 {

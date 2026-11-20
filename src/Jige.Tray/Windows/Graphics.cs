@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Jige.Core;
 using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Direct2D;
@@ -277,6 +278,94 @@ internal sealed unsafe class Canvas : IDisposable
         Stroke(x + scale, y + 4 * scale, 12.5f * scale, 8 * scale, 1.8f * scale, ink, 1.3f * scale);
         Fill(x + 14.2f * scale, y + 6.4f * scale, 1.3f * scale, 3.2f * scale, .6f * scale, ink);
         Fill(x + 2.6f * scale, y + 5.6f * scale, 9.3f * scale, 4.8f * scale, .8f * scale, ink);
+    }
+
+    public void DeviceTile(DeviceKind kind, float x, float y, float size, Color fill, Color ink)
+    {
+        float radius = size >= 36 ? 8 : size >= 30 ? 7 : 6;
+        Fill(x, y, size, size, radius, fill);
+        float cx = x + size / 2, cy = y + size / 2;
+        float k = size <= 26 ? 0.78f : 1f;
+        float stroke = size <= 26 ? 1.15f : 1.2f;
+        switch (kind)
+        {
+            case DeviceKind.Mouse:
+                Stroke(cx - 4.5f * k, cy - 7.2f * k, 9 * k, 14.3f * k, 4.5f * k, ink, stroke);
+                Line(cx, cy - 7.2f * k, cx, cy - 2.3f * k, ink, stroke);
+                break;
+            case DeviceKind.Headset:
+                Arc(cx, cy, 6 * k, MathF.PI, 2 * MathF.PI, ink, stroke);
+                Stroke(cx - 7 * k, cy + 1.5f * k, 3.4f * k, 5.2f * k, 1.2f * k, ink, stroke);
+                Stroke(cx + 3.6f * k, cy + 1.5f * k, 3.4f * k, 5.2f * k, 1.2f * k, ink, stroke);
+                break;
+            case DeviceKind.Keyboard:
+                Stroke(cx - 7 * k, cy - 4.5f * k, 14 * k, 9 * k, 2 * k, ink, stroke);
+                for (int i = -2; i <= 2; i++)
+                    Dot(cx + i * 2.3f * k, cy - 1 * k, .5f * k, ink);
+                Line(cx - 3 * k, cy + 2 * k, cx + 3 * k, cy + 2 * k, ink, stroke);
+                break;
+            default:
+                Battery(cx - 8 * k, cy - 8 * k, k, ink);
+                break;
+        }
+    }
+
+    /// <summary>绘制 24px/32px 等高 DPI 托盘图标上方的矢量设备类型图形，裁剪在指定矩形内不越界。</summary>
+    public void TrayDeviceGlyph(DeviceKind kind, IconRect rect, Color ink)
+    {
+        float x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
+        float stroke = MathF.Max(1.0f, h * 0.16f);
+        float half = stroke / 2f;
+        PushClip(new PanelRect(x, y, w, h));
+        try
+        {
+            switch (kind)
+            {
+                case DeviceKind.Mouse:
+                    Stroke(x + half, y + half, MathF.Max(1, w - stroke), MathF.Max(1, h - stroke),
+                        MathF.Max(1, (w - stroke) / 2f), ink, stroke);
+                    Line(x + w / 2f, y + half, x + w / 2f, y + h * 0.48f, ink, stroke);
+                    Line(x + half, y + h * 0.46f, x + w - half, y + h * 0.46f, ink, MathF.Max(0.85f, stroke * 0.8f));
+                    break;
+                case DeviceKind.Keyboard:
+                    Stroke(x + half, y + half, MathF.Max(1, w - stroke), MathF.Max(1, h - stroke),
+                        MathF.Max(1.1f, h * 0.2f), ink, stroke);
+                    float keyY = y + h * 0.36f;
+                    float leftKey = x + stroke + MathF.Max(1.2f, w * 0.10f);
+                    float rightKey = x + w - stroke - MathF.Max(1.2f, w * 0.10f);
+                    float dotR = MathF.Max(0.55f, h * 0.08f);
+                    for (int i = 0; i < 4; i++)
+                        Dot(leftKey + (rightKey - leftKey) * i / 3f, keyY, dotR, ink);
+                    Line(x + w * 0.28f, y + h * 0.68f, x + w * 0.72f, y + h * 0.68f, ink, MathF.Max(0.9f, stroke * 0.85f));
+                    break;
+                case DeviceKind.Headset:
+                    float earW = MathF.Max(2.0f, w * 0.24f);
+                    float archCy = y + h * 0.56f;
+                    float archR = MathF.Max(1.5f, MathF.Min(w / 2f - earW * 0.45f, archCy - y - half));
+                    Arc(x + w / 2f, archCy, archR, MathF.PI, 2f * MathF.PI, ink, stroke);
+                    float earY = y + h * 0.44f;
+                    float earH = h - (earY - y);
+                    Fill(x, earY, earW, earH, MathF.Min(earW * 0.42f, earH * 0.42f), ink);
+                    Fill(x + w - earW, earY, earW, earH, MathF.Min(earW * 0.42f, earH * 0.42f), ink);
+                    break;
+                default:
+                    float nubW = MathF.Max(1.3f, w * 0.13f);
+                    float nubGap = MathF.Max(0.6f, stroke * 0.4f);
+                    float bodyW = MathF.Max(3f, w - nubW - nubGap);
+                    Stroke(x + half, y + half, MathF.Max(1, bodyW - stroke), MathF.Max(1, h - stroke),
+                        MathF.Max(1.0f, h * 0.18f), ink, stroke);
+                    Fill(x + w - nubW, y + h * 0.26f, nubW, h * 0.48f, nubW * 0.35f, ink);
+                    float innerPad = stroke + MathF.Max(0.8f, h * 0.10f);
+                    float innerW = MathF.Max(1.2f, (bodyW - innerPad * 2f) * 0.72f);
+                    float innerH = MathF.Max(1.2f, h - innerPad * 2f);
+                    Fill(x + innerPad, y + innerPad, innerW, innerH, MathF.Min(0.6f, innerH * 0.3f), ink);
+                    break;
+            }
+        }
+        finally
+        {
+            PopClip();
+        }
     }
 
     public float Text(string text, float x, float y, float w, float h, float size, Color color, int weight = 400,

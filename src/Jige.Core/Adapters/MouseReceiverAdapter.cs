@@ -91,7 +91,16 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             var tier = source == AdaptationSource.Generic
                 ? VerificationTier.DocsOnly
                 : DeviceCatalog.VerificationFor(selectedEndpoint.VendorId, selectedEndpoint.ProductId);
-            yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier),
+            string sourceLabel = selectedEndpoint.VendorId switch
+            {
+                0x33E4 => "游狼无线接收器",
+                0x373B => "ATK 无线接收器",
+                _ => "无线接收器"
+            };
+            yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
+            {
+                SourceLabel = sourceLabel
+            },
                 selectedEndpoint, "0")
             {
                 SiblingInputHids = siblings

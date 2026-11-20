@@ -64,6 +64,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
     private readonly Dictionary<string, TrayIcon> icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, uint> reservedIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, TrayIcon> byId = [];
+    private readonly Dictionary<uint, string> keyById = [];
     private uint? lastActiveId;
 
     public bool AnyRegistered => icons.Values.Any(item => item.Registered);
@@ -84,6 +85,8 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         }
         return false;
     }
+
+    public bool TryGetSlotKey(uint id, out string? key) => keyById.TryGetValue(id, out key);
 
     public bool TryGetRect(uint? preferredId, out RECT bounds)
     {
@@ -126,6 +129,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
                 icon = new TrayIcon(window, callback, id);
                 icons[slot.Key] = icon;
                 byId[id] = icon;
+                keyById[id] = slot.Key;
             }
 
             bool hasLocation = icon.TryGetRect(out var bounds);
@@ -143,6 +147,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
             var removed = icons[obsolete];
             icons.Remove(obsolete);
             byId.Remove(removed.Id);
+            keyById.Remove(removed.Id);
             if (lastActiveId == removed.Id)
                 lastActiveId = null;
             removed.Dispose();
@@ -161,6 +166,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
             icon.Dispose();
         icons.Clear();
         byId.Clear();
+        keyById.Clear();
         TrayIcon.DisposeSharedRenderer();
     }
 }

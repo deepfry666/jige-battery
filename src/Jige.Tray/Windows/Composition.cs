@@ -218,6 +218,18 @@ internal sealed unsafe class Composition : IDisposable
             Fade(1, 0, 0, .12, Ease.Exit);
         }
 
+        public void FadeIn(double durationSeconds = .14) =>
+            Fade(0, 1, 0, durationSeconds, Ease.Standard);
+
+        public void FadeOut(double durationSeconds = .13) =>
+            Fade(1, 0, 0, durationSeconds, Ease.Exit);
+
+        public void SetOpacity(float value)
+        {
+            if (opacity != null)
+                opacity->SetOpacity(value);
+        }
+
         private void MoveY(float from, float to, double delay, double duration, Ease ease)
         {
             var animation = composition.Animate(baseY + composition.Pixels(from), baseY + composition.Pixels(to),

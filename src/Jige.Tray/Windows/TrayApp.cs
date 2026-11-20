@@ -24,6 +24,7 @@ internal sealed class TrayApp : IDisposable
 {
     private const string HostClass = "Jige.Tray.Host";
     private const string PopupClass = "Jige.Tray.Popup";
+    private const string HoverCardClass = "Jige.Tray.HoverCard";
     private const uint TrayMessage = 0x8001;
     private const uint ResultMessage = 0x8002;
     private const uint ForegroundMessage = 0x8003;
@@ -34,7 +35,7 @@ internal sealed class TrayApp : IDisposable
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
-        IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7;
+        IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -64,6 +65,10 @@ internal sealed class TrayApp : IDisposable
     private uint locationProcess, locationThread;
     private bool foregroundPosted, locationPosted;
     private PopupWindow? popup;
+    private HoverCardWindow? hoverCard;
+    private uint? hoverIconId;
+    private RECT hoverAnchor;
+    private DateTimeOffset? hoverTextDue;
     private GameMode game;
     private bool welcomePending;
     private bool iconRetryArmed;
@@ -111,6 +116,7 @@ internal sealed class TrayApp : IDisposable
 
         Register(HostClass, &HostCallback);
         Register(PopupClass, &PopupCallback);
+        Register(HoverCardClass, &HoverCardCallback);
         host = MakeWindow(HostClass, 0, WS_POPUP);
         icons = new(host, TrayMessage);
         RegisterDeviceNotifications();
@@ -305,10 +311,41 @@ internal sealed class TrayApp : IDisposable
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
     }
 
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe LRESULT HoverCardCallback(HWND window, uint message, WPARAM wParam, LPARAM lParam)
+    {
+        try
+        {
+            switch (message)
+            {
+                case 0x0083: return default; // WM_NCCALCSIZE，保留 DWM 原生圆角与阴影。
+                case 0x0084: return new LRESULT(-1); // HTTRANSPARENT，鼠标点击穿透。
+                case 0x0021: return (LRESULT)3; // MA_NOACTIVATE，永不抢焦点。
+                case 0x0014: return (LRESULT)1; // WM_ERASEBKGND
+                case 0x000F: // WM_PAINT，图像由独立合成树提供。
+                    PAINTSTRUCT paint;
+                    PInvoke.BeginPaint(window, &paint);
+                    PInvoke.EndPaint(window, &paint);
+                    return default;
+                case 0x02E0: // WM_DPICHANGED
+                    if (current is { } app && !app.host.IsNull)
+                        PInvoke.PostMessage(app.host, 0x02E0, default, default);
+                    return default;
+            }
+        }
+        catch (Exception error)
+        {
+            Desktop.Log("处理悬停卡片消息失败", error);
+            current?.DestroyHoverCard();
+        }
+        return PInvoke.DefWindowProc(window, message, wParam, lParam);
+    }
+
     private bool HandleMessage(uint message, WPARAM wParam, LPARAM lParam)
     {
         if (message == taskbarCreated && taskbarCreated != 0)
         {
+            DestroyHoverCard();
             icons.Recover();
             StopIconRetry();
             RefreshDesktop();
@@ -385,6 +422,12 @@ internal sealed class TrayApp : IDisposable
                 }
                 if (wParam.Value == CloseTimer && popup?.Closing == true)
                     DestroyPopup();
+                if (wParam.Value == HoverCloseTimer)
+                {
+                    if (hoverCard?.Closing == true)
+                        DestroyHoverCard();
+                    return true;
+                }
                 ProcessWork();
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
@@ -401,6 +444,7 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case 0x001E: // WM_TIMECHANGE：调度使用单调时钟，仅刷新展示时间与提醒检查。
                 RenderPopup();
+                RenderHoverCard();
                 ProcessWork();
                 return true;
             case 0x0002: // WM_DESTROY
@@ -408,6 +452,7 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case 0x0010: // WM_CLOSE，安装器可请求托盘正常退出。
                 exitRequested = true;
+                DestroyHoverCard();
                 if (menuOpen)
                     PInvoke.EndMenu();
                 updateDialog?.Close();
@@ -448,6 +493,7 @@ internal sealed class TrayApp : IDisposable
             active.SetAnchor(Anchor(null));
             RenderPopup(reset: resetPopup);
         }
+        RenderHoverCard(reset: resetPopup);
         ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
     }
 
@@ -458,7 +504,10 @@ internal sealed class TrayApp : IDisposable
     {
         if (iconRetryArmed && !icons.AnyRegistered)
             return;
-        icons.Sync(model, darkTaskbar, game.BlockPopups);
+        // H1：不设 NIF_SHOWTIP，szTip 始终保留供读屏软件使用。
+        icons.Sync(model, darkTaskbar, suppressTooltip: false);
+        if (hoverIconId is uint hovered && !icons.TryGetSlotKey(hovered, out _))
+            DestroyHoverCard();
         if (icons.AllRegistered)
             StopIconRetry();
         else
@@ -490,11 +539,16 @@ internal sealed class TrayApp : IDisposable
         if (enteredGame && schedule.Running && !startedInGame && !schedule.StartedByUser)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
-        // 进入游戏只收起自动提示，用户自己打开的面板和菜单交给正常焦点处理。
-        if (game.BlockPopups && popup is { IsNotice: true })
+        // 进入游戏只收起自动提示和悬停卡片，用户自己打开的面板和菜单交给正常焦点处理。
+        if (game.BlockPopups)
         {
-            Desktop.Log("游戏中，收起自动提示");
-            DestroyPopup();
+            if (hoverCard is not null)
+                DestroyHoverCard();
+            if (popup is { IsNotice: true })
+            {
+                Desktop.Log("游戏中，收起自动提示");
+                DestroyPopup();
+            }
         }
         if (changed)
             RefreshIcon();
@@ -514,6 +568,7 @@ internal sealed class TrayApp : IDisposable
                 SaveState();
             RefreshIcon();
             RenderPopup();
+            RenderHoverCard();
         }
 
         // R3：当设备首次进入休眠态时记录 GetLastInputInfo 基线，之后仅在有新键鼠输入时给休眠设备补发心跳（最多每 2 秒一次）。
@@ -532,6 +587,8 @@ internal sealed class TrayApp : IDisposable
         events.FlushReadFailuresIfDue(nowTick);
         if (textDue <= now)
             RenderPopup();
+        if (hoverTextDue <= now)
+            RenderHoverCard();
 
         if (welcomeExpires <= now || popup?.NoticeId is { } id && !model.ReminderIsDue(id, now))
             DestroyPopup();
@@ -574,7 +631,7 @@ internal sealed class TrayApp : IDisposable
         }
         if (popup?.IsNotice == true)
             wallDue = Earlier(wallDue, now + GameRecheck);
-        wallDue = Earlier(Earlier(wallDue, textDue), welcomeExpires);
+        wallDue = Earlier(Earlier(Earlier(wallDue, textDue), hoverTextDue), welcomeExpires);
         if (wallDue is { } wallTime)
             dueMs = EarlierMs(dueMs, Math.Max(0, (long)Math.Ceiling((wallTime - now).TotalMilliseconds)));
 
@@ -670,6 +727,7 @@ internal sealed class TrayApp : IDisposable
             StartPushListeners(currentPushTargets);
         }
         RenderPopup();
+        RenderHoverCard();
         ProcessWork();
     }
 
@@ -729,6 +787,7 @@ internal sealed class TrayApp : IDisposable
                     SaveState();
                 RefreshIcon();
                 RenderPopup();
+                RenderHoverCard();
             }
             if (needsRefresh)
                 schedule.Request(userInitiated: false);
@@ -792,6 +851,7 @@ internal sealed class TrayApp : IDisposable
                 SaveState();
             RefreshIcon();
             RenderPopup();
+            RenderHoverCard();
         }
         if (needsRefresh)
         {
@@ -902,6 +962,7 @@ internal sealed class TrayApp : IDisposable
         SaveState();
         RefreshIcon();
         RenderPopup();
+        RenderHoverCard();
         ProcessWork();
         return true;
     }
@@ -910,15 +971,25 @@ internal sealed class TrayApp : IDisposable
     {
         uint kind = (ushort)lParam.Value;
         uint iconId = (ushort)(lParam.Value >> 16);
+        var point = PopupWindow.MessagePoint(unchecked((nint)wParam.Value));
+        switch (kind)
+        {
+            case 0x0406: // NIN_POPUPOPEN（H1）：用户悬停托盘图标，显示自绘悬停卡片。
+                ShowHoverCard(iconId, point);
+                return;
+            case 0x0407: // NIN_POPUPCLOSE（H1）：鼠标离开托盘图标，收起悬停卡片。
+                CloseHoverCard(iconId);
+                return;
+        }
         if (!icons.TryGetById(iconId, out _))
             return;
         clickedIconId = iconId;
-        var point = PopupWindow.MessagePoint(unchecked((nint)wParam.Value));
         switch (kind)
         {
             // NOTIFYICON_VERSION_4 下一次左键单击会先后收到 WM_LBUTTONUP 和 NIN_SELECT。
             // 两者都处理会让面板刚打开就被第二条消息切换关闭（0.1.0 的"点开即闪退"），因此只认 NIN_SELECT / NIN_KEYSELECT。
             case 0x0400 or 0x0401: // NIN_SELECT、NIN_KEYSELECT
+                DestroyHoverCard();
                 long time = Environment.TickCount64;
                 if (time - lastTraySelect < 300 || time - lostFocusByTray < 300)
                     return;
@@ -926,9 +997,108 @@ internal sealed class TrayApp : IDisposable
                 RequestTrayAction(TrayAction.Panel, point);
                 break;
             case 0x007B: // WM_CONTEXTMENU
+                DestroyHoverCard();
                 RequestTrayAction(TrayAction.Menu, point);
                 break;
         }
+    }
+
+    private void ShowHoverCard(uint iconId, Point point)
+    {
+        if (!icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
+            return;
+        ReadGameMode();
+        if (!HoverCardPolicy.CanShow(game, popup is not null, menuOpen, updateDialog is not null))
+        {
+            DestroyHoverCard();
+            return;
+        }
+
+        var anchor = icons.TryGetRect(iconId, out var rect)
+            ? rect
+            : point is { X: -1, Y: -1 } ? Desktop.TaskbarAnchor() : RECT.FromXYWH(point.X, point.Y, 1, 1);
+        var now = DateTimeOffset.UtcNow;
+        var content = HoverCardBuilder.Build(model, slotKey, now);
+        try
+        {
+            PInvoke.KillTimer(host, HoverCloseTimer);
+            hoverIconId = iconId;
+            hoverAnchor = anchor;
+            if (hoverCard is { } active)
+                active.Update(content, anchor);
+            else
+            {
+                var extra = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
+                HWND window = MakeWindow(HoverCardClass, extra, WS_POPUP | WS_THICKFRAME);
+                hoverCard = new HoverCardWindow(window);
+                hoverCard.Show(content, anchor);
+            }
+            hoverTextDue = now.AddMinutes(1);
+            ScheduleWork(now, Environment.TickCount64);
+        }
+        catch (Exception error)
+        {
+            DestroyHoverCard();
+            Desktop.Log("显示悬停卡片失败", error);
+        }
+    }
+
+    private void RenderHoverCard(bool reset = false)
+    {
+        if (hoverCard is not { Closing: false } active || hoverIconId is not uint iconId)
+            return;
+        if (!HoverCardPolicy.CanShow(game, popup is not null, menuOpen, updateDialog is not null) ||
+            !icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
+        {
+            DestroyHoverCard();
+            return;
+        }
+
+        var anchor = icons.TryGetRect(iconId, out var rect) ? rect : hoverAnchor;
+        hoverAnchor = anchor;
+        var now = DateTimeOffset.UtcNow;
+        var content = HoverCardBuilder.Build(model, slotKey, now);
+        try
+        {
+            active.Update(content, anchor, reset);
+            hoverTextDue = now.AddMinutes(1);
+        }
+        catch (Exception error)
+        {
+            DestroyHoverCard();
+            Desktop.Log("刷新悬停卡片失败", error);
+        }
+    }
+
+    private void CloseHoverCard(uint iconId)
+    {
+        if (hoverCard is not { } active || hoverIconId != iconId)
+            return;
+        hoverTextDue = null;
+        try
+        {
+            if (active.BeginClose())
+            {
+                ArmTimer(HoverCloseTimer, HoverCardWindow.FadeOutMs);
+                return;
+            }
+        }
+        catch (Exception error)
+        {
+            Desktop.Log("关闭悬停卡片失败", error);
+        }
+        DestroyHoverCard();
+    }
+
+    private void DestroyHoverCard()
+    {
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, HoverCloseTimer);
+        var previous = hoverCard;
+        hoverCard = null;
+        hoverIconId = null;
+        hoverTextDue = null;
+        previous?.Dispose();
     }
 
     private void RequestTrayAction(TrayAction action, Point point)
@@ -976,6 +1146,7 @@ internal sealed class TrayApp : IDisposable
 
     private bool ShowPopup(string? noticeId, Point? point, PanelPage page = PanelPage.Main)
     {
+        DestroyHoverCard();
         bool automatic = noticeId is not null || page == PanelPage.Welcome;
         try
         {
@@ -1268,6 +1439,7 @@ internal sealed class TrayApp : IDisposable
 
     private unsafe void ShowMenu(Point point)
     {
+        DestroyHoverCard();
         var menu = PInvoke.CreatePopupMenu();
         if (menu.IsNull)
             return;
@@ -1321,6 +1493,7 @@ internal sealed class TrayApp : IDisposable
 
     private void ShowUpdates()
     {
+        DestroyHoverCard();
         var dialog = new UpdateDialog(host, files.Updates, InGameForInstall, events.LogUpdateCheck);
         updateDialog = dialog;
         try
@@ -1515,6 +1688,7 @@ internal sealed class TrayApp : IDisposable
             PInvoke.UnhookWinEvent(foregroundHook);
         if (!locationHook.IsNull)
             PInvoke.UnhookWinEvent(locationHook);
+        DestroyHoverCard();
         DestroyPopup();
         icons.Dispose();
         var window = host;

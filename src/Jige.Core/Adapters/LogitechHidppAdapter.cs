@@ -185,10 +185,13 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 receiver ? $"logitech-hidpp:{endpoint.ReceiverId}" : $"logitech-hidpp-direct:{endpoint.ReceiverId}";
             string name = receiver ? $"Logitech {family ?? "HID++"} 接收器 {endpoint.ProductId:X4}" :
                 headset ?? (bluetooth ? BluetoothBattery.UnnamedHidpp : endpoint.Product ?? "Logitech 无线设备");
+            string sourceLabel = receiver ? $"罗技 {family ?? "HID++"} 接收器" :
+                bluetooth ? "罗技蓝牙" : cable ? "罗技 USB 直连" : "罗技无线接收器";
             var device = new DeviceIdentity(id, name, headset is null ? DeviceKind.Other : DeviceKind.Headset,
                 family is null && headset is null ? AdaptationSource.Generic : AdaptationSource.Catalog, Connection: connection)
             {
-                BluetoothContainerKey = bluetooth ? BluetoothBattery.DeviceId(endpoint.ReceiverId, null) : null
+                BluetoothContainerKey = bluetooth ? BluetoothBattery.DeviceId(endpoint.ReceiverId, null) : null,
+                SourceLabel = sourceLabel
             };
             targets.Add(new(device, endpoint, receiver ? "0" : "255") { ShortHid = shortHid });
         }
@@ -385,6 +388,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 }
 
                 var device = reconnect ? target.Device : previous?.Device ?? target.Device;
+                if (device.SourceLabel is null && target.Device.SourceLabel is not null)
+                    device = device with { SourceLabel = target.Device.SourceLabel };
                 if (receiver && (previous is null || reconnect))
                     device = device with { Id = $"{device.Id}/{slot}/unknown", Name = $"Logitech 无线设备（槽 {slot}）" };
                 string route = receiver ? $"接收器槽位 {slot}" : target.Device.Connection switch

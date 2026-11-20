@@ -36,7 +36,10 @@ internal sealed class RazerHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
         {
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"razer-headset:{endpoint.ReceiverId}", "Razer BlackShark V2 HyperSpeed",
-                DeviceKind.Headset, AdaptationSource.Catalog, tier), endpoint, "0");
+                DeviceKind.Headset, AdaptationSource.Catalog, tier)
+            {
+                SourceLabel = "雷蛇无线接收器"
+            }, endpoint, "0");
         }
     }
 

@@ -623,32 +623,8 @@ internal sealed partial class PopupScene : IDisposable
         canvas.Line(20.2f, 12.4f, 17.6f, 12.4f, ink, 1.4f);
     }
 
-    private static void DeviceIcon(Canvas canvas, DeviceKind kind, float x, float y, float size, Color fill, Color ink)
-    {
-        canvas.Fill(x, y, size, size, size == 36 ? 8 : 7, fill);
-        float cx = x + size / 2, cy = y + size / 2;
-        switch (kind)
-        {
-            case DeviceKind.Mouse:
-                canvas.Stroke(cx - 4.5f, cy - 7.2f, 9, 14.3f, 4.5f, ink, 1.2f);
-                canvas.Line(cx, cy - 7.2f, cx, cy - 2.3f, ink, 1.2f);
-                break;
-            case DeviceKind.Headset:
-                canvas.Arc(cx, cy, 6, MathF.PI, 2 * MathF.PI, ink, 1.2f);
-                canvas.Stroke(cx - 7, cy + 1.5f, 3.4f, 5.2f, 1.2f, ink, 1.2f);
-                canvas.Stroke(cx + 3.6f, cy + 1.5f, 3.4f, 5.2f, 1.2f, ink, 1.2f);
-                break;
-            case DeviceKind.Keyboard:
-                canvas.Stroke(cx - 7, cy - 4.5f, 14, 9, 2, ink, 1.2f);
-                for (int i = -2; i <= 2; i++)
-                    canvas.Dot(cx + i * 2.3f, cy - 1, .5f, ink);
-                canvas.Line(cx - 3, cy + 2, cx + 3, cy + 2, ink, 1.2f);
-                break;
-            default:
-                canvas.Battery(cx - 8, cy - 8, 1, ink);
-                break;
-        }
-    }
+    private static void DeviceIcon(Canvas canvas, DeviceKind kind, float x, float y, float size, Color fill, Color ink) =>
+        canvas.DeviceTile(kind, x, y, size, fill, ink);
 
     public void Dispose()
     {

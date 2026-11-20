@@ -27,6 +27,7 @@ public sealed record DeviceIdentity(
 {
     public bool NameFromHidpp { get; init; }
     public string? BluetoothContainerKey { get; init; }
+    public string? SourceLabel { get; init; }
 }
 
 public sealed record PresenceUpdate(

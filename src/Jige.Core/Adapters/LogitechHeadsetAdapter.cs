@@ -34,7 +34,10 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
-            yield return new(new($"logitech-headset:{endpoint.ReceiverId}", Model(endpoint.ProductId)!, DeviceKind.Headset),
+            yield return new(new($"logitech-headset:{endpoint.ReceiverId}", Model(endpoint.ProductId)!, DeviceKind.Headset)
+            {
+                SourceLabel = endpoint.ProductId == 0x0B1C ? "ASTRO 底座" : "罗技无线接收器"
+            },
                 endpoint, "0");
     }
 

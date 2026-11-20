@@ -360,7 +360,8 @@ internal sealed class TrayModel
                         Name = useKnownHidppName ? known.Name : device.Name,
                         Kind = useKnownKind ? known.Kind : device.Kind,
                         NameFromHidpp = device.NameFromHidpp || known.NameFromHidpp,
-                        BluetoothContainerKey = device.BluetoothContainerKey ?? known.BluetoothContainerKey
+                        BluetoothContainerKey = device.BluetoothContainerKey ?? known.BluetoothContainerKey,
+                        SourceLabel = device.SourceLabel ?? known.SourceLabel
                     };
                     reading = reading with { Device = device };
                 }

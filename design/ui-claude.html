@@ -100,13 +100,48 @@ section{margin-top:28px}
 .sys{display:flex;gap:10px;align-items:center;padding:0 8px;height:40px;border-radius:6px}
 .clock{text-align:right;font-size:12px;line-height:16px;padding:0 8px}
 
-/* 托盘提示 */
-.tip{position:absolute;bottom:58px;right:120px;background:var(--flyout-solid);color:var(--ink);
-  border:1px solid var(--flyout-stroke);border-radius:6px;padding:7px 10px;font-size:12px;line-height:18px;
-  box-shadow:0 4px 12px rgba(0,0,0,.14);opacity:0;transform:translateY(4px);pointer-events:none;
-  transition:opacity .12s ease, transform .12s ease;white-space:nowrap}
-.tip.show{opacity:1;transform:none;transition-delay:.35s}
-.tip b{font-weight:600}
+/* 自绘悬停卡片（0.2.5） */
+.hcard{position:absolute;bottom:60px;left:0;width:248px;background:var(--flyout);color:var(--ink);
+  backdrop-filter:blur(40px) saturate(1.8);-webkit-backdrop-filter:blur(40px) saturate(1.8);
+  border:1px solid var(--flyout-stroke);border-radius:8px;box-shadow:var(--shadow);
+  padding:12px 14px;opacity:0;pointer-events:none;z-index:20;
+  transition:opacity .13s cubic-bezier(.7,0,1,.5)}
+.hcard.show{opacity:1;transition:opacity .14s cubic-bezier(.25,.1,.25,1)}
+.hcard.static{position:static;opacity:1;pointer-events:auto;transition:none}
+.hc-top{display:flex;align-items:center;gap:10px}
+.hc-ico{width:32px;height:32px;border-radius:7px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;flex:none}
+.hc-ico.dim{background:var(--chip);color:var(--ink-3)}
+.hc-meta{flex:1;min-width:0}
+.hc-name{font-size:13.5px;font-weight:600;line-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-sub{margin-top:1px;font-size:11.5px;color:var(--ink-3);display:flex;gap:6px;align-items:center;min-width:0}
+.hc-src{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.hc-mid{display:flex;align-items:center;gap:10px;margin-top:10px}
+.hc-big{font-family:var(--font-num);font-size:30px;font-weight:600;line-height:30px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;min-width:62px;white-space:nowrap}
+.hc-big small{font-size:14px;font-weight:600;margin-left:1px}
+.hc-big .approx{font-size:16px;font-weight:500;color:var(--ink-3);margin-right:1px;vertical-align:4px}
+.hc-cells{display:flex;gap:3px;flex:1}
+.hc-cells i{flex:1;height:14px;border-radius:2.5px;background:var(--cell-empty);display:block}
+.hc-cells i.f{background:var(--c)}
+.hc-cells i.next{background:var(--c);opacity:.55}
+.hc-st{margin-top:8px;font-size:11.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-title{font-size:11px;color:var(--ink-3);margin-bottom:4px;font-weight:600}
+.hc-row{display:flex;align-items:center;gap:6px;padding:6px 0}
+.hc-row+.hc-row{border-top:1px solid var(--flyout-stroke)}
+.hc-row .hc-ico{width:24px;height:24px;border-radius:6px}
+.hc-row .hc-ico svg{width:14px;height:14px}
+.hc-rinfo{flex:1;min-width:0}
+.hc-rname{font-size:12.5px;font-weight:500;line-height:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-rst{font-size:11px;color:var(--ink-3);line-height:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hc-mini{display:flex;gap:2px;width:33px;flex:none}
+.hc-mini i{flex:1;height:9px;border-radius:1.5px;background:var(--cell-empty);display:block}
+.hc-mini i.f{background:var(--c)}
+.hc-mini i.next{background:var(--c);opacity:.55}
+.hc-pct{font-family:var(--font-num);font-size:13px;font-weight:600;width:38px;text-align:right;font-variant-numeric:tabular-nums;flex:none}
+.hc-more{border-top:1px solid var(--flyout-stroke);padding-top:6px;margin-top:2px;text-align:center;font-size:11.5px;color:var(--ink-3)}
+.hc-empty{display:flex;align-items:center;gap:10px}
+.hc-showcase{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.hc-demo{display:flex;flex-direction:column;gap:8px}
+.hc-demo .cap{font-size:12px;color:var(--ink-2)}
 
 /* 弹出面板 */
 .flyout{position:absolute;right:12px;bottom:60px;width:344px;max-width:calc(100% - 24px);
@@ -284,9 +319,9 @@ section{margin-top:28px}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .chipbtn[aria-pressed="true"]{color:#000}}
 
 /* 托盘图标规范 */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(204px,1fr));gap:10px}
 .cardx{background:var(--card);border:1px solid var(--card-stroke);border-radius:10px;padding:14px}
-.icons{display:flex;align-items:flex-end;gap:10px;margin:6px 0 10px}
+.icons{display:flex;align-items:flex-end;gap:8px;margin:6px 0 10px}
 .icons .z{background:var(--taskbar);border-radius:4px;display:grid;place-items:center;padding:4px}
 .cap{font-size:12px;color:var(--ink-2)}
 .cap b{color:var(--ink);font-weight:600}
@@ -359,7 +394,7 @@ section{margin-top:28px}
        <div class="page right" id="pSettings" aria-label="设置">
         <div class="sub-head"><button class="icon-btn back" aria-label="返回"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3L5 8l5 5"/></svg></button><b>设置</b></div>
         <div class="card" id="setCard"></div>
-        <div class="about"><span>几格 0.2.2</span><span class="sp"></span><button class="link">诊断信息</button><button class="link">检查更新</button></div>
+        <div class="about"><span>几格 0.2.5</span><span class="sp"></span><button class="link">诊断信息</button><button class="link">检查更新</button></div>
        </div>
 
        <div class="page right" id="pDevices" aria-label="管理设备">
@@ -384,7 +419,7 @@ section{margin-top:28px}
         <div class="t-act"><button class="btn" id="toastLater">1 小时后提醒</button><button class="btn pri" id="toastOk">知道了</button></div>
       </div>
 
-      <div class="tip" id="tip"></div>
+      <div class="hcard" id="tip" role="tooltip" aria-hidden="true"></div>
 
       <div class="game" id="game"><div class="cross"></div><div class="g-in"><b>独占全屏游戏中</b><span>托盘被遮住 · 几格不弹任何窗口，查询放慢到 5 分钟</span></div></div>
 
@@ -403,19 +438,28 @@ section{margin-top:28px}
     </div>
 
     <div class="controls">
+      <button class="chipbtn" id="toggleTrayMode" aria-pressed="false">模式：自定义（点此切换最低电量）</button>
+      <button class="chipbtn" data-sim="sleep" aria-pressed="true">鼠标休眠中</button>
       <button class="chipbtn" data-sim="charge" aria-pressed="true">耳机充电中</button>
       <button class="chipbtn" data-sim="low" aria-pressed="true">ATK 电量低</button>
       <button class="chipbtn" data-sim="disconnected" aria-pressed="true">游狼断开</button>
-      <button class="chipbtn" data-sim="busy" aria-pressed="true">罗技接收器被占用</button>
+      <button class="chipbtn" data-sim="busy" aria-pressed="false">罗技接收器被占用</button>
+      <button class="chipbtn" data-sim="many" aria-pressed="false">模拟 8 台在用设备</button>
       <button class="chipbtn" data-sim="game" aria-pressed="false">进入全屏游戏</button>
       <button class="chipbtn" id="fireToast">触发低电量提醒</button>
     </div>
   </section>
 
   <section>
-    <h2>托盘图标</h2>
-    <p class="note">16 / 24 / 32 px 分别对应 100% / 150% / 200% 缩放。按显示器 DPI 现画，数字只用两位，字重随尺寸加粗。</p>
+    <h2>托盘图标（0.2.5 方案 A）</h2>
+    <p class="note">上方是设备类型图形（鼠标、键盘、耳机、其他），下方是电量数字（16px 下数字高 10px，24px 下 15px，32px 下 20px）。右侧为 16px 放大 3 倍像素对照。</p>
     <div class="grid" id="iconGrid"></div>
+  </section>
+
+  <section>
+    <h2>悬停卡片（0.2.5）</h2>
+    <p class="note">收起上方主面板后，把鼠标移到任务栏图标上可实时预览；下方同步展示自定义单设备与最低电量列表两种模式（固定宽 248px，不显示已断开设备）。</p>
+    <div class="hc-showcase" id="hoverShowcase"></div>
   </section>
 
   <section>
@@ -425,10 +469,10 @@ section{margin-top:28px}
       <div class="cardx">
         <h3>动效</h3>
         <ul>
-          <li>展开：上移 16px 并淡入，250ms，曲线 (0.1, 0.9, 0.2, 1)，和 Windows 11 自带面板一致</li>
-          <li>收起：120ms 加速淡出，不拖泥带水</li>
-          <li>设备行依次进场，每行晚 25ms</li>
-          <li>充电：下一格呼吸闪烁，1.6s 一个周期</li>
+          <li>主面板展开：上移 16px 并淡入，250ms，曲线 (0.1, 0.9, 0.2, 1)，和 Windows 11 自带面板一致</li>
+          <li>主面板收起：120ms 加速淡出，不拖泥带水</li>
+          <li>悬停卡片：约 130–140ms 淡入淡出，点击穿透且不抢焦点</li>
+          <li>设备行依次进场，每行晚 25ms；充电下一格呼吸闪烁，1.6s 一周期</li>
           <li>系统开启"减少动画"时全部关闭</li>
         </ul>
       </div>
@@ -471,22 +515,31 @@ section{margin-top:28px}
   const ICON = {
     mouse:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v6.5" stroke-linecap="round"/></svg>',
     headset:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4.5" height="7" rx="1.6"/><rect x="16.5" y="14" width="4.5" height="7" rx="1.6"/></svg>',
-    keyboard:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.3 10h.01M12.6 10h.01M15.9 10h.01M18 10h.01M8 14.2h8"/></svg>'
+    keyboard:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.3 10h.01M12.6 10h.01M15.9 10h.01M18 10h.01M8 14.2h8"/></svg>',
+    other:'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="7" width="16.5" height="10" rx="2.2"/><rect x="20" y="10" width="2" height="4" rx=".8" fill="currentColor" stroke="none"/><rect x="5" y="9.4" width="11.5" height="5.2" rx="1" fill="currentColor" stroke="none"/></svg>'
   };
   const PIN = '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M7.6 1.2l3.2 3.2-1.4.6-1.9 1.9.3 2.2-.9.9L4.7 7.8 2 10.5l-.5-.5L4.2 7.3 2 5.1l.9-.9 2.2.3L7 2.6z"/></svg>';
 
   const devices = [
-    {id:'ulx', name:'Finalmouse ULX', kind:'mouse', pct:72, est:true, inTray:true, lastSeen:4, badge:'generic'},
-    {id:'h9', name:'INZONE H9', kind:'headset', pct:48, inTray:true, lastSeen:5, badge:'verified'},
-    {id:'atk', name:'ATK 鼠标', kind:'mouse', pct:15, inTray:true, lastSeen:3, badge:'generic'},
-    {id:'gw', name:'G-Wolves HTX Ultra 8K', kind:'mouse', pct:64, inTray:false, lastSeen:2, badge:'verified'},
-    {id:'lg', name:'Logitech 键盘', kind:'keyboard', pct:81, inTray:false, lastSeen:1, badge:'protocol'},
+    {id:'mx3s', name:'MX Anywhere 3S', kind:'mouse', pct:20, inTray:true, lastSeen:6, readMin:2, conn:'2.4G', source:'罗技 Bolt 接收器', badge:'protocol'},
+    {id:'mxks', name:'MX Keys S', kind:'keyboard', pct:80, inTray:true, lastSeen:5, readMin:1, conn:'2.4G', source:'罗技 Bolt 接收器', badge:'protocol'},
+    {id:'ulx', name:'Finalmouse ULX', kind:'mouse', pct:72, est:true, inTray:true, lastSeen:4, readMin:3, conn:'2.4G', source:'Finalmouse 接收器', badge:'generic'},
+    {id:'h9', name:'INZONE H9', kind:'headset', pct:48, inTray:true, lastSeen:5, readMin:0, conn:'2.4G', source:'Sony INZONE 接收器', badge:'verified'},
+    {id:'atk', name:'ATK 鼠标', kind:'mouse', pct:15, inTray:false, lastSeen:3, readMin:1, conn:'2.4G', source:'ATK 无线接收器', badge:'generic'},
+    {id:'gw', name:'G-Wolves HTX Ultra 8K', kind:'mouse', pct:64, inTray:false, lastSeen:2, readMin:8, conn:'2.4G', source:'游狼无线接收器', badge:'verified'},
+    {id:'lg', name:'Logitech 蓝牙小键盘（超长名称省略示例）', kind:'keyboard', pct:91, inTray:false, lastSeen:1, readMin:4, conn:'蓝牙', source:'Windows 蓝牙', badge:'protocol'},
   ];
-  const sim = {charge:true, low:true, disconnected:true, busy:true, game:false};
+  const extraDevices = [
+    {id:'ex1', name:'USB 有线鼠标', kind:'mouse', pct:100, inTray:false, lastSeen:1, readMin:0, conn:'USB', source:'罗技 USB 直连', badge:'protocol', full:true},
+    {id:'ex2', name:'会议蓝牙耳机', kind:'headset', pct:56, inTray:false, lastSeen:1, readMin:3, conn:'蓝牙', source:'Windows 蓝牙', badge:'generic'},
+    {id:'ex3', name:'桌面数字旋钮', kind:'other', pct:67, inTray:false, lastSeen:1, readMin:5, conn:'蓝牙', source:'Windows 蓝牙', badge:'generic'},
+  ];
+  const sim = {sleep:true, charge:true, low:true, disconnected:true, busy:false, many:false, game:false};
   const prefs = {trayMode:'custom', threshold:'15%', poll:'1 分钟', silent:true, autostart:true};
   let style = 'cells';
   let offlineExpanded = false;
 
+  function activePool(){ return sim.many ? devices.concat(extraDevices) : devices; }
   function badgeMeta(b){
     if (b==='verified') return {cls:'ok', text:'已实机验证'};
     if (b==='generic') return {cls:'gen', text:'通用适配'};
@@ -497,20 +550,23 @@ section{margin-top:28px}
     if (d.id==='lg' && sim.busy) return false;
     return true;
   }
+  function isAsleep(d){ return d.id==='mx3s' && sim.sleep; }
   function state(d){
-    if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中', online:true};
-    if (d.id==='gw' && sim.disconnected) return {k:'idle', c:'var(--idle)', text:'已断开 · 上次读数 · 8 分钟前', dim:true, online:false};
-    if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被占用 · 上次读数', dim:true, online:false};
+    if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中', online:true, asleep:false};
+    if (d.full) return {k:'charge', c:'var(--charge)', text:'已充满', online:true, asleep:false, full:true};
+    if (d.id==='gw' && sim.disconnected) return {k:'idle', c:'var(--idle)', text:'已断开 · 上次读数 · 8 分钟前', dim:true, online:false, asleep:false};
+    if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被占用 · 上次读数', dim:true, online:false, asleep:false};
     const p = pctOf(d);
     const th = parseInt(prefs.threshold, 10) || 15;
-    if (p<th) return {k:'low', c:'var(--low)', text:'电量低，该充电了', online:true};
-    if (p<=th+15) return {k:'warn', c:'var(--warn)', text:'电量偏低', online:true};
-    return {k:'ok', c:'var(--ok)', text: d.est ? '2.4G 已连接 · 电压估算' : '2.4G 已连接', online:true};
+    const asleep = isAsleep(d);
+    if (p<th) return {k:'low', c:'var(--low)', text: asleep ? '休眠 · 上次读数 · 2 分钟前' : '电量低，该充电了', online:true, asleep};
+    if (p<=th+15) return {k:'warn', c:'var(--warn)', text: asleep ? '休眠 · 上次读数 · 2 分钟前' : '电量偏低', online:true, asleep};
+    return {k:'ok', c:'var(--ok)', text: asleep ? '休眠 · 上次读数 · 2 分钟前' : (d.est ? `${d.conn} 已连接 · 电压估算` : `${d.conn} 已连接`), online:true, asleep};
   }
   function pctOf(d){ return d.id==='atk' ? (sim.low?12:58) : d.pct; }
 
   function buildMainPlan(){
-    const visible = devices.filter(d=>!d.hidden);
+    const visible = activePool().filter(d=>!d.hidden);
     const online = visible.filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
     const offline = visible.filter(d=>!isOnline(d)).sort((a,b)=>b.lastSeen-a.lastSeen);
     if (online.length>0) return {hero:online[0], heroDisconnected:false, onlineRows:online.slice(1), offlineRows:offline};
@@ -524,16 +580,16 @@ section{margin-top:28px}
       const n = big?10:5, f = Math.round(p/100*n);
       let h = '';
       for (let i=0;i<n;i++){
-        const cls = i<f ? 'f' : (s.k==='charge' && i===f ? 'next' : '');
+        const cls = i<f ? 'f' : (s.k==='charge' && !s.full && i===f ? 'next' : '');
         h += `<i class="${cls}"></i>`;
       }
       return `<div class="cells" style="--c:${s.c}">${h}</div>`;
     }
     if (style==='bar'){
-      return `<div class="bar ${s.k==='charge'?'charging':''}" style="--c:${s.c}"><i style="width:${p}%"></i></div>`;
+      return `<div class="bar ${s.k==='charge' && !s.full?'charging':''}" style="--c:${s.c}"><i style="width:${p}%"></i></div>`;
     }
     const r = big?20:10, w = big?5:3, size=(r+w)*2, C = 2*Math.PI*r;
-    return `<svg class="ring ${s.k==='charge'?'charging':''}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="--c:${s.c};transform:rotate(-90deg)">
+    return `<svg class="ring ${s.k==='charge' && !s.full?'charging':''}" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="--c:${s.c};transform:rotate(-90deg)">
       <circle class="trk" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}"/>
       <circle class="val" cx="${size/2}" cy="${size/2}" r="${r}" fill="none" stroke-width="${w}" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C*(1-p/100)}"/></svg>`;
   }
@@ -544,7 +600,7 @@ section{margin-top:28px}
     const bm = badgeMeta(d.badge);
     const genTag = d.badge==='generic' ? `<span class="badge gen">${bm.text}</span>` : '';
     return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
-      <div class="dev-ico">${ICON[d.kind]}</div>
+      <div class="dev-ico">${ICON[d.kind]||ICON.other}</div>
       <div class="meta"><div class="nm">${d.name} ${genTag}</div>
         <div class="st" style="${s.k==='low'||s.k==='warn'||s.k==='charge'?`color:${s.c}`:''}">${s.text}</div></div>
       ${indicator(d, s, false)}
@@ -560,9 +616,9 @@ section{margin-top:28px}
       document.getElementById('hero').innerHTML = `
         <div class="hero">
           <div class="hero-top">
-            <div class="dev-ico" style="${plan.heroDisconnected?'background:var(--chip);color:var(--ink-3)':''}">${ICON[hero.kind]}</div>
+            <div class="dev-ico" style="${plan.heroDisconnected?'background:var(--chip);color:var(--ink-3)':''}">${ICON[hero.kind]||ICON.other}</div>
             <div style="flex:1;min-width:0">
-              <div style="display:flex;gap:6px;align-items:center"><span class="name">${hero.name}</span><span class="tag">2.4G</span></div>
+              <div style="display:flex;gap:6px;align-items:center"><span class="name">${hero.name}</span><span class="tag">${hero.conn}</span></div>
               <div style="margin-top:2px;display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--ink-3)">
                 ${plan.heroDisconnected?'<span>已断开 ·</span>':''}<span class="badge ${bm.cls}">${bm.text}</span>
               </div>
@@ -589,51 +645,213 @@ section{margin-top:28px}
     const tog = document.getElementById('offToggle');
     if (tog) tog.onclick = e => { e.stopPropagation(); offlineExpanded = !offlineExpanded; render(); };
 
+    const modeBtn = document.getElementById('toggleTrayMode');
+    if (modeBtn){
+      const lowest = prefs.trayMode==='lowest';
+      modeBtn.setAttribute('aria-pressed', lowest);
+      modeBtn.textContent = lowest ? '模式：最低电量（点此切换自定义）' : '模式：自定义（点此切换最低电量）';
+    }
+
     renderTray();
+    renderHoverShowcase();
     if (typeof fit === 'function' && current === 'pMain') fit('pMain');
   }
 
-  // 托盘数字图标：SVG 模拟，真实实现为按 DPI 绘制的 HICON
-  function trayIconSVG(size, opt){
-    const {text, color, mode} = opt;
-    const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
-    if (mode==='full'){
-      const s = size/16;
-      return `<svg width="${size}" height="${size}" viewBox="0 0 16 16"><rect x="1" y="4" width="12.5" height="8" rx="1.8" fill="none" stroke="${color||ink}" stroke-width="${s>1.4?1.2:1.4}"/><rect x="14.2" y="6.4" width="1.3" height="3.2" rx=".6" fill="${color||ink}"/><rect x="2.6" y="5.6" width="9.3" height="4.8" rx=".8" fill="${color||ink}"/></svg>`;
+  // 0.2.5 方案 A：16px 像素版与 24/32px 矢量版（与 PixelDigits.cs / Graphics.cs 保持一致）
+  const PX_GLYPH5 = {
+    mouse:    ['.#.#.','##.##','#####','#####','.###.'],
+    keyboard: ['.#########.','#.#.#.#.#.#','###########','###.....###','.#########.'],
+    headset:  ['..######..','.#......#.','##......##','##......##','.#......#.'],
+    other:    ['########.','#......##','#.####.##','#......##','########.']
+  };
+  const PX_GLYPH4 = {
+    mouse:    ['.#.#.','##.##','#####','.###.'],
+    keyboard: ['#.#.#.#.#.#','###########','###.....###','.#########.'],
+    headset:  ['..######..','.#......#.','##......##','##......##'],
+    other:    ['#######.','#.....##','#.....##','#######.']
+  };
+  const PX_ROWS10 = [
+    [30,63,51,51,51,51,51,51,63,30],[12,14,15,12,12,12,12,12,63,63],[30,63,51,48,48,24,12,6,63,63],
+    [31,63,48,48,30,30,48,48,63,31],[51,51,51,51,63,62,48,48,48,48],[63,63,3,3,31,63,48,48,63,31],
+    [30,63,3,3,31,63,51,51,63,30],[63,63,48,48,24,24,12,12,6,6],[30,63,51,51,30,30,51,51,63,30],
+    [30,63,51,51,63,62,48,48,63,30]
+  ];
+  const PX_ROWS9 = [
+    [30,63,51,51,51,51,51,63,30],[12,14,15,12,12,12,12,63,63],[30,63,51,48,24,12,6,63,63],
+    [31,63,48,30,30,48,48,63,31],[51,51,51,63,62,48,48,48,48],[63,63,3,31,63,48,48,63,31],
+    [30,63,3,31,63,51,51,63,30],[63,63,48,24,24,12,12,6,6],[30,63,51,30,30,51,51,63,30],
+    [30,63,51,63,62,48,48,63,30]
+  ];
+  const PX_100 = [
+    '.##..###...###.','###.#####.#####','.##.##.##.##.##','.##.##.##.##.##','.##.##.##.##.##',
+    '.##.##.##.##.##','.##.##.##.##.##','.##.##.##.##.##','.##.#####.#####','.##..###...###.'
+  ];
+  function pxMask(rows, x0, y0, fill, op){
+    let out = '';
+    const a = op ? ` opacity="${op}"` : '';
+    rows.forEach((r,y)=>[...r].forEach((c,x)=>{ if(c==='#') out += `<rect x="${x0+x}" y="${y0+y}" width="1" height="1" fill="${fill}"${a}/>`; }));
+    return out;
+  }
+  function pxDigit(d, x0, y0, h, fill, op){
+    const rows = (h===9 ? PX_ROWS9 : PX_ROWS10)[d];
+    let out = '';
+    const a = op ? ` opacity="${op}"` : '';
+    for (let y=0;y<rows.length;y++)
+      for (let x=0;x<6;x++)
+        if (rows[y] & (1<<x)) out += `<rect x="${x0+x}" y="${y0+y}" width="1" height="1" fill="${fill}"${a}/>`;
+    return out;
+  }
+  function vectorGlyph(kind, x, y, w, h, ink, op){
+    const s = Math.max(1, h * 0.16), half = s / 2;
+    const a = op ? ` opacity="${op}"` : '';
+    if (kind==='mouse')
+      return `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${(w-s)/2}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><line x1="${x+w/2}" y1="${y+half}" x2="${x+w/2}" y2="${y+h*0.48}" stroke="${ink}" stroke-width="${s}"${a}/><line x1="${x+half}" y1="${y+h*0.46}" x2="${x+w-half}" y2="${y+h*0.46}" stroke="${ink}" stroke-width="${Math.max(0.85,s*0.8)}"${a}/>`;
+    if (kind==='keyboard'){
+      const ky = y + h * 0.36, lk = x + s + Math.max(1.2, w * 0.1), rk = x + w - s - Math.max(1.2, w * 0.1), r = Math.max(0.55, h * 0.08);
+      let dots = '';
+      for (let i=0;i<4;i++) dots += `<circle cx="${lk+(rk-lk)*i/3}" cy="${ky}" r="${r}" fill="${ink}"${a}/>`;
+      return `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${Math.max(1.1,h*0.2)}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/>${dots}<line x1="${x+w*0.28}" y1="${y+h*0.68}" x2="${x+w*0.72}" y2="${y+h*0.68}" stroke="${ink}" stroke-width="${Math.max(0.9,s*0.85)}"${a}/>`;
     }
-    const weight = size<=16 ? 700 : 650;
-    const fs = text.length>=2 ? size*0.78 : size*0.9;
-    const under = mode==='charge' ? `<rect x="${size*0.16}" y="${size*0.86}" width="${size*0.68}" height="${Math.max(1.5,size*0.1)}" rx="${size*0.05}" fill="${color}"/>` : '';
-    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-      <text x="50%" y="${mode==='charge'?size*0.72:size*0.79}" text-anchor="middle" font-family="Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
-        font-size="${fs}" font-weight="${weight}" letter-spacing="${-size*0.03}" fill="${color||ink}" ${mode==='idle'?'opacity=".55"':''}>${text}</text>${under}</svg>`;
+    if (kind==='headset'){
+      const earW = Math.max(2, w * 0.24), cy = y + h * 0.56, r = Math.max(1.5, Math.min(w/2 - earW*0.45, cy - y - half)), ey = y + h * 0.44, eh = h - (ey - y);
+      return `<path d="M ${x+w/2-r} ${cy} A ${r} ${r} 0 0 1 ${x+w/2+r} ${cy}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><rect x="${x}" y="${ey}" width="${earW}" height="${eh}" rx="${Math.min(earW*0.42,eh*0.42)}" fill="${ink}"${a}/><rect x="${x+w-earW}" y="${ey}" width="${earW}" height="${eh}" rx="${Math.min(earW*0.42,eh*0.42)}" fill="${ink}"${a}/>`;
+    }
+    const nubW = Math.max(1.3, w * 0.13), bw = Math.max(3, w - nubW - Math.max(0.6, s * 0.4)), pad = s + Math.max(0.8, h * 0.1);
+    return `<rect x="${x+half}" y="${y+half}" width="${bw-s}" height="${h-s}" rx="${Math.max(1,h*0.18)}" fill="none" stroke="${ink}" stroke-width="${s}"${a}/><rect x="${x+w-nubW}" y="${y+h*0.26}" width="${nubW}" height="${h*0.48}" rx="${nubW*0.35}" fill="${ink}"${a}/><rect x="${x+pad}" y="${y+pad}" width="${Math.max(1.2,(bw-pad*2)*0.72)}" height="${Math.max(1.2,h-pad*2)}" rx="0.5" fill="${ink}"${a}/>`;
+  }
+  function trayIconSVG(size, opt, zoom=1){
+    const {text, color, mode, kind} = opt;
+    const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
+    const digitCol = color || ink;
+    const op = mode==='idle' ? '0.55' : '';
+    const w = size * zoom, h = size * zoom;
+    if (!kind){
+      // 无活跃设备时的「几格」默认短横线图标保持现状
+      return `<svg width="${w}" height="${h}" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="7" width="6" height="2" fill="${digitCol}" opacity="${op||'1'}"/></svg>`;
+    }
+    const under = mode==='charge';
+    if (size === 16){
+      const gRows = (under ? PX_GLYPH4 : PX_GLYPH5)[kind] || (under ? PX_GLYPH4.other : PX_GLYPH5.other);
+      const gx = Math.floor((16 - gRows[0].length) / 2);
+      let body = pxMask(gRows, gx, 0, ink, op);
+      const dTop = under ? 5 : 6, dH = under ? 9 : 10;
+      if (text === '100'){
+        body += pxMask(PX_100, 0, dTop, digitCol, op);
+      } else if (/^\d+$/.test(text)){
+        const v = parseInt(text, 10);
+        if (v >= 10) body += pxDigit(Math.floor(v/10), 1, dTop, dH, digitCol, op);
+        body += pxDigit(v%10, v>=10 ? 9 : 5, dTop, dH, digitCol, op);
+      } else {
+        body += `<rect x="5" y="${dTop+4}" width="6" height="2" fill="${digitCol}"${op?` opacity="${op}"`:''}/>`;
+      }
+      if (under) body += `<rect x="3" y="15" width="10" height="1" fill="${digitCol}"/>`;
+      return `<svg width="${w}" height="${h}" viewBox="0 0 16 16" shape-rendering="crispEdges">${body}</svg>`;
+    }
+    const digitH = Math.floor(size * 10 / 16);
+    const uH = under ? Math.max(1, Math.floor(size / 16)) : 0;
+    const uGap = under ? Math.max(1, Math.floor(size / 24)) : 0;
+    const gGap = under ? Math.max(1, Math.floor(size / 24)) : (size >= 24 ? Math.max(2, Math.round(size / 16)) : 1);
+    const gH = size - digitH - gGap - uGap - uH;
+    const ratio = kind==='mouse' ? 0.75 : kind==='keyboard' ? 2.0 : kind==='headset' ? 1.75 : 1.65;
+    const maxW = kind==='mouse' ? Math.max(4, Math.min(size - 2, gH - 1)) : Math.max(4, size - 2);
+    let gW = Math.min(maxW, Math.max(4, Math.round(gH * ratio)));
+    if ((size - gW) % 2 !== 0){ if (gW + 1 <= maxW) gW++; else if (gW - 1 >= 4) gW--; }
+    const gX = Math.floor((size - gW) / 2);
+    const dY = gH + gGap;
+    const fs = text.length >= 3 ? Math.min(digitH / 0.78, size * 0.54) : text.length === 2 ? digitH / 0.74 : digitH / 0.72;
+    const uW = Math.round(size * 0.68);
+    const underSvg = under ? `<rect x="${(size-uW)/2}" y="${size-uH}" width="${uW}" height="${uH}" rx="${uH/2}" fill="${digitCol}"/>` : '';
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${size} ${size}">
+      ${vectorGlyph(kind, gX, 0, gW, gH, ink, op)}
+      <text x="50%" y="${dY + digitH * 0.86}" text-anchor="middle" font-family="Segoe UI Variable Display, Segoe UI, system-ui, sans-serif"
+        font-size="${fs.toFixed(2)}" font-weight="700" letter-spacing="${text.length>=3?(-size*0.04):(-size*0.02)}" fill="${digitCol}"${op?` opacity="${op}"`:''}>${text}</text>${underSvg}</svg>`;
   }
   function trayOptFor(d){
-    if (!d) return {text:'–', color:'', mode:'idle'};
+    if (!d) return {text:'–', color:'', mode:'idle', kind:null};
     const s = state(d), p = pctOf(d);
     const resolved = s.k==='ok' ? '' : getComputedStyle(document.documentElement).getPropertyValue(s.c.slice(4,-1)).trim();
-    if (p>=100 && s.online) return {mode:'full', color:resolved};
-    return {text:String(p), color:resolved, mode: s.k==='charge'?'charge':(s.k==='idle'?'idle':'')};
+    const chargingLine = s.k==='charge' && !s.full && p < 100;
+    return {text:String(p), color:resolved, mode: chargingLine ? 'charge' : (s.k==='idle' ? 'idle' : ''), kind:d.kind};
   }
-  function deviceTip(d){
+
+  function hoverStatusSingle(d, s){
+    const parts = [];
+    if (s.full) parts.push('已充满');
+    else if (s.k==='charge') parts.push('充电中');
+    else if (s.k==='low') parts.push('电量低');
+    else if (s.k==='warn') parts.push('电量偏低');
+    else if (!s.asleep) parts.push(d.est ? '电压估算' : '在线');
+    if (s.asleep) parts.push('休眠中');
+    parts.push(d.readMin > 0 ? `${d.readMin} 分钟前读取` : '刚刚读取');
+    return parts.join(' · ');
+  }
+  function hoverStatusRow(d, s){
+    if (s.asleep) return s.k==='low' ? '电量低 · 休眠中' : s.k==='warn' ? '电量偏低 · 休眠中' : '休眠中';
+    if (s.full) return '已充满';
+    if (s.k==='charge') return '充电中';
+    if (s.k==='low') return '电量低';
+    if (s.k==='warn') return '电量偏低';
+    return `在线 · ${d.conn}`;
+  }
+  function hoverCells(p, c, n, cls, charging){
+    const f = Math.round(p * n / 100);
+    let h = `<div class="${cls}" style="--c:${c}">`;
+    for (let i=0;i<n;i++) h += `<i class="${i<f?'f':(charging&&i===f?'next':'')}"></i>`;
+    return h + '</div>';
+  }
+  function singleCardHtml(d){
+    if (!d) return emptyCardHtml();
     const s = state(d), p = pctOf(d);
-    if (!s.online) return `${d.name} · 已断开 · 上次 ${d.est?'≈':''}${p}%`;
-    const tail = s.k==='charge' ? ' 充电中' : s.k==='low' ? ' 电量低' : s.k==='warn' ? ' 电量偏低' : '';
-    return `${d.name} ${d.est?'≈':''}${p}%${tail}`;
+    const numCol = s.k==='low'||s.k==='warn'||s.k==='charge' ? `color:${s.c}` : '';
+    return `<div class="hc-top">
+      <div class="hc-ico">${ICON[d.kind]||ICON.other}</div>
+      <div class="hc-meta"><div class="hc-name">${d.name}</div>
+        <div class="hc-sub"><span class="tag">${d.conn}</span><span class="hc-src">${d.source}</span></div></div>
+    </div>
+    <div class="hc-mid">
+      <div class="hc-big" style="${numCol}">${d.est?'<span class="approx">≈</span>':''}${p}<small>%</small></div>
+      ${hoverCells(p, s.c, 10, 'hc-cells', s.k==='charge' && !s.full)}
+    </div>
+    <div class="hc-st"><span class="dot" style="color:${s.c}"></span><span>${hoverStatusSingle(d, s)}</span></div>`;
   }
-  function summaryTip(list){
-    return list.length ? list.map((d,i)=> i===0 ? `<b>${deviceTip(d)}</b>` : deviceTip(d)).join('<br>') : '几格 · 点击打开面板';
+  function listCardHtml(active){
+    if (!active.length) return emptyCardHtml();
+    const shown = active.slice(0, 6);
+    const more = active.length - shown.length;
+    const rows = shown.map(d=>{
+      const s = state(d), p = pctOf(d);
+      const numCol = s.k==='low'||s.k==='warn'||s.k==='charge' ? `color:${s.c}` : '';
+      const stCol = s.k==='low'||s.k==='warn'||s.k==='charge' ? `color:${s.c}` : '';
+      return `<div class="hc-row">
+        <div class="hc-ico">${ICON[d.kind]||ICON.other}</div>
+        <div class="hc-rinfo"><div class="hc-rname">${d.name}</div><div class="hc-rst" style="${stCol}">${hoverStatusRow(d, s)}</div></div>
+        ${hoverCells(p, s.c, 5, 'hc-mini', s.k==='charge' && !s.full)}
+        <div class="hc-pct" style="${numCol}">${d.est?'≈':''}${p}%</div>
+      </div>`;
+    }).join('');
+    return `<div class="hc-title">几格 · ${active.length} 台设备</div>${rows}${more>0?`<div class="hc-more">还有 ${more} 台</div>`:''}`;
+  }
+  function emptyCardHtml(){
+    return `<div class="hc-empty"><img src="brand/fourj-mark.svg" width="20" height="20" alt=""><div><div class="hc-name">几格</div><div class="hc-rst">暂无在用设备 · 点击打开面板</div></div></div>`;
+  }
+
+  function positionHoverCard(btn){
+    const stageEl = document.getElementById('stage');
+    const sr = stageEl.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    const cx = br.left - sr.left + br.width / 2;
+    const left = Math.max(8, Math.min(sr.width - 248 - 8, Math.round(cx - 124)));
+    tip.style.left = left + 'px';
   }
   function renderTray(){
     const box = document.getElementById('trayIcons');
-    const active = devices.filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
+    const active = activePool().filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
     let slots = [];
     if (prefs.trayMode==='lowest'){
-      slots = [{key:'single', device:active[0], tipHtml:summaryTip(active)}];
+      slots = [{key:'single', device:active[0]||null, cardHtml:listCardHtml(active)}];
     } else {
       const checked = active.filter(d=>d.inTray);
-      slots = checked.length ? checked.map(d=>({key:d.id, device:d, tipHtml:deviceTip(d)}))
-        : [{key:'single', device:null, tipHtml:'几格 · 点击打开面板'}];
+      slots = checked.length ? checked.map(d=>({key:d.id, device:d, cardHtml:singleCardHtml(d)}))
+        : [{key:'single', device:null, cardHtml:emptyCardHtml()}];
     }
     const isOpen = fly.classList.contains('open');
     box.innerHTML = slots.map((slot,i)=>
@@ -641,7 +859,12 @@ section{margin-top:28px}
     ).join('');
     box.querySelectorAll('.tray-btn').forEach((btn,i)=>{
       btn.onclick = e => { e.stopPropagation(); setOpen(!fly.classList.contains('open')); };
-      btn.onmouseenter = () => { if (!fly.classList.contains('open')){ tip.innerHTML = slots[i].tipHtml; tip.classList.add('show'); } };
+      btn.onmouseenter = () => {
+        if (fly.classList.contains('open') || sim.game) return;
+        tip.innerHTML = slots[i].cardHtml;
+        positionHoverCard(btn);
+        tip.classList.add('show');
+      };
       btn.onmouseleave = () => tip.classList.remove('show');
     });
   }
@@ -649,17 +872,31 @@ section{margin-top:28px}
   function renderIconGrid(){
     const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
     const cases = [
-      {cap:'<b>正常</b> · 跟随文字色', o:{text:'72'}},
-      {cap:'<b>≤ 30%</b> · 琥珀', o:{text:'26', color:css('--warn')}},
-      {cap:'<b>≤ 15%</b> · 红色', o:{text:'9', color:css('--low')}},
-      {cap:'<b>充电中</b> · 绿色 + 底线', o:{text:'48', color:css('--charge'), mode:'charge'}},
-      {cap:'<b>100%</b> · 换成满电图形', o:{mode:'full'}},
-      {cap:'<b>未知</b> · 短横线', o:{text:'–', mode:'idle'}},
+      {cap:'<b>鼠标</b> · ≤ 30% 琥珀', o:{text:'20', color:css('--warn'), kind:'mouse'}},
+      {cap:'<b>键盘</b> · 正常 80%', o:{text:'80', kind:'keyboard'}},
+      {cap:'<b>耳机</b> · 充电中 + 底线', o:{text:'48', color:css('--charge'), mode:'charge', kind:'headset'}},
+      {cap:'<b>其他</b> · 正常 67%', o:{text:'67', kind:'other'}},
+      {cap:'<b>鼠标</b> · ≤ 15% 低电量', o:{text:'9', color:css('--low'), kind:'mouse'}},
+      {cap:'<b>键盘</b> · 100% 不截断', o:{text:'100', color:css('--charge'), kind:'keyboard'}},
+      {cap:'<b>无活跃设备</b> · 几格默认图标', o:{text:'–', mode:'idle', kind:null}},
     ];
     document.getElementById('iconGrid').innerHTML = cases.map(c=>`
       <div class="cardx"><div class="icons">
         ${[16,24,32].map(s=>`<div class="z">${trayIconSVG(s,c.o)}</div>`).join('')}
+        <div class="z">${trayIconSVG(16,c.o,3)}</div>
       </div><div class="cap">${c.cap}</div></div>`).join('');
+  }
+
+  function renderHoverShowcase(){
+    const box = document.getElementById('hoverShowcase');
+    if (!box) return;
+    const active = activePool().filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
+    const singleDev = devices.find(d=>d.id==='mx3s') || active[0];
+    const manyActive = devices.concat(extraDevices).filter(d=>d.id!=='gw');
+    box.innerHTML = `
+      <div class="hc-demo"><div class="cap"><b>自定义模式</b> · 单台设备（含 10 格电量条与来源）</div><div class="hcard static">${singleCardHtml(singleDev)}</div></div>
+      <div class="hc-demo"><div class="cap"><b>最低电量模式</b> · 所有在用设备按电量升序</div><div class="hcard static">${listCardHtml(active)}</div></div>
+      <div class="hc-demo"><div class="cap"><b>超过 6 台设备</b> · 最多 6 行并显示「还有 N 台」</div><div class="hcard static">${listCardHtml(manyActive.sort((a,b)=>pctOf(a)-pctOf(b)))}</div></div>`;
   }
 
   // 交互
@@ -672,6 +909,13 @@ section{margin-top:28px}
   document.getElementById('refresh').addEventListener('click', e=>{
     const b = e.currentTarget; b.classList.remove('spin'); void b.offsetWidth; b.classList.add('spin');
     document.getElementById('foTime').textContent = '刚刚更新';
+  });
+  document.getElementById('toggleTrayMode').addEventListener('click', e=>{
+    e.stopPropagation();
+    prefs.trayMode = prefs.trayMode === 'custom' ? 'lowest' : 'custom';
+    tip.classList.remove('show');
+    if (current === 'pSettings') fillSettings();
+    render();
   });
 
   function showToast(){
@@ -692,7 +936,7 @@ section{margin-top:28px}
     e.stopPropagation();
     const k = b.dataset.sim; sim[k] = !sim[k]; b.setAttribute('aria-pressed', sim[k]);
     if (k==='game'){
-      game.classList.toggle('on', sim.game); setOpen(false); toast.classList.remove('show');
+      game.classList.toggle('on', sim.game); setOpen(false); toast.classList.remove('show'); tip.classList.remove('show');
       if (sim.game) queued.classList.toggle('on', pendingToast);
       else { queued.classList.remove('on'); if (pendingToast){ pendingToast=false; setTimeout(showToast, 450); } }
     }
@@ -798,18 +1042,19 @@ section{margin-top:28px}
   function fillDevices(){
     const box = document.getElementById('devList');
     const customMode = prefs.trayMode==='custom';
-    box.innerHTML = devices.map(d=>{
+    const pool = activePool();
+    box.innerHTML = pool.map(d=>{
       const bm = badgeMeta(d.badge);
       return `<div class="drow ${d.hidden?'hid':''}" data-id="${d.id}">
-        <div class="dev-ico">${ICON[d.kind]}</div>
+        <div class="dev-ico">${ICON[d.kind]||ICON.other}</div>
         <div class="meta"><button class="nm" title="点击改名">${d.name}</button>
-          <div class="st">2.4G · <span class="badge ${bm.cls}">${bm.text}</span></div></div>
+          <div class="st">${d.conn} · <span class="badge ${bm.cls}">${bm.text}</span></div></div>
         <button class="ib ${d.inTray?'on':''} ${customMode?'':'muted'}" data-act="tray" title="${d.inTray?'取消托盘显示':'勾选在托盘显示'}"><span class="chk">${TICK}</span></button>
         <button class="ib" data-act="eye" title="${d.hidden?'在面板中显示':'在面板中隐藏'}">${d.hidden?EYE_OFF:EYE}</button>
       </div>`;
     }).join('');
     box.querySelectorAll('.drow').forEach(row=>{
-      const d = devices.find(x=>x.id===row.dataset.id);
+      const d = pool.find(x=>x.id===row.dataset.id);
       row.querySelector('[data-act="tray"]').onclick = e=>{ e.stopPropagation(); d.inTray=!d.inTray; render(); fillDevices(); };
       row.querySelector('[data-act="eye"]').onclick = e=>{ e.stopPropagation(); d.hidden=!d.hidden; render(); fillDevices(); };
       const nm = row.querySelector('.nm');

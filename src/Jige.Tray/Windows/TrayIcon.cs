@@ -161,11 +161,11 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
 
         HICON newIcon = changed ? Draw(nextSize, next) : icon;
         var data = Data();
+        // H1：使用 NOTIFYICON_VERSION_4 且不设 NIF_SHOWTIP，关闭系统默认文字提示，改由 NIN_POPUPOPEN 自绘悬停卡片；
+        // szTip 仍继续填写，供读屏软件等辅助功能读取。
         data.uFlags = NOTIFY_ICON_DATA_FLAGS.NIF_MESSAGE | NOTIFY_ICON_DATA_FLAGS.NIF_TIP;
         if (changed || !registered)
             data.uFlags |= NOTIFY_ICON_DATA_FLAGS.NIF_ICON;
-        if (nextTip.Length > 0)
-            data.uFlags |= NOTIFY_ICON_DATA_FLAGS.NIF_SHOWTIP;
         data.hIcon = newIcon;
         data.uCallbackMessage = callback;
         // NOTIFYICONDATAW 的提示缓冲区在结构内，包含末尾空字符。
@@ -272,16 +272,58 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             try
             {
                 render->Clear((D2D1_COLOR_F*)null);
-                if (icon.Full)
-                    canvas.Battery(0, 0, size / 16f, icon.Ink);
+                var layout = TrayIconLayout.Compute(size, icon);
+                if (!layout.HasGlyph)
+                {
+                    if (icon.Full)
+                        canvas.Battery(0, 0, size / 16f, icon.Ink);
+                    else
+                    {
+                        string value = icon.Percentage?.ToString() ?? "–";
+                        float fontSize = size * (value.Length == 2 ? .78f : .90f);
+                        canvas.Text(value, 0, -size * .07f, size, size * (icon.Underline ? .92f : 1.06f),
+                            fontSize, icon.Ink, 700, true, DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+                        if (icon.Underline)
+                            canvas.Fill(size * .16f, size * .86f, size * .68f, size * .1f, size * .05f, icon.Ink);
+                    }
+                }
                 else
                 {
+                    canvas.TrayDeviceGlyph(icon.Kind!.Value, layout.Glyph, icon.EffectiveGlyphInk);
+
                     string value = icon.Percentage?.ToString() ?? "–";
-                    float fontSize = size * (value.Length == 2 ? .78f : .90f);
-                    canvas.Text(value, 0, -size * .07f, size, size * (icon.Underline ? .92f : 1.06f),
-                        fontSize, icon.Ink, 700, true, DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
-                    if (icon.Underline)
-                        canvas.Fill(size * .16f, size * .86f, size * .68f, size * .1f, size * .05f, icon.Ink);
+                    float digitH = layout.Digits.Height;
+                    // 大写数字高度约为字号的 0.70，按数字区高度选取字号，并实测宽度防止 100 等数字被截断。
+                    float fontSize = value.Length switch
+                    {
+                        >= 3 => MathF.Min(digitH / 0.78f, size * 0.56f),
+                        2 => digitH / 0.74f,
+                        _ => digitH / 0.72f
+                    };
+                    float measured = canvas.Measure(value, fontSize, 700, true);
+                    float maxWidth = size - 0.5f;
+                    if (measured > maxWidth && measured > 0)
+                        fontSize *= maxWidth / measured;
+
+                    float boxHeight = fontSize * 1.5f;
+                    float digitCenterY = layout.Digits.Y + digitH / 2f;
+                    float layoutTop = digitCenterY - boxHeight / 2f - fontSize * 0.064f;
+                    canvas.PushClip(new PanelRect(layout.Digits.X, layout.Digits.Y, layout.Digits.Width, layout.Digits.Height));
+                    try
+                    {
+                        canvas.Text(value, layout.Digits.X, layoutTop, layout.Digits.Width, boxHeight,
+                            fontSize, icon.Ink, 700, true, DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+                    }
+                    finally
+                    {
+                        canvas.PopClip();
+                    }
+
+                    if (layout.HasUnderline)
+                    {
+                        canvas.Fill(layout.Underline.X, layout.Underline.Y, layout.Underline.Width,
+                            layout.Underline.Height, layout.Underline.Height / 2f, icon.Ink);
+                    }
                 }
             }
             finally

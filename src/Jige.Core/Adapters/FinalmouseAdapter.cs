@@ -56,7 +56,10 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             var tier = source == AdaptationSource.Catalog
                 ? DeviceCatalog.VerificationFor(selected.VendorId, selected.ProductId)
                 : VerificationTier.DocsOnly;
-            yield return new(new($"ulx:{group.Key}", name, DeviceKind.Mouse, source, tier), selected, "0");
+            yield return new(new($"ulx:{group.Key}", name, DeviceKind.Mouse, source, tier)
+            {
+                SourceLabel = "Finalmouse 接收器"
+            }, selected, "0");
         }
     }
 
