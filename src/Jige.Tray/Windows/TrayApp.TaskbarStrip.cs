@@ -17,11 +17,12 @@ internal sealed partial class TrayApp
     private TaskbarStripAutomation? stripAutomation;
     private TaskbarStripWindow? stripWindow;
     private TaskbarStripGeometry stripGeometry;
-    private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.NoDevices, default);
+    private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.HiddenTaskbar, default);
     private HWND stripOwner;
-    private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable;
+    private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
+        stripGeometryPending, stripFallbackLogged;
     private bool StripGeometryPending => model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
-        !stripOwner.IsNull && stripGeometry.Owner.IsNull;
+        stripGeometryPending;
     private string? DisplayLocationFallbackReason =>
         model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar && stripDisplay.IsFallback && !StripGeometryPending
             ? stripDisplay.Description : null;
@@ -37,12 +38,17 @@ internal sealed partial class TrayApp
         bool retryWindow = stripWindowUnavailable;
         stripWindowUnavailable = false;
         HWND owner = TaskbarStripShell.Find();
-        if (stripOwner != owner)
+        bool ownerChanged = stripOwner != owner;
+        if (ownerChanged)
         {
             stripOwner = owner;
             stripGeometry = default;
             DestroyStripWindow();
         }
+        if (owner.IsNull)
+            stripGeometryPending = false;
+        else if (ownerChanged)
+            stripGeometryPending = true;
         if (!owner.IsNull && !appBarSubscribed)
             appBarSubscribed = TaskbarStripShell.Subscribe(host, StripAppBarMessage);
         if (stripAutomation is not null || !owner.IsNull)
@@ -59,6 +65,7 @@ internal sealed partial class TrayApp
         appBarSubscribed = false;
         stripOwner = default;
         stripGeometry = default;
+        stripGeometryPending = false;
         DestroyStripWindow();
         stripAutomation?.Request(default, reset: true);
     }
@@ -95,13 +102,15 @@ internal sealed partial class TrayApp
             return;
         if (!geometry.Owner.IsNull && geometry.Owner != stripOwner)
             return;
+        bool wasPending = stripGeometryPending;
+        stripGeometryPending = false;
         var previous = stripWindow?.VisibleBounds;
         var previousReason = stripDisplay.Reason;
         stripGeometry = geometry;
         RefreshIcon();
         if (openedFromStrip && previous != stripWindow?.VisibleBounds)
             ReanchorStripPopup();
-        else if (stripDisplay.Reason != previousReason)
+        else if (wasPending || stripDisplay.Reason != previousReason)
             RenderPopup();
         if (hoverCard is not null && hoverIconId is null)
             RenderHoverCard();
@@ -115,9 +124,15 @@ internal sealed partial class TrayApp
             ApplyStripDisplay(TaskbarStripDisplay.Resolve(preference, default, false, false));
             return;
         }
+        if (StripGeometryPending)
+        {
+            ApplyStripDisplay(new(TaskbarStripReason.MissingTaskbar, default));
+            return;
+        }
 
         var devices = TaskbarStripDevice.Build(model);
-        var layout = TaskbarStripLayout.Build(devices);
+        var rendered = TaskbarStripDevice.WithPlaceholder(devices);
+        var layout = TaskbarStripLayout.Build(rendered);
         var next = TaskbarStripDisplay.Resolve(preference, stripGeometry.Place(layout.Width),
             devices.Length > 0, stripFullscreen);
         if (next.ShowStrip && stripWindowUnavailable)
@@ -133,7 +148,7 @@ internal sealed partial class TrayApp
                     var window = MakeWindow(StripClass, extra, WS_POPUP, stripGeometry.Owner);
                     stripWindow = new(window, stripGeometry.Owner);
                 }
-                stripWindow.Update(devices, layout, next.Bounds, darkTaskbar, TaskbarStripLayout.PixelScale(stripGeometry.Dpi));
+                stripWindow.Update(rendered, layout, next.Bounds, darkTaskbar, TaskbarStripLayout.PixelScale(stripGeometry.Dpi));
             }
             catch (Exception error) when (error is ExternalException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -172,12 +187,22 @@ internal sealed partial class TrayApp
                 DestroyHoverCard();
         }
 
-        if (next.Reason != stripDisplay.Reason)
+        if (next.IsFallback && !StripGeometryPending)
         {
-            if (next.IsFallback && !(next.Reason == TaskbarStripReason.MissingTaskbar && StripGeometryPending))
+            if (!stripFallbackLogged || next.Reason != stripDisplay.Reason)
+            {
+                stripFallbackLogged = true;
                 Desktop.Log($"任务栏直读条临时回退：{next.Description}");
-            else if (next.ShowStrip && !stripDisplay.DefaultIconOnly && stripDisplay.Reason != TaskbarStripReason.UserSelectedTray)
-                Desktop.Log("任务栏直读条已恢复");
+            }
+        }
+        else if (next.ShowStrip && stripFallbackLogged)
+        {
+            stripFallbackLogged = false;
+            Desktop.Log("任务栏直读条已恢复");
+        }
+        else if (next.Reason == TaskbarStripReason.UserSelectedTray)
+        {
+            stripFallbackLogged = false;
         }
         stripDisplay = next;
     }
@@ -195,6 +220,7 @@ internal sealed partial class TrayApp
         stripAutomation?.Request(default);
         stripGeometry = default;
         stripOwner = default;
+        stripGeometryPending = false;
         if (appBarSubscribed)
         {
             appBarSubscribed = false;

@@ -3,8 +3,12 @@ using Jige.Core;
 
 namespace Jige.Tray;
 
-internal readonly record struct TaskbarStripDevice(DeviceKind Kind, int? Percentage, BatteryTone Tone, bool ShowBolt = false)
+internal readonly record struct TaskbarStripDevice(
+    DeviceKind Kind, int? Percentage, BatteryTone Tone, bool ShowBolt = false, bool IsPlaceholder = false)
 {
+    public static TaskbarStripDevice Placeholder { get; } =
+        new(DeviceKind.Other, null, BatteryTone.Idle, ShowBolt: false, IsPlaceholder: true);
+
     public string Text => Percentage is { } percent
         ? Math.Clamp(percent, 0, 100).ToString(CultureInfo.InvariantCulture) + "%"
         : "--";
@@ -16,6 +20,9 @@ internal readonly record struct TaskbarStripDevice(DeviceKind Kind, int? Percent
             : model.OrderedDevices().Where(device => device.IsActive && model.Settings.IsInTray(device.Device.Id));
         return devices.Select(device => From(device, model.Settings.LowBatteryThreshold)).ToArray();
     }
+
+    public static TaskbarStripDevice[] WithPlaceholder(TaskbarStripDevice[] devices) =>
+        devices.Length > 0 ? devices : [Placeholder];
 
     public static TaskbarStripDevice From(DeviceStatus device, int threshold)
     {
@@ -122,14 +129,14 @@ internal readonly record struct TaskbarStripPlacement(TaskbarStripReason Reason,
 
 internal readonly record struct TaskbarStripDisplay(TaskbarStripReason Reason, Bounds Bounds)
 {
-    public bool ShowStrip => Reason == TaskbarStripReason.Ready;
+    public bool ShowStrip => Reason is TaskbarStripReason.Ready or TaskbarStripReason.NoDevices &&
+        Bounds.Width > 0 && Bounds.Height > 0;
     public bool IsFallback => Reason is TaskbarStripReason.MissingTaskbar or TaskbarStripReason.MissingNotificationArea or
         TaskbarStripReason.UnknownButtonBounds or TaskbarStripReason.UnsupportedEdge or
         TaskbarStripReason.NoRoom or TaskbarStripReason.WindowUnavailable;
-    // 随任务栏临时隐藏，或进入全屏时，保留默认入口及相同的托盘槽位。
-    public bool DefaultIconOnly => Reason is TaskbarStripReason.Ready or TaskbarStripReason.NoDevices or
-        TaskbarStripReason.HiddenTaskbar or TaskbarStripReason.Fullscreen;
-    public string Actual => ShowStrip ? "任务栏" : "托盘图标";
+    // 任务栏直读条与托盘图标严格二选一：仅在用户选择托盘图标或直读条临时回退时注册托盘图标。
+    public bool ShowTrayIcons => Reason == TaskbarStripReason.UserSelectedTray || IsFallback;
+    public string Actual => ShowTrayIcons ? "托盘图标" : "任务栏";
     public string Description => Reason switch
     {
         TaskbarStripReason.Ready => "直读条可用",
@@ -150,10 +157,10 @@ internal readonly record struct TaskbarStripDisplay(TaskbarStripReason Reason, B
     {
         if (preference == TrayDisplayLocation.TrayIcons)
             return new(TaskbarStripReason.UserSelectedTray, default);
-        if (!haveDevices)
-            return new(TaskbarStripReason.NoDevices, default);
         if (fullscreen && placement.Reason is TaskbarStripReason.Ready or TaskbarStripReason.HiddenTaskbar)
             return new(TaskbarStripReason.Fullscreen, default);
+        if (placement.Reason == TaskbarStripReason.Ready)
+            return new(haveDevices ? TaskbarStripReason.Ready : TaskbarStripReason.NoDevices, placement.Bounds);
         return new(placement.Reason, placement.Bounds);
     }
 }

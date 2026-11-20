@@ -254,6 +254,7 @@ public sealed class TaskbarStripTests
     public void TemporaryFallbackPreservesUserPreferenceAndRecovers()
     {
         var saved = new TraySettings();
+        Assert.Equal(TrayDisplayLocation.Taskbar, saved.DisplayLocation);
         foreach (var reason in new[] { TaskbarStripReason.MissingTaskbar, TaskbarStripReason.MissingNotificationArea,
             TaskbarStripReason.UnknownButtonBounds, TaskbarStripReason.NoRoom, TaskbarStripReason.UnsupportedEdge, TaskbarStripReason.WindowUnavailable })
         {
@@ -261,27 +262,65 @@ public sealed class TaskbarStripTests
             var fallback = TaskbarStripDisplay.Resolve(saved.DisplayLocation, geometry, true, false);
             Assert.Equal(reason, fallback.Reason);
             Assert.Equal("托盘图标", fallback.Actual);
-            Assert.False(fallback.DefaultIconOnly);
+            Assert.False(fallback.ShowStrip);
+            Assert.True(fallback.ShowTrayIcons);
+            Assert.True(fallback.IsFallback);
             Assert.Equal(TrayDisplayLocation.Taskbar, saved.DisplayLocation);
+
+            // 暂无设备且任务栏不可用时，同样回退到托盘图标，避免丢失入口。
+            var emptyFallback = TaskbarStripDisplay.Resolve(saved.DisplayLocation, geometry, false, false);
+            Assert.Equal(reason, emptyFallback.Reason);
+            Assert.False(emptyFallback.ShowStrip);
+            Assert.True(emptyFallback.ShowTrayIcons);
+            Assert.True(emptyFallback.IsFallback);
         }
 
         var ready = Place();
         var shown = TaskbarStripDisplay.Resolve(saved.DisplayLocation, ready, true, false);
         Assert.True(shown.ShowStrip);
-        Assert.True(shown.DefaultIconOnly);
+        Assert.False(shown.ShowTrayIcons);
+        Assert.False(shown.IsFallback);
         Assert.Equal("任务栏", shown.Actual);
         Assert.Equal(ready.Bounds, shown.Bounds);
 
+        // 任务栏可用但暂无可显示设备时，仍在任务栏显示紧凑占位条，不再额外生成托盘图标。
+        var noDevices = TaskbarStripDisplay.Resolve(saved.DisplayLocation, ready, false, false);
+        Assert.Equal(TaskbarStripReason.NoDevices, noDevices.Reason);
+        Assert.True(noDevices.ShowStrip);
+        Assert.False(noDevices.ShowTrayIcons);
+        Assert.False(noDevices.IsFallback);
+        Assert.Equal("任务栏", noDevices.Actual);
+        Assert.Equal(ready.Bounds, noDevices.Bounds);
+
         var full = TaskbarStripDisplay.Resolve(saved.DisplayLocation, ready, true, true);
         Assert.Equal(TaskbarStripReason.Fullscreen, full.Reason);
-        Assert.True(full.DefaultIconOnly);
-        Assert.Equal(TaskbarStripReason.NoDevices,
-            TaskbarStripDisplay.Resolve(saved.DisplayLocation, ready, false, false).Reason);
-        Assert.Equal(TaskbarStripReason.HiddenTaskbar,
-            TaskbarStripDisplay.Resolve(saved.DisplayLocation, Place(visible: false), true, false).Reason);
+        Assert.False(full.ShowStrip);
+        Assert.False(full.ShowTrayIcons);
+        Assert.Equal("任务栏", full.Actual);
+
+        var hidden = TaskbarStripDisplay.Resolve(saved.DisplayLocation, Place(visible: false), true, false);
+        Assert.Equal(TaskbarStripReason.HiddenTaskbar, hidden.Reason);
+        Assert.False(hidden.ShowStrip);
+        Assert.False(hidden.ShowTrayIcons);
+        Assert.Equal("任务栏", hidden.Actual);
+
         var manual = TaskbarStripDisplay.Resolve(TrayDisplayLocation.TrayIcons, ready, true, false);
         Assert.Equal(TaskbarStripReason.UserSelectedTray, manual.Reason);
-        Assert.False(manual.DefaultIconOnly);
+        Assert.False(manual.ShowStrip);
+        Assert.True(manual.ShowTrayIcons);
+        Assert.False(manual.IsFallback);
+        Assert.Equal("托盘图标", manual.Actual);
+
+        // 任意组合下，任务栏直读条与托盘图标严格互斥，绝不同时存在。
+        foreach (var location in Enum.GetValues<TrayDisplayLocation>())
+        foreach (var reason in Enum.GetValues<TaskbarStripReason>())
+        foreach (bool haveDevices in new[] { false, true })
+        foreach (bool fullscreen in new[] { false, true })
+        {
+            var placement = reason == TaskbarStripReason.Ready ? ready : new TaskbarStripPlacement(reason, default);
+            var resolved = TaskbarStripDisplay.Resolve(location, placement, haveDevices, fullscreen);
+            Assert.False(resolved.ShowStrip && resolved.ShowTrayIcons);
+        }
     }
 
     [Fact]
@@ -302,9 +341,7 @@ public sealed class TaskbarStripTests
 
         Assert.Equal(new[] { DeviceKind.Keyboard, DeviceKind.Mouse },
             TaskbarStripDevice.Build(model).Select(device => device.Kind));
-        var defaultIcon = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false, defaultOnly: true));
-        Assert.Null(defaultIcon.Device);
-        Assert.Equal(1u, TrayIconPlan.StableId(defaultIcon.Key));
+        Assert.Empty(TrayIconPlan.Build(model, suppressTooltip: false, showIcons: false));
         Assert.Equal(2, TrayIconPlan.Build(model, suppressTooltip: false).Length);
 
         var stripCard = HoverCardBuilder.Build(model, null, Now, forceList: true);
@@ -312,6 +349,29 @@ public sealed class TaskbarStripTests
         model.ApplySettings(model.Settings with { TrayMode = TrayDisplayMode.LowestBattery }, Now);
         Assert.Equal(DeviceKind.Other, Assert.Single(TaskbarStripDevice.Build(model)).Kind);
         Assert.Equal(stripCard.Rows, HoverCardBuilder.Build(model, TrayIconPlan.SingleKey, Now).Rows);
+    }
+
+    [Theory]
+    [InlineData(true, 0xfff0ece4u)]
+    [InlineData(false, 0xff211d19u)]
+    public void PlaceholderStripUsesOpaqueBatteryAndDashes(bool dark, uint fg)
+    {
+        var placeholder = Assert.Single(TaskbarStripDevice.WithPlaceholder([]));
+        Assert.True(placeholder.IsPlaceholder);
+        Assert.Equal("--", placeholder.Text);
+        Assert.False(placeholder.ShowBolt);
+        Assert.Equal(BatteryTone.Idle, placeholder.Tone);
+
+        var layout = TaskbarStripLayout.Build([placeholder]);
+        Assert.Equal(35, layout.Width);
+        uint[] pixels = TaskbarStripPixels.Render(layout, dark, 1);
+        Assert.Equal(new[] { 0u, fg }, pixels.Distinct().Order());
+
+        var segment = Assert.Single(layout.Segments);
+        Assert.Contains(fg, Enumerable.Range(segment.Icon.Y, segment.Icon.Height)
+            .SelectMany(y => Enumerable.Range(segment.Icon.X, segment.Icon.Width).Select(x => pixels[y * layout.Width + x])));
+        Assert.Contains(fg, Enumerable.Range(segment.Text.Y, segment.Text.Height)
+            .SelectMany(y => Enumerable.Range(segment.Text.X, segment.Text.Width).Select(x => pixels[y * layout.Width + x])));
     }
 
     [Theory]

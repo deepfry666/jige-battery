@@ -29,10 +29,10 @@ internal static class TrayIconPlan
         return 2 + hash % 65000;
     }
 
-    public static TrayIconSlot[] Build(TrayModel model, bool suppressTooltip, bool defaultOnly = false)
+    public static TrayIconSlot[] Build(TrayModel model, bool suppressTooltip, bool showIcons = true)
     {
-        if (defaultOnly)
-            return [new(SingleKey, null, suppressTooltip ? "" : "几格 · 点击打开面板")];
+        if (!showIcons)
+            return [];
         var devices = model.TrayDevices();
         if (model.Settings.TrayMode == TrayDisplayMode.LowestBattery || devices.Length == 0)
         {
@@ -117,9 +117,19 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         return false;
     }
 
-    public void Sync(TrayModel model, bool darkTaskbar, bool suppressTooltip, bool defaultOnly = false)
+    public void Clear()
     {
-        var slots = TrayIconPlan.Build(model, suppressTooltip, defaultOnly);
+        foreach (var icon in icons.Values)
+            icon.Dispose();
+        icons.Clear();
+        byId.Clear();
+        keyById.Clear();
+        lastActiveId = null;
+    }
+
+    public void Sync(TrayModel model, bool darkTaskbar, bool suppressTooltip, bool showIcons = true)
+    {
+        var slots = TrayIconPlan.Build(model, suppressTooltip, showIcons);
         var desiredKeys = slots.Select(slot => slot.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         int threshold = model.Settings.LowBatteryThreshold;
