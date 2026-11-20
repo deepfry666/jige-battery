@@ -86,8 +86,8 @@ internal sealed partial class PopupScene : IDisposable
     private float updateNotesScroll;
     private float updateNotesMaxScroll;
     private Version? lastUpdateNotesVersion;
-    private bool HasDiagnosticReport => diagnosticStatus is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed
-        or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
+    private readonly bool hasDiagnosticFooter;
+    private bool HasDiagnosticReport => hasDiagnosticFooter && DiagnosticExport.HasReportStatus(diagnosticStatus);
     private int Threshold => model.Settings.LowBatteryThreshold;
     private string? editorId;
     private DeviceStatus[] devices = [];
@@ -104,7 +104,7 @@ internal sealed partial class PopupScene : IDisposable
     private int hoverRow = -1;
 
     public PopupScene(Composition composition, Palette colors, bool animations, TrayModel model,
-        PanelPage page, string? noticeId, PanelSize size, int offset, int availableHeight)
+        PanelPage page, string? noticeId, PanelSize size, int offset, int availableHeight, bool hasDiagnosticFooter = false)
     {
         this.composition = composition;
         this.colors = colors;
@@ -113,10 +113,11 @@ internal sealed partial class PopupScene : IDisposable
         this.noticeId = noticeId;
         this.size = size;
         this.offset = offset;
+        this.hasDiagnosticFooter = hasDiagnosticFooter;
         Page = page;
         rows = new Composition.Layer[page == PanelPage.Main ? size.Rows : 0];
         if (page == PanelPage.Settings)
-            Settings = new(availableHeight);
+            Settings = new(availableHeight, hasDiagnosticFooter);
         frame = new(composition, composition.Root, 0, 0, Width, SurfaceHeight);
         try
         {
@@ -136,6 +137,7 @@ internal sealed partial class PopupScene : IDisposable
 
     public PanelPage Page { get; }
     public PanelSize Size => size;
+    public bool HasDiagnosticFooter => hasDiagnosticFooter;
     public int Offset => offset;
     public SettingsPanel? Settings { get; }
     public float DisplayHeight => Settings?.Height ?? height;
@@ -478,7 +480,7 @@ internal sealed partial class PopupScene : IDisposable
         DrawNumber(canvas, device, 23, 109, 145, 52, 44, 18, 24, ink, false);
         DrawCells(canvas, device, 172, 120, 12, 22, 3, 10);
         canvas.Dot(26, 172, 3, colors.Status(tone));
-        canvas.Text(Presentation.Status(device, now, Threshold), 35, 162, 284, 22, 12,
+        canvas.Text(Presentation.Status(device, Threshold), 35, 162, 284, 22, 12,
             tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Secondary,
             ellipsis: true);
     }
@@ -506,22 +508,15 @@ internal sealed partial class PopupScene : IDisposable
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
-        string status = Presentation.Status(device, now, Threshold);
-        int split = status.IndexOf(" · 上次读数", StringComparison.Ordinal);
+        string status = Presentation.Status(device, Threshold);
         bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
         float nameMaxWidth = isGeneric ? 98 : 153;
-        float nameWidth = canvas.Text(model.Name(device.Device), 56, split < 0 ? 5 : 1, nameMaxWidth, 19, 13.5f,
+        float nameWidth = canvas.Text(model.Name(device.Device), 56, 5, nameMaxWidth, 19, 13.5f,
             tone == BatteryTone.Idle ? colors.Muted : colors.Ink, ellipsis: true);
         if (isGeneric)
-            DrawBadge(canvas, device.Device, 56 + Math.Min(nameWidth, nameMaxWidth) + 5, split < 0 ? 7 : 3, dimmed: tone == BatteryTone.Idle);
+            DrawBadge(canvas, device.Device, 56 + Math.Min(nameWidth, nameMaxWidth) + 5, 7, dimmed: tone == BatteryTone.Idle);
         var statusColor = tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Muted;
-        if (split < 0)
-            canvas.Text(status, 56, 23, 161, 19, 12, statusColor, ellipsis: true);
-        else
-        {
-            canvas.Text(status[..split], 56, 18, 161, 15, 12, statusColor, ellipsis: true);
-            canvas.Text(status[(split + 3)..], 56, 32, 161, 15, 12, statusColor, ellipsis: true);
-        }
+        canvas.Text(status, 56, 23, 155, 19, 12, statusColor, ellipsis: true);
 
         DrawCells(canvas, device, 217, 17, 5, 14, 1.5f, 5);
         var ink = tone switch

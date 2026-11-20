@@ -30,7 +30,28 @@ public sealed class PresentationTests
     {
         var device = Device(percent);
         Assert.Equal((BatteryTone)tone, Presentation.Icon(device, false, threshold).Tone);
-        Assert.Equal(label, Presentation.Status(device, DateTimeOffset.UnixEpoch, threshold));
+        Assert.Equal(label, Presentation.Status(device, threshold));
+    }
+
+    [Fact]
+    public void OfflineAndTimeoutStatusOmitElapsedMinutesWhileKeepingLastBatteryValue()
+    {
+        var identity = new DeviceIdentity("ulx:1", "Finalmouse", DeviceKind.Mouse);
+        var readAt = new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero);
+        var last = new SavedBattery(identity, 90, true, readAt);
+
+        var offline = new DeviceStatus(identity, LinkState.Offline, ReadIssue.None, ChargingState.Unknown, last, Fresh: false);
+        Assert.Equal("≈90%", Presentation.Value(offline));
+        Assert.Equal("已断开 · 上次读数", Presentation.Status(offline, 15));
+        Assert.DoesNotContain("分钟", Presentation.Status(offline, 15));
+
+        var timeout = new DeviceStatus(identity, LinkState.Unknown, ReadIssue.Timeout, ChargingState.Unknown, last, Fresh: false);
+        Assert.Equal("≈90%", Presentation.Value(timeout));
+        Assert.Equal("查询超时 · 上次读数", Presentation.Status(timeout, 15));
+
+        var noReading = new DeviceStatus(identity, LinkState.Offline, ReadIssue.None, ChargingState.Unknown, null, Fresh: false);
+        Assert.Equal("–", Presentation.Value(noReading));
+        Assert.Equal("已断开", Presentation.Status(noReading, 15));
     }
 
     [Fact]

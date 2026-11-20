@@ -112,7 +112,7 @@ internal static class Presentation
         return "无线接收器";
     }
 
-    public static string Status(DeviceStatus device, DateTimeOffset now, int threshold)
+    public static string Status(DeviceStatus device, int threshold)
     {
         if (device.Fresh)
             return Tone(device, threshold) switch
@@ -134,7 +134,7 @@ internal static class Presentation
             (_, ReadIssue.IoError) => "读取失败",
             _ => "状态待确认"
         };
-        return device.Last is { } last ? $"{status} · 上次读数 · {Age(last.ReadAt, now)}前" : status;
+        return device.Last is not null ? $"{status} · 上次读数" : status;
     }
 
     public static string Value(DeviceStatus device) => device.Last is { } last

@@ -20,6 +20,32 @@ public sealed class PanelPagesTests
         Assert.Equal(new PanelSize(height, rows), PanelLayout.Size((PanelPage)page, count, available));
     }
 
+    [Fact]
+    public void DiagnosticReportFooterExpandsSettingsAndDevicesHeightsCleanly()
+    {
+        int extra = PanelLayout.DiagnosticFooterExtraHeight;
+        Assert.Equal(PanelLayout.DiagnosticFooterHeight - PanelLayout.FooterHeight, extra);
+        Assert.True(extra > 0);
+
+        Assert.Equal(new PanelSize(PanelLayout.SettingsHeight + extra, 0),
+            PanelLayout.Size(PanelPage.Settings, 0, 700, diagnosticFooter: true));
+        Assert.Equal(new PanelSize(PanelLayout.DeviceBaseHeight + extra, 0),
+            PanelLayout.Size(PanelPage.Devices, 0, 700, diagnosticFooter: true));
+        Assert.Equal(new PanelSize(425 + extra, 5),
+            PanelLayout.Size(PanelPage.Devices, 5, 700, diagnosticFooter: true));
+
+        var panel = new SettingsPanel(700, hasDiagnosticFooter: true);
+        Assert.True(panel.HasDiagnosticFooter);
+        Assert.Equal(PanelLayout.DiagnosticFooterHeight, panel.FooterHeight);
+        Assert.Equal(PanelLayout.SettingsHeight + extra, panel.Height);
+        // 卡片底部与底部分割线间距在有无诊断报告时保持一致（369 - 361 = 8px）。
+        Assert.Equal(PanelLayout.SettingsHeight - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+
+        panel.Toggle(SettingRow.Threshold, 0, animate: false, selectedIndex: 1);
+        Assert.Equal(547 + extra, panel.Height);
+        Assert.Equal(547 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+    }
+
     [Theory]
     [InlineData(0, 0, 411)]
     [InlineData(50, 0.7944, 519)]

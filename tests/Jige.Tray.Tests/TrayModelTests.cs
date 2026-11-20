@@ -84,10 +84,10 @@ public sealed class TrayModelTests
         Assert.Equal(Headset, model.ReadyReminder(Now, false)?.Device);
         model.ApplyPoll([Reading(Headset, 20, charging: ChargingState.Charging)], false, Now);
         Assert.Null(model.ReadyReminder(Now, false));
-        Assert.Equal("充电中", Presentation.Status(model.OrderedDevices()[0], Now, 22));
+        Assert.Equal("充电中", Presentation.Status(model.OrderedDevices()[0], 22));
         model.ApplyPoll([Reading(Headset, 20, charging: ChargingState.Full)], false, Now);
         Assert.Null(model.ReadyReminder(Now, false));
-        Assert.Equal("已充满", Presentation.Status(model.OrderedDevices()[0], Now, 22));
+        Assert.Equal("已充满", Presentation.Status(model.OrderedDevices()[0], 22));
         var trayIcon = Presentation.Icon(model.OrderedDevices()[0], false, 22);
         Assert.Equal(BatteryTone.Charging, trayIcon.Tone);
         Assert.Equal(20, trayIcon.Percentage);
@@ -108,13 +108,13 @@ public sealed class TrayModelTests
         model.ApplyPoll([Reading(Mouse, null, LinkState.Asleep), Reading(Headset, null, LinkState.Busy)], false, time);
         var devices = model.OrderedForManagement();
         Assert.Equal("≈72%", Presentation.Value(devices[0]));
-        Assert.Equal("休眠 · 上次读数 · 8 分钟前", Presentation.Status(devices[0], time, 15));
-        Assert.Equal("接收器被占用 · 上次读数 · 8 分钟前", Presentation.Status(devices[1], time, 15));
+        Assert.Equal("休眠 · 上次读数", Presentation.Status(devices[0], 15));
+        Assert.Equal("接收器被占用 · 上次读数", Presentation.Status(devices[1], 15));
 
         model.ApplyPoll([], true, time);
         Assert.Equal(LinkState.Unknown, model.OrderedForManagement()[0].Link);
         model.ApplyPoll([], false, time);
-        Assert.Equal("已断开 · 上次读数 · 8 分钟前", Presentation.Status(model.OrderedForManagement()[0], time, 15));
+        Assert.Equal("已断开 · 上次读数", Presentation.Status(model.OrderedForManagement()[0], 15));
         Assert.Equal(Now, model.Snapshot().Readings[Mouse.Id].ReadAt);
     }
 
