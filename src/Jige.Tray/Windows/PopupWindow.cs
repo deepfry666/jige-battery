@@ -27,6 +27,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private PopupTarget down;
     private RECT anchor = anchor;
     private PanelPage page = noticeId is null ? firstPage : PanelPage.Notice;
+    private PanelPage updatesReturnPage = PanelPage.Main;
     private int mainOffset, deviceOffset;
     private bool offlineExpanded;
     private long shownAt;
@@ -36,10 +37,13 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private string? error;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
+    private UpdateViewState updateState = UpdateViewState.Idle("", false);
     private Transition? transition;
 
     public HWND Handle { get; private set; } = hwnd;
     public string? NoticeId { get; } = noticeId;
+    public PanelPage CurrentPage => page;
+    public PanelPage UpdatesReturnPage => updatesReturnPage;
     public bool IsWelcome => page == PanelPage.Welcome;
     public bool IsNotice => NoticeId is not null || IsWelcome;
     public bool Closing { get; private set; }
@@ -59,7 +63,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         public Pose Exit => new(-Direction, 0);
     }
 
-    public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics, bool previewPending, bool reset = false)
+    public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics,
+        bool previewPending, UpdateViewState update, bool reset = false)
     {
         if (Closing)
             return;
@@ -69,6 +74,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         error = settingsError;
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
+        updateState = update;
         // 轮询结果先进入模型，等结束改名后再更新行顺序，避免输入框跳到另一台设备。
         if (Editing && !reset)
             return;
@@ -114,6 +120,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         {
             PanelPage.Main => MainCount(),
             PanelPage.Devices => model.OrderedForManagement().Length,
+            PanelPage.Updates => updateState.Phase == UpdatePhase.Available ? 1 : 0,
             _ => 0
         };
         return PanelLayout.Size(target, count, AvailableHeight);
@@ -141,6 +148,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (page == target)
             return;
+        if (target == PanelPage.Updates)
+            updatesReturnPage = page == PanelPage.Settings ? PanelPage.Settings : PanelPage.Main;
         page = target;
         tracking = false;
         down = default;
@@ -179,7 +188,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         }
 
         bool changedPage = previous!.Page != page;
-        float direction = changedPage ? (page == PanelPage.Main ? -PanelLayout.SlideDistance : PanelLayout.SlideDistance) : 0;
+        bool goingBack = page == PanelPage.Main || (previous.Page == PanelPage.Updates && page == PanelPage.Settings);
+        float direction = changedPage ? (goingBack ? -PanelLayout.SlideDistance : PanelLayout.SlideDistance) : 0;
         var incomingPose = reversing
             ? oldTransition!.OutgoingStart.Towards(oldTransition.Exit, progress)
             : changedPage ? new(direction, 0) : Transition.Resting;
@@ -343,7 +353,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)

@@ -34,10 +34,18 @@ internal sealed partial class PopupScene
         var arrow = hover == back.Target ? colors.Ink : colors.Secondary;
         canvas.Line(27, 22, 22, 27, arrow, 1.5f);
         canvas.Line(22, 27, 27, 32, arrow, 1.5f);
-        canvas.Text(Page == PanelPage.Settings ? "设置" : "管理设备", 45, 11, 270, 32, 14, colors.Ink, 600);
+        string title = Page switch
+        {
+            PanelPage.Settings => "设置",
+            PanelPage.Updates => "检查更新",
+            _ => "管理设备"
+        };
+        canvas.Text(title, 45, 11, 200, 32, 14, colors.Ink, 600);
 
         if (Page == PanelPage.Settings)
             DrawSettingsPage(canvas);
+        else if (Page == PanelPage.Updates)
+            DrawUpdatesPage(canvas);
         else
             DrawDevicesPage(canvas);
         if (!subButtons.Any(button => button.Target == focused))
@@ -472,5 +480,214 @@ internal sealed partial class PopupScene
         canvas.Text(label, box.X, box.Y, box.Width, box.Height, 12, colors.Accent);
         if (hover == box.Target)
             canvas.Line(box.X, box.Y + 17, box.X + box.Width, box.Y + 17, colors.Accent);
+    }
+
+    private void DrawUpdatesPage(Canvas canvas)
+    {
+        // 右上角版本徽章
+        if (!string.IsNullOrEmpty(updateState.CurrentVersionLabel))
+        {
+            float pillW = MathF.Min(138, MathF.Ceiling(canvas.Measure(updateState.CurrentVersionLabel, 11, 600)) + 14);
+            float pillX = Width - 12 - pillW;
+            canvas.Fill(pillX, 18, pillW, 18, 4, colors.Chip);
+            canvas.Text(updateState.CurrentVersionLabel, pillX + 5, 18, pillW - 10, 18, 11, colors.Muted, 600,
+                align: DWRITE_TEXT_ALIGNMENT_CENTER, ellipsis: true);
+        }
+
+        if (updateState.Phase == UpdatePhase.Available && updateState.Available is { } available)
+        {
+            DrawUpdateAvailable(canvas, available);
+            return;
+        }
+
+        updateNotesMaxScroll = 0;
+        const float cardX = 12, cardY = 54, cardW = 320, cardH = 148;
+        canvas.Fill(cardX, cardY, cardW, cardH, 7, colors.Layer);
+        canvas.Stroke(cardX + .5f, cardY + .5f, cardW - 1, cardH - 1, 6.5f, colors.LayerStroke);
+
+        float buttonY = height - 48;
+        switch (updateState.Phase)
+        {
+            case UpdatePhase.UpToDate:
+                canvas.Dot(172, 92, 21, colors.Charging.WithAlpha(36));
+                canvas.Line(163.5f, 92.5f, 169.2f, 98.2f, colors.Charging, 2.0f);
+                canvas.Line(169.2f, 98.2f, 180.8f, 86.4f, colors.Charging, 2.0f);
+                canvas.Text("已是最新版本", 24, 122, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                canvas.Text($"当前版本 {updateState.CurrentVersionLabel}", 24, 146, 296, 20, 12.5f, colors.Secondary,
+                    align: DWRITE_TEXT_ALIGNMENT_CENTER, ellipsis: true);
+                canvas.Text("正式版通道 · 仅手动检查时联网", 24, 169, 296, 18, 11.5f, colors.Muted,
+                    align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                DrawActionButton(canvas, new(PopupAction.CheckUpdatesAgain, 12, buttonY, 156, 34), "重新检查", primary: false);
+                DrawActionButton(canvas, new(PopupAction.Back, 176, buttonY, 156, 34), "返回", primary: false);
+                break;
+
+            case UpdatePhase.Downloading or UpdatePhase.Verifying:
+                var progress = updateState.Progress ?? new UpdateProgress(0, updateState.Available?.Installer.Size ?? 0,
+                    updateState.Phase == UpdatePhase.Verifying);
+                canvas.Dot(172, 92, 21, colors.AccentSoft);
+                DrawUpdateArrowGlyph(canvas, 172, 92, colors.Accent, downward: !progress.Verifying);
+                string downloadTitle = progress.Verifying
+                    ? "正在校验安装包…"
+                    : updateState.Available is { } target ? $"正在下载 v{target.Version}…" : "正在下载更新…";
+                canvas.Text(downloadTitle, 24, 122, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                canvas.Fill(32, 152, 280, 6, 3, colors.Empty);
+                float fraction = (float)(progress.Fraction ?? 0);
+                float fillW = progress.Verifying ? 280 : MathF.Max(fraction > 0 ? 8 : 0, 280 * fraction);
+                if (fillW > 0)
+                    canvas.Fill(32, 152, fillW, 6, 3, progress.Verifying ? colors.Charging : colors.Accent);
+                canvas.Text(progress.SummaryText, 24, 166, 296, 20, 12, colors.Muted,
+                    align: DWRITE_TEXT_ALIGNMENT_CENTER, ellipsis: true);
+                DrawActionButton(canvas, new(PopupAction.CancelUpdate, 12, buttonY, 320, 34), "取消下载", primary: false);
+                break;
+
+            case UpdatePhase.Error:
+                canvas.Dot(172, 90, 21, colors.Low.WithAlpha(36));
+                canvas.Line(172, 81, 172, 93, colors.Low, 2.0f);
+                canvas.Dot(172, 98.5f, 1.3f, colors.Low);
+                canvas.Text("更新未完成", 24, 118, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                canvas.TextWrapped(updateState.ErrorMessage ?? "检查或更新时发生错误。", 26, 144, 292, 50, 12.5f,
+                    colors.Secondary, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                DrawActionButton(canvas, new(PopupAction.Back, 12, buttonY, 156, 34), "返回", primary: false);
+                DrawActionButton(canvas, new(PopupAction.CheckUpdatesAgain, 176, buttonY, 156, 34), "重试", primary: true);
+                break;
+
+            default: // Checking / Idle
+                canvas.Dot(172, 92, 21, colors.AccentSoft);
+                DrawUpdateArrowGlyph(canvas, 172, 92, colors.Accent, downward: false);
+                canvas.Text("正在检查更新…", 24, 122, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                canvas.Text("正在从 GitHub 查询最新正式版", 24, 146, 296, 18, 12, colors.Muted,
+                    align: DWRITE_TEXT_ALIGNMENT_CENTER);
+                canvas.Fill(82, 174, 180, 4, 2, colors.Empty);
+                if (!animations)
+                    canvas.Fill(112, 174, 120, 4, 2, colors.Accent);
+                DrawActionButton(canvas, new(PopupAction.CancelUpdate, 12, buttonY, 320, 34), "取消", primary: false);
+                break;
+        }
+    }
+
+    private void DrawUpdateAvailable(Canvas canvas, AvailableUpdate update)
+    {
+        // 顶部新版本概览卡片
+        canvas.Fill(12, 54, 320, 56, 7, colors.Layer);
+        canvas.Stroke(12.5f, 54.5f, 319, 55, 6.5f, colors.LayerStroke);
+        canvas.Fill(22, 65, 34, 34, 7, colors.AccentSoft);
+        DrawUpdateArrowGlyph(canvas, 39, 82, colors.Accent, downward: false);
+        canvas.Text($"发现新版本 v{update.Version}", 66, 62, 254, 20, 14, colors.Ink, 600, ellipsis: true);
+        canvas.Text($"{updateState.CurrentVersionLabel} → v{update.Version} · {UpdateProgress.FormatBytes(update.Installer.Size)}",
+            66, 83, 254, 18, 12, colors.Muted, ellipsis: true);
+
+        // 更新说明卡片（支持滚轮与方向键滚动）
+        float buttonY = height - 46;
+        float standaloneNoticeH = updateState.IsInstalled ? 0 : 22;
+        const float notesTop = 118;
+        float notesCardH = MathF.Max(90, buttonY - 10 - standaloneNoticeH - notesTop);
+        canvas.Fill(12, notesTop, 320, notesCardH, 7, colors.Layer);
+        canvas.Stroke(12.5f, notesTop + .5f, 319, notesCardH - 1, 6.5f, colors.LayerStroke);
+        canvas.Text("更新说明", 24, notesTop + 7, 200, 18, 11.5f, colors.Muted, 600);
+        canvas.Line(22, notesTop + 29.5f, 322, notesTop + 29.5f, colors.LayerStroke);
+
+        var viewport = new PanelRect(22, notesTop + 34, 298, MathF.Max(40, notesCardH - 42));
+        var blocks = updateState.Notes;
+        var blockHeights = new float[blocks.Length];
+        float contentHeight = 0;
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            var block = blocks[i];
+            if (block.Kind == UpdateNoteKind.Heading && i > 0)
+                contentHeight += 4;
+            float textWidth = block.Kind == UpdateNoteKind.Bullet ? viewport.Width - 20 : viewport.Width - 8;
+            int weight = block.Kind == UpdateNoteKind.Heading ? 600 : 400;
+            float h = MathF.Ceiling(canvas.MeasureWrappedHeight(block.Text, textWidth, 12.5f, weight));
+            blockHeights[i] = MathF.Max(18, h);
+            contentHeight += blockHeights[i] + (block.Kind == UpdateNoteKind.Heading ? 4 : 5);
+        }
+
+        updateNotesMaxScroll = MathF.Max(0, contentHeight - viewport.Height);
+        updateNotesScroll = Math.Clamp(updateNotesScroll, 0, updateNotesMaxScroll);
+
+        canvas.PushClip(viewport);
+        try
+        {
+            float y = viewport.Y - updateNotesScroll;
+            for (int i = 0; i < blocks.Length; i++)
+            {
+                var block = blocks[i];
+                if (block.Kind == UpdateNoteKind.Heading && i > 0)
+                    y += 4;
+                float h = blockHeights[i];
+                if (y + h >= viewport.Y - 2 && y <= viewport.Y + viewport.Height + 2)
+                {
+                    switch (block.Kind)
+                    {
+                        case UpdateNoteKind.Heading:
+                            canvas.TextWrapped(block.Text, viewport.X, y, viewport.Width - 8, h + 2, 12.5f, colors.Ink, 600);
+                            break;
+                        case UpdateNoteKind.Bullet:
+                            canvas.Dot(viewport.X + 4.5f, y + 8f, 2.1f, colors.Accent);
+                            canvas.TextWrapped(block.Text, viewport.X + 14, y, viewport.Width - 20, h + 2, 12.5f, colors.Secondary);
+                            break;
+                        default:
+                            canvas.TextWrapped(block.Text, viewport.X, y, viewport.Width - 8, h + 2, 12.5f, colors.Secondary);
+                            break;
+                    }
+                }
+                y += h + (block.Kind == UpdateNoteKind.Heading ? 4 : 5);
+            }
+        }
+        finally
+        {
+            canvas.PopClip();
+        }
+
+        if (updateNotesMaxScroll > 0)
+        {
+            float trackH = viewport.Height - 4;
+            float thumbH = MathF.Max(18, trackH * viewport.Height / contentHeight);
+            float thumbY = viewport.Y + 2 + (trackH - thumbH) * (updateNotesScroll / updateNotesMaxScroll);
+            canvas.Fill(325, thumbY, 2.5f, thumbH, 1.25f, colors.Muted.WithAlpha(150));
+        }
+
+        if (!updateState.IsInstalled)
+        {
+            canvas.Text("当前运行的是独立构建，请前往 Release 获取正式安装器", 16, buttonY - 24, 312, 18, 11.5f, colors.Muted,
+                align: DWRITE_TEXT_ALIGNMENT_CENTER, ellipsis: true);
+            DrawActionButton(canvas, new(PopupAction.OpenReleasePage, 12, buttonY, 320, 34), "前往 Release 下载", primary: true);
+        }
+        else
+        {
+            DrawActionButton(canvas, new(PopupAction.OpenReleasePage, 12, buttonY, 134, 34), "查看 Release", primary: false);
+            DrawActionButton(canvas, new(PopupAction.InstallUpdate, 154, buttonY, 178, 34), "下载并安装", primary: true);
+        }
+    }
+
+    private void DrawActionButton(Canvas canvas, HitBox box, string label, bool primary)
+    {
+        subButtons.Add(box);
+        canvas.Fill(box.X, box.Y, box.Width, box.Height, 5, primary ? colors.Accent : colors.Card);
+        if (!primary)
+            canvas.Stroke(box.X + .5f, box.Y + .5f, box.Width - 1, box.Height - 1, 4.5f, colors.CardStroke);
+        ButtonBackground(canvas, box, 5);
+        canvas.Text(label, box.X, box.Y, box.Width, box.Height, 13,
+            primary ? colors.ButtonText : colors.Ink, primary ? 600 : 400,
+            align: DWRITE_TEXT_ALIGNMENT_CENTER);
+    }
+
+    private static void DrawUpdateArrowGlyph(Canvas canvas, float cx, float cy, Color ink, bool downward)
+    {
+        if (downward)
+        {
+            canvas.Line(cx, cy - 6.5f, cx, cy + 3.2f, ink, 1.6f);
+            canvas.Line(cx - 4.0f, cy - 0.8f, cx, cy + 3.2f, ink, 1.6f);
+            canvas.Line(cx + 4.0f, cy - 0.8f, cx, cy + 3.2f, ink, 1.6f);
+        }
+        else
+        {
+            canvas.Line(cx, cy - 6.5f, cx, cy + 3.2f, ink, 1.6f);
+            canvas.Line(cx - 4.0f, cy - 2.5f, cx, cy - 6.5f, ink, 1.6f);
+            canvas.Line(cx + 4.0f, cy - 2.5f, cx, cy - 6.5f, ink, 1.6f);
+        }
+        canvas.Line(cx - 6.5f, cy + 4.0f, cx - 6.5f, cy + 6.5f, ink, 1.5f);
+        canvas.Line(cx - 6.5f, cy + 6.5f, cx + 6.5f, cy + 6.5f, ink, 1.5f);
+        canvas.Line(cx + 6.5f, cy + 6.5f, cx + 6.5f, cy + 4.0f, ink, 1.5f);
     }
 }

@@ -1,9 +1,11 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text.Json;
 using Jige.Core;
 using Jige.Core.Adapters;
 using Jige.Core.Diagnostics;
@@ -25,6 +27,7 @@ internal sealed class TrayApp : IDisposable
     private const string HostClass = "Jige.Tray.Host";
     private const string PopupClass = "Jige.Tray.Popup";
     private const string HoverCardClass = "Jige.Tray.HoverCard";
+    private const string MenuClass = "Jige.Tray.Menu";
     private const uint TrayMessage = 0x8001;
     private const uint ResultMessage = 0x8002;
     private const uint ForegroundMessage = 0x8003;
@@ -32,10 +35,12 @@ internal sealed class TrayApp : IDisposable
     private const uint DiagnosticMessage = 0x8005;
     private const uint HeartbeatMessage = 0x8006;
     private const uint PushPresenceMessage = 0x8007;
+    private const uint UpdateMessage = 0x8008;
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
-        IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8;
+        IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
+        MenuCloseTimer = 9;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -55,6 +60,7 @@ internal sealed class TrayApp : IDisposable
     private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets)> results = new();
     private readonly ConcurrentQueue<PresenceUpdate[]> heartbeatResults = new();
     private readonly ConcurrentQueue<PresenceUpdate> pushResults = new();
+    private readonly ConcurrentQueue<Action> updateCallbacks = new();
     private readonly HINSTANCE instance;
     private readonly uint taskbarCreated;
     private readonly TrayIconManager icons;
@@ -66,6 +72,8 @@ internal sealed class TrayApp : IDisposable
     private bool foregroundPosted, locationPosted;
     private PopupWindow? popup;
     private HoverCardWindow? hoverCard;
+    private TrayMenuWindow? menu;
+    private Point menuPoint;
     private uint? hoverIconId;
     private RECT hoverAnchor;
     private DateTimeOffset? hoverTextDue;
@@ -88,8 +96,12 @@ internal sealed class TrayApp : IDisposable
     private long lastTraySelect = long.MinValue / 2;
     private long lostFocusByTray = long.MinValue / 2;
     private bool darkTaskbar;
-    private bool menuOpen;
-    private UpdateDialog? updateDialog;
+    private UpdateViewState updateState;
+    private CancellationTokenSource? updateCancellation;
+    private Task updateWork = Task.CompletedTask;
+    private int updateOperationId;
+    private bool MenuOpen => menu is not null;
+    private bool UpdateActive => updateState.IsBusy;
     private int cleanupAttempts;
     private bool exitRequested;
     private string? settingsError;
@@ -113,10 +125,12 @@ internal sealed class TrayApp : IDisposable
         gates.Rejected += events.LogSafetyGateRejection;
         poll = new(gates, model.SavedLogitechSlots());
         darkTaskbar = Desktop.DarkTaskbar;
+        updateState = CreateInitialUpdateState();
 
         Register(HostClass, &HostCallback);
         Register(PopupClass, &PopupCallback);
         Register(HoverCardClass, &HoverCardCallback);
+        Register(MenuClass, &MenuCallback);
         host = MakeWindow(HostClass, 0, WS_POPUP);
         icons = new(host, TrayMessage);
         RegisterDeviceNotifications();
@@ -342,10 +356,43 @@ internal sealed class TrayApp : IDisposable
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
     }
 
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe LRESULT MenuCallback(HWND window, uint message, WPARAM wParam, LPARAM lParam)
+    {
+        try
+        {
+            switch (message)
+            {
+                case 0x0083: return default; // WM_NCCALCSIZE，保留 DWM 原生圆角与阴影。
+                case 0x0084: return (LRESULT)1; // HTCLIENT
+                case 0x0014: return (LRESULT)1; // WM_ERASEBKGND
+                case 0x000F: // WM_PAINT，图像由独立合成树提供。
+                    PAINTSTRUCT paint;
+                    PInvoke.BeginPaint(window, &paint);
+                    PInvoke.EndPaint(window, &paint);
+                    return default;
+            }
+            if (current is { menu: { } active } app && active.Handle == window)
+            {
+                if (message == 0x0020 && (ushort)lParam.Value == 1 && active.UpdateCursor())
+                    return (LRESULT)1; // WM_SETCURSOR / HTCLIENT
+                if (app.HandleMenu(active, message, wParam, lParam))
+                    return default;
+            }
+        }
+        catch (Exception error)
+        {
+            Desktop.Log("处理托盘菜单消息失败", error);
+            current?.DestroyMenu();
+        }
+        return PInvoke.DefWindowProc(window, message, wParam, lParam);
+    }
+
     private bool HandleMessage(uint message, WPARAM wParam, LPARAM lParam)
     {
         if (message == taskbarCreated && taskbarCreated != 0)
         {
+            DestroyMenu();
             DestroyHoverCard();
             icons.Recover();
             StopIconRetry();
@@ -370,6 +417,9 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case DiagnosticMessage:
                 CompleteDiagnostics();
+                return true;
+            case UpdateMessage:
+                CompleteUpdateEvents();
                 return true;
             case ForegroundMessage:
                 foregroundPosted = false;
@@ -429,6 +479,12 @@ internal sealed class TrayApp : IDisposable
                         DestroyHoverCard();
                     return true;
                 }
+                if (wParam.Value == MenuCloseTimer)
+                {
+                    if (menu?.Closing == true)
+                        DestroyMenu();
+                    return true;
+                }
                 ProcessWork();
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
@@ -453,12 +509,11 @@ internal sealed class TrayApp : IDisposable
                 return true;
             case 0x0010: // WM_CLOSE，安装器可请求托盘正常退出。
                 exitRequested = true;
+                DestroyMenu();
                 DestroyHoverCard();
-                if (menuOpen)
-                    PInvoke.EndMenu();
-                updateDialog?.Close();
-                if (updateDialog is null)
-                    PInvoke.PostQuitMessage(0);
+                DestroyPopup();
+                updateCancellation?.Cancel();
+                PInvoke.PostQuitMessage(0);
                 return true;
             default:
                 return false;
@@ -493,6 +548,18 @@ internal sealed class TrayApp : IDisposable
             }
             active.SetAnchor(Anchor(null));
             RenderPopup(reset: resetPopup);
+        }
+        if (menu is { Closing: false } activeMenu)
+        {
+            try
+            {
+                activeMenu.Refresh(Anchor(menuPoint is { X: -1, Y: -1 } ? null : menuPoint), reset: resetPopup);
+            }
+            catch (Exception error)
+            {
+                DestroyMenu();
+                Desktop.Log("刷新托盘菜单失败", error);
+            }
         }
         RenderHoverCard(reset: resetPopup);
         ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
@@ -594,7 +661,7 @@ internal sealed class TrayApp : IDisposable
         if (welcomeExpires <= now || popup?.NoticeId is { } id && !model.ReminderIsDue(id, now))
             DestroyPopup();
 
-        if (!game.BlockPopups && !menuOpen && updateDialog is null && popup is null)
+        if (!game.BlockPopups && !MenuOpen && popup is null)
         {
             if (welcomePending && icons.AnyRegistered && !(nextWelcomeAttempt > now))
                 ShowWelcome();
@@ -618,7 +685,7 @@ internal sealed class TrayApp : IDisposable
         DateTimeOffset? wallDue = model.NextSleepTimeout(now);
         if (popup?.NoticeId is { } id)
             wallDue = Earlier(wallDue, model.ReminderExpires(id));
-        if (popup is null && !menuOpen && updateDialog is null)
+        if (popup is null && !MenuOpen)
         {
             if (!schedule.Running && model.NextReminder(now) is { } reminder)
             {
@@ -1009,7 +1076,7 @@ internal sealed class TrayApp : IDisposable
         if (!icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
             return;
         ReadGameMode();
-        if (!HoverCardPolicy.CanShow(game, popup is not null, menuOpen, updateDialog is not null))
+        if (!HoverCardPolicy.CanShow(game, popup is not null, MenuOpen))
         {
             DestroyHoverCard();
             return;
@@ -1048,7 +1115,7 @@ internal sealed class TrayApp : IDisposable
     {
         if (hoverCard is not { Closing: false } active || hoverIconId is not uint iconId)
             return;
-        if (!HoverCardPolicy.CanShow(game, popup is not null, menuOpen, updateDialog is not null) ||
+        if (!HoverCardPolicy.CanShow(game, popup is not null, MenuOpen) ||
             !icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
         {
             DestroyHoverCard();
@@ -1113,19 +1180,22 @@ internal sealed class TrayApp : IDisposable
 
     private void ExecuteTrayAction(TrayAction action, Point point)
     {
-        if (menuOpen || updateDialog is not null)
-            return;
         if (action == TrayAction.Menu)
         {
             if (popup is { } active)
                 CompleteEdit(active, save: true);
             DestroyPopup();
+            DestroyMenu();
             ShowMenu(point);
         }
         else if (popup is { IsNotice: false })
+        {
+            DestroyMenu();
             ClosePopup();
+        }
         else
         {
+            DestroyMenu();
             DestroyPopup();
             ShowPopup(null, point);
         }
@@ -1187,7 +1257,7 @@ internal sealed class TrayApp : IDisposable
         }
         try
         {
-            active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, reset);
+            active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, updateState, reset);
             textDue = active.IsNotice ? null : now.AddMinutes(1);
         }
         catch (Exception error)
@@ -1207,7 +1277,7 @@ internal sealed class TrayApp : IDisposable
         {
             case 0x0006 when (ushort)wParam.Value == 0 && !active.IsNotice: // WM_ACTIVATE
             case 0x0008 when !active.IsNotice: // WM_KILLFOCUS
-                if (menuOpen || (message == 0x0008 && active.IsEditor((HWND)wParam.Value)))
+                if (MenuOpen || (message == 0x0008 && active.IsEditor((HWND)wParam.Value)))
                     return true;
                 var nextWindow = message == 0x0006 ? (HWND)lParam.Value : (HWND)wParam.Value;
                 var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
@@ -1307,7 +1377,7 @@ internal sealed class TrayApp : IDisposable
                 active.Navigate(PanelPage.Devices);
                 break;
             case PopupAction.Back:
-                active.Navigate(PanelPage.Main);
+                active.Navigate(active.CurrentPage == PanelPage.Updates ? active.UpdatesReturnPage : PanelPage.Main);
                 break;
             case PopupAction.ToggleOffline:
                 active.ToggleOffline();
@@ -1362,8 +1432,19 @@ internal sealed class TrayApp : IDisposable
                 CopyAndOpenFeedback();
                 break;
             case PopupAction.Updates:
-                DestroyPopup();
-                ShowUpdates();
+                OpenUpdatesPage(active, point: null);
+                break;
+            case PopupAction.CheckUpdatesAgain:
+                StartUpdateCheck();
+                break;
+            case PopupAction.InstallUpdate:
+                StartUpdateInstall();
+                break;
+            case PopupAction.OpenReleasePage:
+                OpenReleasePage();
+                break;
+            case PopupAction.CancelUpdate:
+                CancelUpdate(active);
                 break;
         }
     }
@@ -1438,83 +1519,407 @@ internal sealed class TrayApp : IDisposable
             ArmTimer(DesktopRefreshTimer, DesktopRefreshDebouncer.DebounceMs);
     }
 
-    private unsafe void ShowMenu(Point point)
+    private void ShowMenu(Point point)
     {
         DestroyHoverCard();
-        var menu = PInvoke.CreatePopupMenu();
-        if (menu.IsNull)
+        menuPoint = point;
+        try
+        {
+            PInvoke.KillTimer(host, MenuCloseTimer);
+            var extra = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+            HWND window = MakeWindow(MenuClass, extra, WS_POPUP | WS_THICKFRAME);
+            var anchor = Anchor(point is { X: -1, Y: -1 } ? null : point);
+            menu = new TrayMenuWindow(window);
+            menu.Show(anchor);
+        }
+        catch (Exception error)
+        {
+            DestroyMenu();
+            Desktop.Log("显示托盘菜单失败", error);
+        }
+    }
+
+    private bool HandleMenu(TrayMenuWindow active, uint message, WPARAM wParam, LPARAM lParam)
+    {
+        if (active.Closing)
+            return true;
+        switch (message)
+        {
+            case 0x0006 when (ushort)wParam.Value == 0: // WM_ACTIVATE
+            case 0x0008: // WM_KILLFOCUS
+                var nextWindow = message == 0x0006 ? (HWND)lParam.Value : (HWND)wParam.Value;
+                var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
+                if (kind == ForegroundKind.System && active.TryReclaimFocus())
+                    return true;
+                if (PInvoke.GetCursorPos(out var cursor) && icons.ContainsCursor(cursor))
+                    lostFocusByTray = Environment.TickCount64;
+                CloseMenu();
+                return true;
+            case 0x8010:
+                var foregroundNow = PInvoke.GetForegroundWindow();
+                if (Desktop.Classify(foregroundNow, out _) == ForegroundKind.System)
+                    PInvoke.SetForegroundWindow(active.Handle);
+                else if (foregroundNow != active.Handle)
+                    CloseMenu();
+                return true;
+            case 0x0010: // WM_CLOSE
+                CloseMenu();
+                return true;
+            case 0x0200: active.PointerMove(lParam); return true;
+            case 0x02A3: active.PointerLeave(); return true;
+            case 0x0201 or 0x0202:
+                var command = active.PointerButton(lParam, message == 0x0201);
+                if (command != TrayMenuCommand.None)
+                    ExecuteMenuCommand(command);
+                return true;
+            case 0x0100: // WM_KEYDOWN
+                var (keyCommand, dismiss) = active.Key(wParam.Value);
+                if (dismiss)
+                    CloseMenu();
+                else if (keyCommand != TrayMenuCommand.None)
+                    ExecuteMenuCommand(keyCommand);
+                return true;
+            case 0x02E0: // WM_DPICHANGED
+                PInvoke.PostMessage(host, 0x02E0, default, default);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void ExecuteMenuCommand(TrayMenuCommand command)
+    {
+        var anchorPoint = menuPoint is { X: -1, Y: -1 } ? (Point?)null : menuPoint;
+        DestroyMenu();
+        if (exitRequested)
             return;
-        Dictionary<int, Action> commands = [];
-        menuOpen = true;
+        switch (command)
+        {
+            case TrayMenuCommand.Refresh:
+                schedule.Request(userInitiated: true);
+                ProcessWork();
+                break;
+            case TrayMenuCommand.Settings:
+                ShowPopup(null, anchorPoint, PanelPage.Settings);
+                break;
+            case TrayMenuCommand.Updates:
+                OpenUpdatesPage(activePopup: null, anchorPoint);
+                break;
+            case TrayMenuCommand.Diagnostics:
+                ShowDiagnostics();
+                break;
+            case TrayMenuCommand.Exit:
+                PInvoke.PostQuitMessage(0);
+                break;
+        }
+    }
+
+    private void CloseMenu()
+    {
+        if (menu is not { Closing: false } active)
+            return;
         try
         {
-            Add("立即刷新", () => { schedule.Request(userInitiated: true); ProcessWork(); });
-            Add("设置…", () => ShowPopup(null, point, PanelPage.Settings));
-            Add("检查更新…", ShowUpdates);
-            Add("诊断信息…", ShowDiagnostics);
-            Append(menu, "", flags: MENU_ITEM_FLAGS.MF_SEPARATOR);
-            Add("退出", () => PInvoke.PostQuitMessage(0));
-
-            if (point is { X: -1, Y: -1 })
+            if (active.BeginClose())
             {
-                var bounds = Anchor(null);
-                point = new(bounds.left, bounds.top);
+                ArmTimer(MenuCloseTimer, TrayMenuWindow.FadeOutMs);
+                return;
             }
-
-            PInvoke.SetForegroundWindow(host);
-            int selected = PInvoke.TrackPopupMenuEx(menu, 0x0100 | 0x0002, point.X, point.Y, host, (TPMPARAMS*)null).Value;
-            PInvoke.PostMessage(host, 0, default, default);
-            menuOpen = false;
-            if (!exitRequested && commands.TryGetValue(selected, out var invoke))
-                invoke();
         }
-        finally
+        catch (Exception error)
         {
-            menuOpen = false;
-            PInvoke.DestroyMenu(menu);
-            ArmTimer(WorkTimer, 50);
+            Desktop.Log("关闭托盘菜单失败", error);
         }
-
-        void Add(string label, Action run)
-        {
-            int id = commands.Count + 1;
-            commands.Add(id, run);
-            Append(menu, label, (nuint)id);
-        }
+        DestroyMenu();
+        ArmTimer(WorkTimer, 50);
     }
 
-    private static unsafe void Append(HMENU target, string title, nuint id = 0, MENU_ITEM_FLAGS flags = 0)
+    private void DestroyMenu()
     {
-        fixed (char* label = title.Replace("&", "&&", StringComparison.Ordinal))
-        {
-            if (!PInvoke.AppendMenu(target, flags, id, new PCWSTR(label)))
-                throw new Win32Exception(Marshal.GetLastPInvokeError());
-        }
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, MenuCloseTimer);
+        var previous = menu;
+        menu = null;
+        previous?.Dispose();
     }
 
-    private void ShowUpdates()
+    private static UpdateViewState CreateInitialUpdateState()
+    {
+        string display = ReleaseVersion.Display;
+        bool isPrerelease = ReleaseVersion.IsPrerelease;
+        string label = isPrerelease ? display : $"v{display}";
+        string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        bool installed = InstallPaths.IsInstalledExecutable(Environment.ProcessPath, local);
+        return UpdateViewState.Idle(label, installed);
+    }
+
+    private void OpenUpdatesPage(PopupWindow? activePopup, Point? point)
     {
         DestroyHoverCard();
-        var dialog = new UpdateDialog(host, files.Updates, events.LogUpdateCheck);
-        updateDialog = dialog;
+        bool shouldCheck = !UpdateActive &&
+            !(updateState.Phase == UpdatePhase.Available &&
+              updateState.CheckedAt is { } checkedAt &&
+              DateTimeOffset.UtcNow - checkedAt < TimeSpan.FromMinutes(10));
+        if (shouldCheck)
+            StartUpdateCheck();
+
+        if (activePopup is not null)
+            activePopup.Navigate(PanelPage.Updates);
+        else
+            ShowPopup(null, point, PanelPage.Updates);
+        RenderPopup();
+    }
+
+    private void StartUpdateCheck()
+    {
+        CancelUpdateTask();
+        int opId = ++updateOperationId;
+        string current = ReleaseVersion.Current;
+        string currentLabel = updateState.CurrentVersionLabel;
+        bool installed = updateState.IsInstalled;
+        if (!ReleaseVersion.TryParseInstalled(current, out var version, out _, out _))
+        {
+            events.LogUpdateCheck("失败（InvalidVersion）");
+            updateState = UpdateViewState.Failed(currentLabel, installed, $"无法识别当前版本 {current}。");
+            RenderPopup();
+            return;
+        }
+
+        var source = new CancellationTokenSource();
+        updateCancellation = source;
+        var token = source.Token;
+        updateState = UpdateViewState.Checking(currentLabel, installed);
+        RenderPopup();
+
+        updateWork = Task.Run(async () =>
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(25));
+            try
+            {
+                using var http = UpdateClient.CreateHttpClient();
+                var client = new UpdateClient(http);
+                var update = await client.CheckAsync(version, timeout.Token).ConfigureAwait(false);
+                var checkedAt = DateTimeOffset.UtcNow;
+                PostUpdateCallback(() =>
+                {
+                    if (opId != updateOperationId || exitRequested)
+                        return;
+                    if (update is null)
+                    {
+                        events.LogUpdateCheck($"已是最新版本 {currentLabel}");
+                        updateState = UpdateViewState.UpToDate(currentLabel, installed, checkedAt);
+                    }
+                    else
+                    {
+                        events.LogUpdateCheck($"发现新版本 v{update.Version}（当前 {currentLabel}）");
+                        updateState = UpdateViewState.Found(currentLabel, installed, update, checkedAt);
+                    }
+                    RenderPopup();
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                bool timedOut = timeout.IsCancellationRequested && !token.IsCancellationRequested;
+                PostUpdateCallback(() =>
+                {
+                    if (opId != updateOperationId || exitRequested)
+                        return;
+                    if (timedOut)
+                    {
+                        events.LogUpdateCheck("失败（Timeout）");
+                        updateState = UpdateViewState.Failed(currentLabel, installed, "请求超时，请检查网络后重试。");
+                    }
+                    else
+                    {
+                        events.LogUpdateCheck("已取消");
+                        updateState = UpdateViewState.Idle(currentLabel, installed);
+                    }
+                    RenderPopup();
+                });
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or JsonException or
+                HttpRequestException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+            {
+                string message = UpdateViewState.ExplainError(error);
+                string kind = error.GetType().Name;
+                PostUpdateCallback(() =>
+                {
+                    if (opId != updateOperationId || exitRequested)
+                        return;
+                    events.LogUpdateCheck($"失败（{kind}）");
+                    updateState = UpdateViewState.Failed(currentLabel, installed, message);
+                    RenderPopup();
+                });
+            }
+        });
+    }
+
+    private void StartUpdateInstall()
+    {
+        if (UpdateActive || updateState.Available is not { } update || !updateState.IsInstalled)
+            return;
+
+        CancelUpdateTask();
+        int opId = ++updateOperationId;
+        var source = new CancellationTokenSource();
+        updateCancellation = source;
+        var token = source.Token;
+        string currentLabel = updateState.CurrentVersionLabel;
+        bool installed = updateState.IsInstalled;
+        updateState = updateState.WithProgress(new(0, update.Installer.Size, Verifying: false));
+        RenderPopup();
+
+        long lastPostedTick = 0;
+        var progress = new DirectProgress<UpdateProgress>(sample =>
+        {
+            long nowTick = Environment.TickCount64;
+            if (!sample.Verifying && nowTick - lastPostedTick < 80 && sample.DownloadedBytes < sample.TotalBytes)
+                return;
+            lastPostedTick = nowTick;
+            PostUpdateCallback(() =>
+            {
+                if (opId != updateOperationId || exitRequested || !UpdateActive)
+                    return;
+                updateState = updateState.WithProgress(sample);
+                RenderPopup();
+            });
+        });
+
+        updateWork = Task.Run(() =>
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+            timeout.CancelAfter(TimeSpan.FromMinutes(10));
+            try
+            {
+                using var http = UpdateClient.CreateHttpClient();
+                var client = new UpdateClient(http);
+                bool launched = UpdateInstallation.Run(
+                    files.Updates,
+                    () => client.DownloadAsync(update, files.Updates, progress, timeout.Token).GetAwaiter().GetResult(),
+                    () => exitRequested || token.IsCancellationRequested,
+                    LaunchInstaller);
+                if (launched)
+                {
+                    PostUpdateCallback(() =>
+                    {
+                        exitRequested = true;
+                        DestroyMenu();
+                        DestroyHoverCard();
+                        DestroyPopup();
+                        PInvoke.PostQuitMessage(0);
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                bool timedOut = timeout.IsCancellationRequested && !token.IsCancellationRequested;
+                PostUpdateCallback(() =>
+                {
+                    if (opId != updateOperationId || exitRequested)
+                        return;
+                    if (timedOut)
+                    {
+                        events.LogUpdateCheck("失败（Timeout）");
+                        updateState = UpdateViewState.Failed(currentLabel, installed, "下载超时，请检查网络后重试。", update);
+                    }
+                    else
+                    {
+                        events.LogUpdateCheck("已取消");
+                        updateState = updateState.BackToAvailable();
+                    }
+                    RenderPopup();
+                });
+            }
+            catch (Exception error) when (error is IOException or InvalidDataException or JsonException or
+                HttpRequestException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+            {
+                string message = UpdateViewState.ExplainError(error);
+                string kind = error.GetType().Name;
+                PostUpdateCallback(() =>
+                {
+                    if (opId != updateOperationId || exitRequested)
+                        return;
+                    events.LogUpdateCheck($"失败（{kind}）");
+                    updateState = UpdateViewState.Failed(currentLabel, installed, message, update);
+                    RenderPopup();
+                });
+            }
+        });
+    }
+
+    private void OpenReleasePage()
+    {
+        if (updateState.Available is not { } update)
+            return;
         try
         {
-            if (dialog.Run())
-                exitRequested = true;
+            using var browser = Process.Start(new ProcessStartInfo(update.Page.AbsoluteUri) { UseShellExecute = true });
         }
-        finally
+        catch (Exception error) when (error is Win32Exception or InvalidOperationException)
         {
-            updateDialog = null;
-            if (exitRequested)
-                PInvoke.PostQuitMessage(0);
-            else
-                ArmTimer(WorkTimer, 50);
+            Desktop.Log("打开 Release 页面失败", error);
         }
+    }
+
+    private void CancelUpdate(PopupWindow activePopup)
+    {
+        bool wasChecking = updateState.Phase is UpdatePhase.Checking or UpdatePhase.Idle;
+        CancelUpdateTask();
+        events.LogUpdateCheck("已取消");
+        if (wasChecking)
+        {
+            updateState = UpdateViewState.Idle(updateState.CurrentVersionLabel, updateState.IsInstalled);
+            activePopup.Navigate(activePopup.UpdatesReturnPage);
+        }
+        else
+        {
+            updateState = updateState.BackToAvailable();
+            RenderPopup();
+        }
+    }
+
+    private void CancelUpdateTask()
+    {
+        updateOperationId++;
+        if (updateCancellation is not { } active)
+            return;
+        updateCancellation = null;
+        _ = DisposeCancellation(active, active.CancelAsync());
+    }
+
+    private void PostUpdateCallback(Action action)
+    {
+        updateCallbacks.Enqueue(action);
+        var destination = host;
+        if (!destination.IsNull)
+            PInvoke.PostMessage(destination, UpdateMessage, default, default);
+    }
+
+    private void CompleteUpdateEvents()
+    {
+        while (updateCallbacks.TryDequeue(out var action))
+            action();
+    }
+
+    private static void LaunchInstaller(string package)
+    {
+        var start = new ProcessStartInfo(package)
+        {
+            ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" },
+            UseShellExecute = false
+        };
+        using var installer = Process.Start(start) ?? throw new InvalidOperationException("无法启动几格安装器。");
+    }
+
+    private sealed class DirectProgress<T>(Action<T> onReport) : IProgress<T>
+    {
+        public void Report(T value) => onReport(value);
     }
 
     private void CleanupUpdates()
     {
-        if (updateDialog is not null)
+        if (UpdateActive)
         {
             ArmTimer(UpdateCleanupTimer, 5_000);
             return;
@@ -1602,7 +2007,7 @@ internal sealed class TrayApp : IDisposable
             return;
         // 先在主线程重新检查前台；游戏中只保留面板里的查看入口。
         ReadGameMode();
-        if (!exitRequested && !game.BlockPopups && !menuOpen && updateDialog is null &&
+        if (!exitRequested && !game.BlockPopups && !MenuOpen && !UpdateActive &&
             diagnostics.Status == DiagnosticStatus.Ready)
             OpenDiagnostics();
         RenderPopup();
@@ -1686,6 +2091,7 @@ internal sealed class TrayApp : IDisposable
             PInvoke.UnhookWinEvent(foregroundHook);
         if (!locationHook.IsNull)
             PInvoke.UnhookWinEvent(locationHook);
+        DestroyMenu();
         DestroyHoverCard();
         DestroyPopup();
         icons.Dispose();
@@ -1701,6 +2107,14 @@ internal sealed class TrayApp : IDisposable
         {
             _ = DisposeCancellation(hb, hb.CancelAsync());
             heartbeatCancellation = null;
+        }
+        if (updateCancellation is { } updateCts)
+        {
+            updateCancellation = null;
+            updateCts.Cancel();
+            try { updateWork.GetAwaiter().GetResult(); }
+            catch { }
+            updateCts.Dispose();
         }
         diagnosticCancellation.Cancel();
         diagnostics.Work?.GetAwaiter().GetResult();
