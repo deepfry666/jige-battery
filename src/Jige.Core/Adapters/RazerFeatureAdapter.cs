@@ -17,7 +17,7 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
         if (target.Endpoint is not HidInterface endpoint || DeviceCatalog.IsDisabledPath(endpoint, out _) ||
             Match(endpoint) is not { } model)
             return null;
-        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0 }, token);
+        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0, FeatureOnly = true }, token);
         var (status, _, foreign) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
             .ConfigureAwait(false);
         if (foreign)
@@ -35,21 +35,34 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
         }) with { Connection = target.Device.Connection };
     }
 
+    /// <summary>雷蛇 90B 在 Windows 上既可能挂在厂商页（FF00+），也可能直接挂在标准鼠标/键盘页（0001:0002 / 0006）的 91 字节特征通道上。</summary>
+    internal static bool IsFeatureCollection(HidInterface endpoint) =>
+        endpoint is { VendorId: 0x1532, FeatureLength: RazerFeatureProtocol.ReportLength, MetadataIssue: ReadIssue.None } &&
+        (endpoint.UsagePage is >= 0xFF00 || endpoint is { UsagePage: 0x0001, Usage: 0x0002 or 0x0006 });
+
     private static RazerFeatureModel? Match(HidInterface endpoint)
     {
         if (DeviceCatalog.IsDisabledPath(endpoint, out _))
             return null;
         var model = RazerFeatureProtocol.Find(endpoint.ProductId);
-        return model is not null &&
-            endpoint is { VendorId: 0x1532, UsagePage: >= 0xFF00, FeatureLength: RazerFeatureProtocol.ReportLength,
-                MetadataIssue: ReadIssue.None } &&
-            endpoint.InterfaceNumber == model.InterfaceNumber ? model : null;
+        return model is not null && IsFeatureCollection(endpoint) &&
+            (endpoint.InterfaceNumber == model.InterfaceNumber ||
+                model.InterfaceNumber == 0 && endpoint.InterfaceNumber is null)
+            ? model : null;
     }
 
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
-        foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(hid => Match(hid) is not null)))
+        foreach (var group in inventory.Hid.Where(hid => Match(hid) is not null)
+            .GroupBy(hid => hid.ReceiverId, StringComparer.OrdinalIgnoreCase))
         {
+            var candidates = group.ToArray();
+            // 若同一接收器同时暴露厂商页与标准页的 91B 特征集合，优先选唯一的厂商页集合；否则选唯一的标准页集合。
+            var vendor = candidates.Where(hid => hid.UsagePage is >= 0xFF00).ToArray();
+            var picked = vendor.Length > 0 ? vendor : candidates;
+            if (picked.Length != 1)
+                continue;
+            var endpoint = picked[0];
             var model = Match(endpoint)!;
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"razer-90b:{endpoint.ReceiverId}", $"Razer {model.Name}", model.Kind,
@@ -70,7 +83,7 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
         if (Match(endpoint) is not { } model)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "雷蛇 90B 接收器控制集合不匹配");
 
-        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0 }, token);
+        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0, FeatureOnly = true }, token);
         var battery = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, trace, token)
             .ConfigureAwait(false);
         if (battery.Foreign)

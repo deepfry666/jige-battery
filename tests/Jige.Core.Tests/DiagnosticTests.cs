@@ -94,6 +94,20 @@ public sealed class DiagnosticTests
     }
 
     [Fact]
+    public async Task RealBlackSharkV3ProReportReplays()
+    {
+        // 2026-11-20 Windows 11（10.0.26200）实机导出的 Razer BlackShark V3 Pro 诊断报告。
+        string filename = Path.Combine(AppContext.BaseDirectory, "fixtures", "blackshark-v3-pro-real-2026-11-20.txt");
+        var report = await File.ReadAllTextAsync(filename, CancellationToken.None);
+        var readings = await Replay(report.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var headset = Assert.Single(readings);
+        Assert.Equal("Razer BlackShark V3 Pro", headset.Device.Name);
+        Assert.Equal(96, headset.Percentage);
+        Assert.Equal(ChargingState.NotCharging, headset.Charging);
+        Assert.Equal(LinkState.Online, headset.Link);
+    }
+
+    [Fact]
     public async Task SplinteredSonyStreamCanReplayWithoutExposingModelSerialOrGarbage()
     {
         const string secret = "SERIAL-PRIVATE";
@@ -312,15 +326,15 @@ public sealed class DiagnosticTests
     [Fact]
     public async Task AdaptationSummaryExportsHardwareCluesReportIdsAndReplyHeadersWithoutPii()
     {
-        // 模拟未适配的迈从键盘（带标准键盘伴随集合）、华硕灯控，以及已启用但返回异常校验的 1532:0577。
-        var mchoseVendor = new HidInterface("rx-mchose-private", "path-private-1", 0x41E4, 0x2001, "My Secret Keyboard",
-            0xFF02, 2, 20, 20, 0, 1)
+        // 模拟未适配的 Keychron 键盘（带标准键盘伴随集合）、华硕灯控，以及已启用但返回异常校验的 1532:0577。
+        var unadaptedVendor = new HidInterface("rx-keychron-private", "path-private-1", 0x3434, 0x0101, "My Secret Keyboard",
+            0xFF60, 0x0061, 32, 32, 0, 1)
         {
             FirmwareVersion = 0x0120,
             InputReportIds = "06,08",
             OutputReportIds = "08"
         };
-        var mchoseKeyboard = new HidInterface("rx-mchose-private", "path-private-kbd", 0x41E4, 0x2001, "My Secret Keyboard",
+        var unadaptedKeyboard = new HidInterface("rx-keychron-private", "path-private-kbd", 0x3434, 0x0101, "My Secret Keyboard",
             0x0001, 6, 8, 1, 0, 0);
         var asusLed = new HidInterface("rx-asus-private", "path-private-2", 0x0B05, 0x19AF, "Aura Private",
             0xFF72, 0x00A1, 65, 65, 0, 2)
@@ -351,7 +365,7 @@ public sealed class DiagnosticTests
         ]));
 
         string report = await DiagnosticReport.GenerateAsync(
-            new([mchoseVendor, mchoseKeyboard, asusLed, v3Pro], [], []), transport, CancellationToken.None);
+            new([unadaptedVendor, unadaptedKeyboard, asusLed, v3Pro], [], []), transport, CancellationToken.None);
         transport.AssertComplete();
 
         Assert.DoesNotContain("private", report, StringComparison.OrdinalIgnoreCase);
@@ -359,8 +373,8 @@ public sealed class DiagnosticTests
         Assert.DoesNotContain(Convert.ToHexString(Encoding.ASCII.GetBytes("SECRET")), report);
 
         Assert.Contains("# 适配线索摘要", report);
-        Assert.Contains("适配线索|R1|41E4:2001|厂商=MCHOSE|固件=0120|连接=USB|角色=键盘|状态=未适配厂商", report);
-        Assert.Contains("报告ID|H1|FF02:0002|in=06,08|out=08|feat=-", report);
+        Assert.Contains("适配线索|R1|3434:0101|厂商=Keychron|固件=0120|连接=USB|角色=键盘|状态=未适配厂商", report);
+        Assert.Contains("报告ID|H1|FF60:0061|in=06,08|out=08|feat=-", report);
         Assert.Contains("适配线索|R2|0B05:19AF|厂商=ASUS|固件=0002|连接=USB|角色=仅厂商集合|状态=未适配厂商", report);
         Assert.Contains("适配线索|R3|1532:0577|厂商=Razer|固件=0104|连接=USB|角色=仅厂商集合|状态=已匹配适配器", report);
         Assert.Contains("回复特征|H3|RazerMT len=64 rid=02 flag=02 seq=60 flen=05 dir=80 dom=80 cmd=21 st=01 vlen=01 crc0=FAIL crc1=FAIL", report);

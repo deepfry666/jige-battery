@@ -122,7 +122,8 @@ public sealed class RazerBatteryTests
             Mouse with { ProductId = 0x00BF, InterfaceNumber = 1 },
             Mouse with { ProductId = 0x00E6, InterfaceNumber = 0 },
             Mouse with { ProductId = 0x02D2, InterfaceNumber = 3 },
-            Mouse with { UsagePage = 1 },
+            Mouse with { UsagePage = 0x000C },
+            Mouse with { UsagePage = 1, Usage = 1 },
             Mouse with { FeatureLength = 90 },
             Mouse with { ProductId = 0x0565, UsagePage = 0xFF13, InterfaceNumber = 3, InputLength = 64, OutputLength = 64 }
         };
@@ -247,6 +248,89 @@ public sealed class RazerBatteryTests
         Assert.Equal(ChargingState.Charging, reading.Charging);
         Assert.Equal(LinkState.Online, reading.Link);
         Assert.Equal(new byte[] { 0x21, 0x2A }, session.Writes.Select(w => w[10]));
+    }
+
+    [Fact]
+    public async Task RazerDeathAdderV3ProDetectsStandardMousePageFeatureCollectionWithFeatureOnlyHandle()
+    {
+        // Windows 实机上雷蛇 90B 鼠标的 91B 特征报告常直接挂在标准鼠标集合（0001:0002，MI_00）上。
+        var dav3 = new HidInterface("rx-dav3", "p-dav3", 0x1532, 0x00B7, null, 0x0001, 2, 16, 0, 91, 0);
+        var session = new BatteryHidStub(request =>
+        {
+            var reply = request[8] == 0x80
+                ? Frame("00021F00000002078000CC", 91)
+                : Frame("00021F0000000207840000", 91);
+            reply[89] = RazerFeatureProtocol.Checksum(reply);
+            return [reply];
+        }, feature: true);
+        var registry = AdapterRegistry.CreateDefault();
+        var target = Assert.Single(registry.Detect(new([dav3], [], [])));
+        Assert.Equal("Razer DeathAdder V3 Pro", target.Target.Device.Name);
+
+        var transport = new BatteryTransportStub(_ => session);
+        var reading = await registry.ReadAsync(target, transport, null, CancellationToken.None);
+        Assert.Equal(80, reading.Percentage);
+        Assert.Equal(ChargingState.NotCharging, reading.Charging);
+        Assert.True(Assert.Single(transport.Opened).FeatureOnly);
+        Assert.Equal((byte?)0, Assert.Single(transport.Opened).RequiredFeatureReportId);
+
+        // 诊断报告也应包含此类 0001:0002 91B 雷蛇特征集合并可完整回放。
+        string report = await DiagnosticReport.GenerateAsync(new([dav3], [], []), new BatteryTransportStub(_ => session));
+        Assert.Contains("|1532|00B7|0001|0002|16|0|91|00|", report);
+        Assert.Contains("匹配 Razer 90B H1", report);
+    }
+
+    [Fact]
+    public async Task AsusRogKeyboardAndMchoseK87ReadOnlyProtocolsWorkAndReplay()
+    {
+        // 复现实机诊断报告中的 0B05:1934（MI_01 FF00:0001 65/65）与 41E4:2001（FF02:0002 20/20）。
+        var asus = new HidInterface("rx-asus", "p-asus", 0x0B05, 0x1934, null, 0xFF00, 1, 65, 65, 0, 1);
+        var mchose = new HidInterface("rx-mchose", "p-mchose", 0x41E4, 0x2001, null, 0xFF02, 2, 20, 20, 0, 1);
+
+        var asusReply = new byte[65];
+        asusReply[0] = 0x00;
+        asusReply[1] = 0x12;
+        asusReply[2] = 0x01;
+        asusReply[6] = 85;
+        asusReply[9] = 1; // 插电充电中
+
+        var mchoseReply = new byte[20];
+        mchoseReply[0] = 0x13;
+        mchoseReply[1] = 0x4A;
+        mchoseReply[2] = 0x01;
+        mchoseReply[4] = 0x02;
+        mchoseReply[5] = 74;
+        mchoseReply[6] = 0x01;
+        mchoseReply[19] = MchoseKbProtocol.Checksum(mchoseReply.AsSpan(0, 19));
+
+        var transport = new FakeReceiverTransport(
+            (asus.Path,
+            [
+                new(DiagnosticOperation.OpenHid),
+                new(DiagnosticOperation.HidOutput, Convert.ToHexString(AsusHidProtocol.EncodeKeyboardBattery())),
+                new(DiagnosticOperation.HidInput, Convert.ToHexString(asusReply))
+            ]),
+            (mchose.Path,
+            [
+                new(DiagnosticOperation.OpenHid),
+                new(DiagnosticOperation.HidOutput, Convert.ToHexString(MchoseKbProtocol.EncodeBattery())),
+                new(DiagnosticOperation.HidInput, Convert.ToHexString(mchoseReply))
+            ]));
+
+        string report = await DiagnosticReport.GenerateAsync(new([asus, mchose], [], []), transport, CancellationToken.None);
+        transport.AssertComplete();
+        Assert.Contains("匹配 ASUS ROG 键盘 H1", report);
+        Assert.Contains("匹配 MCHOSE 键盘 H2", report);
+
+        var (inv, replay, baud) = FakeReceiverTransport.FromReport(report);
+        var registry = AdapterRegistry.CreateDefault(baud);
+        List<BatteryReading> readings = [];
+        foreach (var d in registry.Detect(inv))
+            readings.AddRange(await registry.ReadDevicesAsync(d, replay, null, CancellationToken.None));
+        replay.AssertComplete();
+
+        Assert.Contains(readings, r => r.Device.Name == "ASUS ROG 无线键盘" && r.Percentage == 85 && r.Charging == ChargingState.Charging);
+        Assert.Contains(readings, r => r.Device.Name == "MCHOSE K87" && r.Percentage == 74 && r.Charging == ChargingState.Unknown);
     }
 
     [Fact]

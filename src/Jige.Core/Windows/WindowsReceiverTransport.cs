@@ -16,7 +16,22 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
     public IHidSession OpenHid(HidInterface endpoint, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var handle = Open(endpoint.Path, endpoint.InputOnly ? 0x80000000 : ReadWrite, ShareReadWrite, Overlapped, false);
+        // 仅使用 Feature 报告的集合（如雷蛇 90B 在标准鼠标/键盘页 0x0001 上的 91 字节特征通道）
+        // 在 Windows 上须以零访问权限（dwDesiredAccess = 0）打开，才能避开 mouclass/kbdclass 的独占锁，
+        // 且物理上无法调用 ReadFile 读取任何键鼠输入。
+        uint access = endpoint.FeatureOnly && endpoint.UsagePage is < 0xFF00
+            ? 0u
+            : endpoint.InputOnly ? 0x80000000u : ReadWrite;
+        uint flags = endpoint.FeatureOnly ? 0u : Overlapped;
+        SafeFileHandle handle;
+        try
+        {
+            handle = Open(endpoint.Path, access, ShareReadWrite, flags, false);
+        }
+        catch (TransportException error) when (endpoint.FeatureOnly && access != 0 && error.Issue == ReadIssue.AccessDenied)
+        {
+            handle = Open(endpoint.Path, 0, ShareReadWrite, 0, false);
+        }
         try
         {
             var attributes = ReadAttributes(handle);
@@ -27,7 +42,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 caps.FeatureLength != endpoint.FeatureLength)
                 throw new TransportException(ReadIssue.Disconnected, "HID 接口已变更，请重新枚举");
             cancellationToken.ThrowIfCancellationRequested();
-            return new HidSession(handle, caps);
+            return new HidSession(handle, caps, endpoint.FeatureOnly);
         }
         catch
         {
@@ -190,18 +205,22 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         public void Dispose() => io.Dispose();
     }
 
-    private sealed class HidSession(SafeFileHandle handle, Native.HidCaps caps) : IHidSession
+    private sealed class HidSession(SafeFileHandle handle, Native.HidCaps caps, bool featureOnly) : IHidSession
     {
-        private readonly OverlappedDevice io = new(handle);
+        private readonly OverlappedDevice? io = featureOnly ? null : new OverlappedDevice(handle);
 
         public ValueTask WriteOutputAsync(byte[] report, CancellationToken token)
         {
+            if (io is null)
+                throw new TransportException(ReadIssue.IoError, "只读特征会话不支持写入输出报告");
             CheckLength(report, caps.OutputLength);
             return io.WriteAsync(report, token);
         }
 
         public async ValueTask<int> ReadInputAsync(byte[] report, CancellationToken token)
         {
+            if (io is null)
+                throw new TransportException(ReadIssue.IoError, "只读特征会话不支持读取输入报告");
             CheckLength(report, caps.InputLength);
             int count = await io.ReadAsync(report, token).ConfigureAwait(false);
             if (count == 0)
@@ -237,6 +256,12 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 throw new TransportException(ReadIssue.IoError, $"报告缓冲区长度与 HID 描述符不符（期望 {expected}）");
         }
 
-        public void Dispose() => io.Dispose();
+        public void Dispose()
+        {
+            if (io is not null)
+                io.Dispose();
+            else
+                handle.Dispose();
+        }
     }
 }

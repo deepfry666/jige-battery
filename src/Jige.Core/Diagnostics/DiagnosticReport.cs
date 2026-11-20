@@ -419,12 +419,14 @@ public static class DiagnosticReport
             .AppendLine("USB 列为接口｜接收器｜硬件 ID。OP 列格式见 PRIVACY.md。");
     }
 
-    // 罗技 G535 的只读电量通道是已登记的 Consumer 集合。
-    private static bool IsRelevantHid(HidInterface hid) => hid.UsagePage is >= 0xFF00 || LogitechHidppAdapter.IsHeadset(hid);
+    // 罗技 G535 使用 Consumer 集合；雷蛇 90B 在 Windows 上也可能直接挂在标准鼠标/键盘页的 91 字节特征集合上。
+    private static bool IsRelevantHid(HidInterface hid) =>
+        hid.UsagePage is >= 0xFF00 || LogitechHidppAdapter.IsHeadset(hid) || RazerFeatureAdapter.IsFeatureCollection(hid);
 
     private static ReceiverEndpoint NormalizeEndpoint(ReceiverEndpoint endpoint) =>
         endpoint is HidInterface hid ? hid with
         {
+            FeatureOnly = false,
             RequiredInputReportId = null,
             RequiredOutputReportId = null,
             RequiredFeatureReportId = null
@@ -471,6 +473,8 @@ public static class DiagnosticReport
         LogitechHeadsetAdapter => "Logitech 耳机",
         RazerFeatureAdapter => "Razer 90B",
         RazerHeadsetAdapter => "Razer 耳机",
+        AsusHidAdapter => "ASUS ROG 键盘",
+        MchoseKbAdapter => "MCHOSE 键盘",
         _ => adapter.GetType().Name
     };
 

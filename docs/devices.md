@@ -6,7 +6,7 @@
 
 几格将已启用的协议路径分为三级（体现在本表、[README.md](../README.md) 和诊断报告中）；主面板与设备管理页的徽标仍保持「已实机验证 / 按协议适配 / 通用适配」三种不变：
 
-- **已实机验证**：已在 Windows 实机上实际读到过电量（目前仅 Sony INZONE H9 一代与游狼 HTX Ultra 8K 两台）。
+- **已实机验证**：已在 Windows 实机上实际读到过电量（目前为 Sony INZONE H9 一代、游狼 HTX Ultra 8K 与 Razer BlackShark V3 Pro 三台）。
 - **同家族推定**：与已实机验证的设备属于同一协议家族，且来自同一份权威型号表。
 - **仅按资料**：依据公开开源实现或协议文档编写，尚未在 Windows 实机上验证过。
 
@@ -18,6 +18,7 @@
 | --- | --- | --- | --- | --- |
 | Sony INZONE H9（一代接收器） | `054C:0E53` | Sony INZONE 串口（`MI_06`） | 已实机验证 | Windows 11 实机读到 50%、未充电（2026-11-19）；参考 InZoneH9Tray / openinzone / inzone-h9-mac |
 | G-Wolves HTX Ultra 8K | `33E4:5617` | XVI-NEW（`MI_02 / FFFF:0000`） | 已实机验证 | Windows 11 实机读到 38%（2026-11-19）；型号表来自 `mouse.xyz` 官方网页驱动 |
+| Razer BlackShark V3 Pro | `1532:0577` | Razer BlackShark V3 64B（`MI_05 / FF14:0001`） | 已实机验证 | Windows 11 实机读到 96%、未充电、36 ms（2026-11-20）；参考 OpenRazer #2838 |
 
 ## 二、同家族推定
 
@@ -168,7 +169,13 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | Razer BlackShark V2 Pro (2020) | `1532:0528` | Razer BlackShark 64B Feature（Report ID `FF`） | 仅按资料 | OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT） |
 | Razer BlackShark V2 HyperSpeed | `1532:0565` | Razer BlackShark 64B | 仅按资料 | OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT） |
 | Razer BlackShark V3 | `1532:057A` | Razer BlackShark V3 64B（纯只读 `21/2A`，无高频心跳） | 仅按资料 | HaloBattery #292（MIT）/ OpenRazer PR 2794 |
-| Razer BlackShark V3 Pro | `1532:0577` | Razer BlackShark V3 64B（纯只读 `21/2A`，无高频心跳） | 仅按资料 | OpenRazer #2838 |
+
+### ASUS ROG 无线键盘与 MCHOSE 迈从键盘
+
+| 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| ASUS ROG 无线键盘（含 Falchion、Claymore II、Azoth / Extreme / X、Strix Scope II 96 等） | `0B05:1934`、`193C/193E`、`1B04`、`196B`、`1A83/1A85`、`1B3F`、`1C24/1C25`、`1AAE/1B78` | ASUS ROG 65B（`MI_01 / FF00:0001` 命令 `12 01`） | 仅按资料 | G-Helper / HaloBattery（MIT） |
+| MCHOSE K87（2.4G 接收器） | `41E4:2001` | MCHOSE 20B（`FF02:0002` 命令 `13 4A`） | 仅按资料 | HaloBattery `mchose_kb.py`（MIT） |
 
 ---
 

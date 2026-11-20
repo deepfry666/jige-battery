@@ -175,7 +175,8 @@ public static partial class WindowsDeviceDiscovery
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
                     product = new string(chars);
             }
-            (string? inputIds, string? outputIds, string? featureIds) = includeReportIds && caps.UsagePage >= 0xFF00
+            (string? inputIds, string? outputIds, string? featureIds) = includeReportIds &&
+                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength)
                 ? WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps)
                 : (null, null, null);
             token.ThrowIfCancellationRequested();

@@ -79,6 +79,12 @@ public static partial class DiagnosticPrivacy
             case RazerHeadsetAdapter:
                 CopyRazerHeadset(hid.ProductId, raw, request, result);
                 return result;
+            case AsusHidAdapter:
+                CopyAsusKeyboard(hid.ProductId, raw, result);
+                return result;
+            case MchoseKbAdapter:
+                CopyMchoseKb(raw, result);
+                return result;
         }
         if (FinalmouseAdapter.IsReceiver(hid))
         {
@@ -250,6 +256,29 @@ public static partial class DiagnosticPrivacy
         result[62] = RazerHeadsetProtocol.Checksum(result, crcStart);
     }
 
+    private static void CopyAsusKeyboard(ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (AsusHidProtocol.FindKeyboard(pid) is not { } model ||
+            !AsusHidProtocol.TryDecodeKeyboardBattery(raw, model, out bool asleep, out _, out _))
+            return;
+        int header = raw[0] == 0x00 ? 1 : 0;
+        raw[..(header + 2)].CopyTo(result);
+        if (!asleep)
+        {
+            result[header + 5] = raw[header + 5];
+            result[header + 8] = raw[header + 8];
+            result[header + 10] = raw[header + 10];
+        }
+    }
+
+    private static void CopyMchoseKb(ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (!MchoseKbProtocol.TryDecodeBattery(raw, out _))
+            return;
+        raw[..7].CopyTo(result);
+        result[19] = MchoseKbProtocol.Checksum(result[..19]);
+    }
+
     /// <summary>仅根据公开的 16 位 USB VID 返回常见外设厂商名称，不包含任何个人或设备唯一信息。</summary>
     internal static string KnownVendorName(ushort? vid) => vid switch
     {
@@ -324,6 +353,15 @@ public static partial class DiagnosticPrivacy
                 bool crc = raw[89] == RazerFeatureProtocol.Checksum(raw);
                 return FormattableString.Invariant(
                     $"Razer90B len=91 rid={raw[0]:X2} st={raw[1]:X2} tid={raw[2]:X2} cls={raw[7]:X2} cmd={raw[8]:X2} crc={(crc ? "OK" : "FAIL")}");
+            }
+            case AsusHidAdapter when raw.Length == AsusHidProtocol.ReportLength:
+                return FormattableString.Invariant(
+                    $"AsusKb len=65 rid={raw[0]:X2} b1={raw[1]:X2} b2={raw[2]:X2} b6={raw[6]:X2} b9={raw[9]:X2} b11={raw[11]:X2}");
+            case MchoseKbAdapter when raw.Length == MchoseKbProtocol.ReportLength:
+            {
+                bool cksum = raw[19] == 0 || MchoseKbProtocol.Checksum(raw[..19]) == raw[19];
+                return FormattableString.Invariant(
+                    $"MchoseKb len=20 rid={raw[0]:X2} cmd={raw[1]:X2} b2={raw[2]:X2} b5={raw[5]:X2} cksum={(cksum ? "OK" : "FAIL")}");
             }
             default:
                 return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2}");

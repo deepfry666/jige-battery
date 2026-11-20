@@ -248,15 +248,25 @@ public static class DeviceCatalog
                 ? "OpenRazer / HaloBattery（MIT）"
                 : "OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT）")),
 
-        // === 仅按资料：Razer BlackShark 纯只读耳机路径 ===
+        // === 仅按资料 / 已实机验证：Razer BlackShark 纯只读耳机路径 ===
         new(0x1532, 0x0528, "Razer BlackShark V2 Pro (2020)", "Razer BlackShark 64B Feature", DeviceKind.Headset,
             VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT）"),
         new(0x1532, 0x0565, "Razer BlackShark V2 HyperSpeed", "Razer BlackShark 64B", DeviceKind.Headset,
             VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT）"),
         new(0x1532, 0x057A, "Razer BlackShark V3", "Razer BlackShark V3 64B", DeviceKind.Headset,
             VerificationTier.DocsOnly, "razer-headset:", "HaloBattery #292（MIT）/ OpenRazer PR 2794"),
+        // 2026-11-20 Windows 11（10.0.26200）实机诊断验证：36 ms 读到 96% NotCharging Online。
         new(0x1532, 0x0577, "Razer BlackShark V3 Pro", "Razer BlackShark V3 64B", DeviceKind.Headset,
-            VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #2838")
+            VerificationTier.HardwareVerified, "razer-headset:", "Windows 11 实机诊断验证（2026-11-20）/ OpenRazer #2838"),
+
+        // === 仅按资料：ASUS ROG 无线键盘（MI_01 FF00:0001 65B 命令 12 01） ===
+        .. AsusHidProtocol.AllKeyboards.Select(model => new DeviceCatalogEntry(
+            AsusHidProtocol.VendorId, model.Pid, model.Name, "ASUS ROG 65B", DeviceKind.Keyboard,
+            VerificationTier.DocsOnly, "asus:", "G-Helper / HaloBattery（MIT）")),
+
+        // === 仅按资料：MCHOSE 迈从无线键盘（FF02:0002 20B 命令 13 4A） ===
+        new(MchoseKbProtocol.VendorId, MchoseKbProtocol.K87ReceiverPid, "MCHOSE K87", "MCHOSE 20B", DeviceKind.Keyboard,
+            VerificationTier.DocsOnly, "mchose-kb:", "HaloBattery mchose_kb.py（MIT）")
     ];
 
     /// <summary>

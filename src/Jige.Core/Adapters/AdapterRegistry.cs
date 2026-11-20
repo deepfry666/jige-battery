@@ -35,7 +35,8 @@ public sealed class AdapterRegistry
         IReadOnlyDictionary<string, DeviceIdentity>? savedLogitechSlots) =>
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
             new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates, savedLogitechSlots), new LogitechHeadsetAdapter(),
-            new RazerFeatureAdapter(), new RazerHeadsetAdapter(gates: gates));
+            new RazerFeatureAdapter(), new RazerHeadsetAdapter(gates: gates),
+            new AsusHidAdapter(gates), new MchoseKbAdapter(gates));
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
@@ -43,7 +44,9 @@ public sealed class AdapterRegistry
     public static bool IsKnownHidReceiver(ushort? vid, ushort? pid) =>
         vid == 0x361D || vid == 0x373B || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||
         vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null ||
-            pid is 0x0565 or 0x057A or 0x0577 or RazerHeadsetProtocol.BlackShark2020Pid);
+            pid is 0x0565 or 0x057A or 0x0577 or RazerHeadsetProtocol.BlackShark2020Pid) ||
+        vid == AsusHidProtocol.VendorId && AsusHidProtocol.FindKeyboard(pid) is not null ||
+        vid == MchoseKbProtocol.VendorId && pid == MchoseKbProtocol.K87ReceiverPid;
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory)

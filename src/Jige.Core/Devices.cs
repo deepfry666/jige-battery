@@ -64,6 +64,7 @@ public sealed record HidInterface(
     internal ulong? BluetoothAddress { get; init; }
     internal bool BluetoothHid { get; init; }
     internal bool InputOnly { get; init; }
+    internal bool FeatureOnly { get; init; }
     internal byte? RequiredInputReportId { get; init; }
     internal byte? RequiredOutputReportId { get; init; }
     internal byte? RequiredFeatureReportId { get; init; }
