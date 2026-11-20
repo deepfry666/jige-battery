@@ -204,7 +204,9 @@ public static partial class WindowsDeviceDiscovery
                     product = new string(chars);
             }
             token.ThrowIfCancellationRequested();
-            var receiver = ReadReceiverId(set, node, nodeId, path);
+            var ancestors = ReadAncestors(node.DevInst);
+            var bus = HidBusClassifier.Classify(path, nodeId, ancestors);
+            var receiver = ReadReceiverId(set, node, nodeId, path, ancestors);
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,
                 caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber)
             {
@@ -212,15 +214,24 @@ public static partial class WindowsDeviceDiscovery
                 InputReportIds = inputIds,
                 OutputReportIds = outputIds,
                 FeatureReportIds = featureIds,
-                BluetoothHid = BluetoothHidPath.UsbVendorId(path).HasValue || BluetoothHidPath.UsbVendorId(nodeId).HasValue,
+                Bus = bus,
+                BluetoothHid = bus == HidBus.Bluetooth,
                 BluetoothAddress = vid == 0x046D && caps is { UsagePage: 0xFF43, Usage: 0x0202 }
                     ? FindBluetoothAddress(node.DevInst) : null
             };
         }
         catch (TransportException error)
         {
-            return readProduct ? new(ReadReceiverId(set, node, nodeId, path), path, vid, pid, product,
-                null, null, null, null, null, interfaceNumber, error.Issue, error.Message) : null;
+            if (!readProduct)
+                return null;
+            var ancestors = ReadAncestors(node.DevInst);
+            var bus = HidBusClassifier.Classify(path, nodeId, ancestors);
+            return new(ReadReceiverId(set, node, nodeId, path, ancestors), path, vid, pid, product,
+                null, null, null, null, null, interfaceNumber, error.Issue, error.Message)
+            {
+                Bus = bus,
+                BluetoothHid = bus == HidBus.Bluetooth
+            };
         }
     }
 
@@ -267,42 +278,35 @@ public static partial class WindowsDeviceDiscovery
             port.AsSpan(3).IndexOfAnyExceptInRange('0', '9') == -1 ? port.ToUpperInvariant() : null;
     }
 
-    private static unsafe string ReadReceiverId(nint set, Native.DeviceData node, string nodeId, string fallback)
+    private static unsafe string ReadReceiverId(nint set, Native.DeviceData node, string nodeId, string fallback,
+        IReadOnlyList<string>? ancestors = null)
     {
         Guid container;
         if (Native.GetDeviceProperty(set, node, ContainerId, out uint type, &container, 16, out uint size, 0) != 0 &&
             type == 13 && size == 16 && container != Guid.Empty &&
             container != new Guid("00000000-0000-0000-FFFF-FFFFFFFFFFFF"))
             return container.ToString("D");
-        if (IsUsb(nodeId) && ReadHexTag(nodeId, "MI_", 2) is null)
-            return nodeId;
-        return FindUsbAncestor(node.DevInst) ?? (nodeId.Length == 0 ? fallback : nodeId);
+        return HidBusClassifier.ResolveFallbackReceiverId(nodeId, fallback, ancestors ?? ReadAncestors(node.DevInst));
     }
 
-    private static string? FindUsbAncestor(uint devInst)
+    private static List<string> ReadAncestors(uint devInst)
     {
-        while (Native.GetParent(out uint parent, devInst, 0) == 0 && parent != devInst)
+        List<string> ancestors = [];
+        HashSet<uint> visited = [devInst];
+        while (Native.GetParent(out uint parent, devInst, 0) == 0 && visited.Add(parent))
         {
-            var id = ReadInstanceId(parent);
-            if (IsUsb(id))
-            {
-                if (ReadHexTag(id, "MI_", 2) is null)
-                    return id;
-                if (Native.GetParent(out uint composite, parent, 0) == 0)
-                {
-                    var compositeId = ReadInstanceId(composite);
-                    if (IsUsb(compositeId) && ReadHexTag(compositeId, "VID_", 4) == ReadHexTag(id, "VID_", 4) &&
-                        ReadHexTag(compositeId, "PID_", 4) == ReadHexTag(id, "PID_", 4))
-                        return compositeId;
-                }
-                return id;
-            }
+            string id = ReadInstanceId(parent);
+            if (id.Length > 0)
+                ancestors.Add(id);
             devInst = parent;
         }
-        return null;
+        return ancestors;
     }
 
-    private static bool IsUsb(string instance) => instance.StartsWith(@"USB\", StringComparison.OrdinalIgnoreCase);
+    private static string? FindUsbAncestor(uint devInst) =>
+        HidBusClassifier.FindUsbAncestor(ReadAncestors(devInst));
+
+    private static bool IsUsb(string instance) => HidBusClassifier.IsUsb(instance);
 
     private static unsafe string ReadInstanceId(uint devInst)
     {
@@ -310,12 +314,6 @@ public static partial class WindowsDeviceDiscovery
         return Native.GetDeviceId(devInst, buffer, 256, 0) == 0 ? new string(buffer) : "";
     }
 
-    private static ushort? ReadHexTag(string text, string tag, int digits)
-    {
-        int offset = text.IndexOf(tag, StringComparison.OrdinalIgnoreCase);
-        if (offset < 0 || text.Length < offset + tag.Length + digits)
-            return null;
-        return ushort.TryParse(text.AsSpan(offset + tag.Length, digits),
-            System.Globalization.NumberStyles.AllowHexSpecifier, null, out ushort value) ? value : null;
-    }
+    private static ushort? ReadHexTag(string text, string tag, int digits) =>
+        HidBusClassifier.ReadHexTag(text, tag, digits);
 }

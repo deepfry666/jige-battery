@@ -1,6 +1,7 @@
 namespace Jige.Core;
 
 public enum DeviceConnection { Receiver, UsbCable, Bluetooth }
+public enum HidBus { Usb, Bluetooth, NonUsb }
 public enum DeviceKind { Mouse, Headset, Keyboard, Other }
 public enum LinkState { Online, Asleep, Offline, Busy, Unknown }
 public enum ChargingState { Unknown, NotCharging, Charging, Full }
@@ -62,8 +63,10 @@ public sealed record HidInterface(
     public string? InputReportIds { get; init; }
     public string? OutputReportIds { get; init; }
     public string? FeatureReportIds { get; init; }
+    public HidBus Bus { get; init; } = HidBus.Usb;
     internal ulong? BluetoothAddress { get; init; }
     internal bool BluetoothHid { get; init; }
+    internal bool IsExternalReceiverBus => Bus is HidBus.Usb or HidBus.Bluetooth || BluetoothHid;
     internal bool InputOnly { get; init; }
     internal bool FeatureOnly { get; init; }
     internal byte? RequiredInputReportId { get; init; }

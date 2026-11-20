@@ -232,7 +232,11 @@ public sealed class TrayFilesTests
         var known = new HidInterface("known", "hid-1", 0x373B, 0x1031, null, 0xFF02, 2, 17, 17, 0, 2);
         var unknown = known with { ReceiverId = "unknown", VendorId = 0x1234, Path = "hid-2" };
         var keyboard = known with { ReceiverId = "keyboard", UsagePage = 1, Path = "hid-3" };
-        var inventory = new DeviceInventory([known, unknown, keyboard,
+        var internalTouchpad = new HidInterface("acpi-tp", "hid-5", 0x093A, 0x0255, null, 0xFF00, 1, 0, 0, 257, null)
+        {
+            Bus = HidBus.NonUsb
+        };
+        var inventory = new DeviceInventory([known, unknown, keyboard, internalTouchpad,
             unknown with { ReceiverId = "UNKNOWN", Path = "hid-4", Usage = 3 }], [], []);
         Assert.Equal(1, PollResult.CountUnknown(inventory, AdapterRegistry.CreateDefault().Detect(inventory)));
     }
