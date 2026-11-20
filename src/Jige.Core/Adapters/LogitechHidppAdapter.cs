@@ -161,7 +161,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         DeviceCatalog.LogitechReceiverFamily(hid.ProductId) is null && ReceiverLabel(hid.Product);
 
     internal static bool IsBluetooth(HidInterface hid) =>
-        hid.BluetoothHid || hid.BluetoothAddress.HasValue || BluetoothHidPath.UsbVendorId(hid.Path) == 0x046D;
+        hid.BluetoothHid || hid.Bus == HidBus.Bluetooth || hid.BluetoothAddress.HasValue || BluetoothHidPath.UsbVendorId(hid.Path) == 0x046D;
 
     internal static bool IsHeadset(HidInterface hid) => IsLong(hid) &&
         DeviceCatalog.LogitechHidppHeadset(hid.ProductId) is not null &&

@@ -38,6 +38,10 @@ public sealed partial class DeviceTopologyCache(
 
     public bool IsDirty => Volatile.Read(ref dirty);
 
+    /// <summary>仅把外部 USB/蓝牙 HID 的厂商自定义集合计入未识别接收器，避免笔记本内置 I2C/ACPI 触控板等误报。</summary>
+    public static bool IsUnknownReceiverCandidate(HidInterface hid) =>
+        hid.UsagePage is >= 0xFF00 && hid.IsExternalReceiverBus;
+
     /// <summary>标记缓存失效（收到插拔通知、休眠唤醒、设备断开错误或用户点「重新检测」时调用）。</summary>
     public void Invalidate() => Volatile.Write(ref dirty, true);
 
@@ -58,7 +62,7 @@ public sealed partial class DeviceTopologyCache(
             HashSet<string> unknownReceivers = new(StringComparer.OrdinalIgnoreCase);
             foreach (var hid in inventory.Hid)
             {
-                if (hid.UsagePage is not >= 0xFF00 || matchedReceivers.Contains(hid.ReceiverId))
+                if (!IsUnknownReceiverCandidate(hid) || matchedReceivers.Contains(hid.ReceiverId))
                     continue;
                 unknownReceivers.Add(hid.ReceiverId);
                 unknowns.Add(new(
@@ -87,7 +91,7 @@ public sealed partial class DeviceTopologyCache(
     private static Dictionary<string, (ushort? Vid, ushort? Pid, int Count)> CollectReceivers(DeviceInventory inventory)
     {
         var map = new Dictionary<string, (ushort? Vid, ushort? Pid, int Count)>(StringComparer.OrdinalIgnoreCase);
-        foreach (var hid in inventory.Hid.Where(item => item.UsagePage is >= 0xFF00))
+        foreach (var hid in inventory.Hid.Where(IsUnknownReceiverCandidate))
         {
             if (map.TryGetValue(hid.ReceiverId, out var existing))
                 map[hid.ReceiverId] = (existing.Vid ?? hid.VendorId, existing.Pid ?? hid.ProductId, existing.Count + 1);

@@ -394,6 +394,34 @@ public sealed class DiagnosticTests
         Assert.Contains("回复特征|H3|RazerMT len=64 rid=02 flag=02 seq=60 flen=05 dir=80 dom=80 cmd=21 st=01 vlen=01 crc0=FAIL crc1=FAIL", report);
     }
 
+    [Fact]
+    public async Task AdaptationCluesMarkInternalNonUsbTouchpadAsIgnored()
+    {
+        var touchpadVendor = new HidInterface("acpi-uniw0001", "path-tp-vendor", 0x093A, 0x0255, "Touchpad",
+            0xFF00, 1, 0, 0, 257, null)
+        {
+            FirmwareVersion = 0x5808,
+            FeatureReportIds = "0B,0C,41,42,43",
+            Bus = HidBus.NonUsb
+        };
+        var touchpadDigitizer = new HidInterface("acpi-uniw0001", "path-tp-digitizer", 0x093A, 0x0255, "Touchpad",
+            0x000D, 5, 16, 0, 4, null)
+        {
+            Bus = HidBus.NonUsb
+        };
+        var touchpadMouse = new HidInterface("acpi-uniw0001", "path-tp-mouse", 0x093A, 0x0255, "Touchpad",
+            0x0001, 2, 8, 0, 0, null)
+        {
+            Bus = HidBus.NonUsb
+        };
+
+        string report = await DiagnosticReport.GenerateAsync(
+            new([touchpadVendor, touchpadDigitizer, touchpadMouse], [], []), new FakeReceiverTransport(), CancellationToken.None);
+
+        Assert.Contains("适配线索|R1|093A:0255|厂商=PixArt|固件=5808|连接=非USB(内建)|角色=触控板+鼠标|状态=非外设接收器（已忽略）", report);
+        Assert.Contains("报告ID|H1|FF00:0001|in=-|out=-|feat=0B,0C,41,42,43", report);
+    }
+
     private static byte[] Frame(string hex, int length) => LogitechBatteryTests.Frame(hex, length);
 
     private static async Task<List<BatteryReading>> Replay(string report)

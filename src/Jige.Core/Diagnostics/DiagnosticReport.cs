@@ -247,7 +247,9 @@ public static class DiagnosticReport
             string vidPid = FormattableString.Invariant($"{primary.VendorId:X4}:{primary.ProductId:X4}");
             string vendor = DiagnosticPrivacy.KnownVendorName(primary.VendorId);
             string firmware = primary.FirmwareVersion is ushort fw ? FormattableString.Invariant($"{fw:X4}") : "-";
-            string bus = group.Any(item => item.BluetoothHid) ? "蓝牙HID" : "USB";
+            string bus = group.Any(item => item.BluetoothHid || item.Bus == HidBus.Bluetooth) ? "蓝牙HID"
+                : group.Any(item => item.Bus == HidBus.Usb) ? "USB"
+                : "非USB(内建)";
             string roles = DescribeReceiverRoles(inventory.Hid, group.Key);
             string status = DescribeAdaptationStatus(group, matchedReceivers.Contains(group.Key));
 
@@ -296,6 +298,12 @@ public static class DiagnosticReport
                 case (0x000B, _):
                     AddRole("通话耳机");
                     break;
+                case (0x000D, 0x0005):
+                    AddRole("触控板");
+                    break;
+                case (0x000D, 0x0004):
+                    AddRole("触控屏");
+                    break;
             }
         }
         return roles.Count == 0 ? "仅厂商集合" : string.Join('+', roles);
@@ -305,6 +313,8 @@ public static class DiagnosticReport
     {
         if (matched)
             return "已匹配适配器";
+        if (!group.Any(item => item.IsExternalReceiverBus))
+            return "非外设接收器（已忽略）";
         foreach (var item in group)
         {
             if (DeviceCatalog.IsDisabledPath(item, out var disabled))

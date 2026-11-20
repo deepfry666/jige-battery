@@ -1,5 +1,6 @@
 using Jige.Core.Adapters;
 using Jige.Core.Diagnostics;
+using Jige.Core.Windows;
 
 namespace Jige.Core.Tests;
 
@@ -390,5 +391,108 @@ public sealed class GenericAndPresenceTests
         // D3 脱敏验证：不出现任何序列号、实例 ID、用户名、计算机名或本地路径。
         Assert.DoesNotContain("secret", report, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(@"C:\Users", report, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void HidBusClassifierDistinguishesUsbBluetoothAndInternalNonUsbDevices()
+    {
+        // 标准 USB 复合接收器（例如 ATK / MCHOSE）
+        Assert.Equal(HidBus.Usb, HidBusClassifier.Classify(
+            @"\\?\hid#vid_373b&pid_1216&mi_02&col02#7&1234",
+            @"HID\VID_373B&PID_1216&MI_02&COL02\7&1234",
+            [@"USB\VID_373B&PID_1216&MI_02\6&abcd", @"USB\VID_373B&PID_1216\5&ef01", @"USB\ROOT_HUB30\4&1"]));
+
+        // 带厂商过滤驱动的 USB 外设
+        Assert.Equal(HidBus.Usb, HidBusClassifier.Classify(
+            @"\\?\hid#vid_1532&pid_0084&mi_01#7&1",
+            @"HID\VID_1532&PID_0084&MI_01\7&1",
+            [@"RZCONTROL\HID\0000", @"USB\VID_1532&PID_0084&MI_01\6&1", @"USB\VID_1532&PID_0084\5&1"]));
+
+        // 蓝牙 HID（即使宿主机蓝牙适配器挂在内部 USB 总线上，也必须优先判为 Bluetooth）
+        Assert.Equal(HidBus.Bluetooth, HidBusClassifier.Classify(
+            @"\\?\hid#{00001812-0000-1000-8000-00805f9b34fb}_dev_vid&02046d_pid&b034#8&1",
+            @"HID\{00001812-0000-1000-8000-00805F9B34FB}_DEV_VID&02046D_PID&B034\8&1",
+            [@"BTHLEDEVICE\{00001812-0000-1000-8000-00805F9B34FB}\7&1", @"BTH\MS_BTHLE\6&1", @"USB\VID_8087&PID_0032\5&1"]));
+
+        // 仅凭父节点识别的蓝牙 HID（例如蓝牙 SIG 厂商码）
+        Assert.Equal(HidBus.Bluetooth, HidBusClassifier.Classify(
+            @"\\?\hid#bt_custom#8&1",
+            @"HID\BT_CUSTOM\8&1",
+            [@"BTHENUM\DEV_112233445566\7&1", @"BTH\MS_BTHBRB\6&1", @"USB\VID_8087&PID_0032\5&1"]));
+
+        // 笔记本内置 I2C-HID 触控板（例如 PixArt 093A:0255）
+        Assert.Equal(HidBus.NonUsb, HidBusClassifier.Classify(
+            @"\\?\hid#uniw0001&col03#5&1234",
+            @"HID\UNIW0001&COL03\5&1234",
+            [@"ACPI\UNIW0001\4&abcd", @"PCI\VEN_8086&DEV_51E8\3&1", @"ACPI\PNP0A08\0", @"HTREE\ROOT\0"]));
+
+        // 虚拟 HID（哪怕节点名里带 VID_/PID_，只要父链不是 USB/蓝牙，也算 NonUsb）
+        Assert.Equal(HidBus.NonUsb, HidBusClassifier.Classify(
+            @"\\?\hid#vid_1234&pid_5678#1&1",
+            @"HID\VID_1234&PID_5678\1&1",
+            [@"ROOT\VHIDMINI\0000", @"HTREE\ROOT\0"]));
+
+        // 异常情况：父链为空时，带 VID_/PID_ 回退为 USB，不带则判 NonUsb
+        Assert.Equal(HidBus.Usb, HidBusClassifier.Classify(
+            @"\\?\hid#vid_373b&pid_1216&mi_02#7&1", @"HID\VID_373B&PID_1216&MI_02\7&1", []));
+        Assert.Equal(HidBus.NonUsb, HidBusClassifier.Classify(
+            @"\\?\hid#uniw0001&col03#5&1", @"HID\UNIW0001&COL03\5&1", []));
+    }
+
+    [Fact]
+    public void FallbackReceiverIdGroupsInternalI2cHidCollectionsWithoutMergingBluetooth()
+    {
+        // 同一个 I2C-HID 触控板的多个集合共享同一个 ACPI 父节点作为 ReceiverId
+        string col1 = HidBusClassifier.ResolveFallbackReceiverId(
+            @"HID\UNIW0001&COL01\5&1", "fb-1", [@"ACPI\UNIW0001\4&abcd", @"PCI\VEN_8086&DEV_51E8\3&1"]);
+        string col3 = HidBusClassifier.ResolveFallbackReceiverId(
+            @"HID\UNIW0001&COL03\5&1", "fb-3", [@"ACPI\UNIW0001\4&abcd", @"PCI\VEN_8086&DEV_51E8\3&1"]);
+        Assert.Equal(@"ACPI\UNIW0001\4&abcd", col1);
+        Assert.Equal(col1, col3);
+
+        // 蓝牙节点不能折叠到宿主蓝牙 USB 控制器或 BTH 父节点上
+        string bt = HidBusClassifier.ResolveFallbackReceiverId(
+            @"BTHENUM\DEV_112233445566\7&1", "fb-bt", [@"BTH\MS_BTHBRB\6&1", @"USB\VID_8087&PID_0032\5&1"]);
+        Assert.Equal(@"BTHENUM\DEV_112233445566\7&1", bt);
+        Assert.Null(HidBusClassifier.FindUsbAncestor([@"BTHENUM\DEV_112233445566\7&1", @"USB\VID_8087&PID_0032\5&1"]));
+
+        // 直接挂在 HTREE\ROOT\0 下时退回自身节点 ID
+        string rootChild = HidBusClassifier.ResolveFallbackReceiverId(
+            @"HID\VIRTUAL\1", "fb-root", [@"HTREE\ROOT\0"]);
+        Assert.Equal(@"HID\VIRTUAL\1", rootChild);
+    }
+
+    [Fact]
+    public async Task TopologyCacheIgnoresInternalNonUsbHidForUnknownReceiversAndPlugDiffs()
+    {
+        var atk = new HidInterface("rx-atk", "p-atk", 0x373B, 0x1216, null, 0xFF05, 1, 64, 64, 0, 2) { Bus = HidBus.Usb };
+        var mchose = new HidInterface("rx-mchose", "p-mchose", 0x41E4, 0x2001, null, 0xFF02, 2, 20, 20, 0, 1) { Bus = HidBus.Usb };
+        var touchpad = new HidInterface("acpi-touchpad", "p-tp", 0x093A, 0x0255, null, 0xFF00, 1, 0, 0, 257, null) { Bus = HidBus.NonUsb };
+        var unknownUsb = new HidInterface("rx-unknown-usb", "p-unk", 0x1234, 0x5678, null, 0xFF00, 1, 64, 64, 0, 1) { Bus = HidBus.Usb };
+
+        DeviceInventory current = new([atk, mchose, touchpad], [], []);
+        var cache = new DeviceTopologyCache(AdapterRegistry.CreateDefault(), _ => Task.FromResult(current));
+
+        var first = await cache.GetOrScanAsync(false, CancellationToken.None);
+        Assert.Equal(2, first.Detected.Length);
+        Assert.Equal(0, first.UnknownCount);
+        Assert.Empty(first.Unknowns);
+
+        // 内建触控板消失/重置不应触发接收器插拔事件，也不应计入未识别接收器
+        current = new([atk, mchose], [], []);
+        cache.Invalidate();
+        var withoutTouchpad = await cache.GetOrScanAsync(false, CancellationToken.None);
+        Assert.Empty(withoutTouchpad.Changes);
+        Assert.Equal(0, withoutTouchpad.UnknownCount);
+
+        // 真正未适配的外部 USB 接收器仍应被计数并记录
+        current = new([atk, mchose, touchpad, unknownUsb], [], []);
+        cache.Invalidate();
+        var withUnknownUsb = await cache.GetOrScanAsync(false, CancellationToken.None);
+        Assert.Equal(1, withUnknownUsb.UnknownCount);
+        Assert.Single(withUnknownUsb.Unknowns);
+        var inserted = Assert.Single(withUnknownUsb.Changes);
+        Assert.True(inserted.Inserted);
+        Assert.Equal((ushort)0x1234, inserted.VendorId);
     }
 }

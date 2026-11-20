@@ -16,7 +16,7 @@ internal sealed record PollResult(
     public static int CountUnknown(DeviceInventory inventory, IEnumerable<DetectedDevice> detected)
     {
         var matched = detected.Select(item => item.Target.Endpoint.ReceiverId).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return inventory.Hid.Where(hid => hid.UsagePage is >= 0xFF00 && !matched.Contains(hid.ReceiverId))
+        return inventory.Hid.Where(hid => DeviceTopologyCache.IsUnknownReceiverCandidate(hid) && !matched.Contains(hid.ReceiverId))
             .Select(hid => hid.ReceiverId).Distinct(StringComparer.OrdinalIgnoreCase).Count();
     }
 }

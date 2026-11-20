@@ -10,6 +10,15 @@ internal static class BluetoothHidPath
 
     public static ushort? ProductId(string path) => ReadId(path, "_PID&");
 
+    public static bool IsBluetooth(string text) =>
+        UsbVendorId(text).HasValue ||
+        text.Contains("{00001124-0000-1000-8000-00805F9B34FB}", StringComparison.OrdinalIgnoreCase) ||
+        text.Contains("{00001812-0000-1000-8000-00805F9B34FB}", StringComparison.OrdinalIgnoreCase) ||
+        text.StartsWith(@"BTHENUM\", StringComparison.OrdinalIgnoreCase) ||
+        text.StartsWith(@"BTHLE\", StringComparison.OrdinalIgnoreCase) ||
+        text.StartsWith(@"BTHLEDEVICE\", StringComparison.OrdinalIgnoreCase) ||
+        text.StartsWith(@"BTH\", StringComparison.OrdinalIgnoreCase);
+
     private static ushort? ReadId(string path, string tag)
     {
         int index = path.IndexOf(tag, StringComparison.OrdinalIgnoreCase);
