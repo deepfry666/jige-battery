@@ -9,7 +9,8 @@ namespace Jige.Tray.Windows;
 
 /// <summary>
 /// 自绘托盘悬停卡片窗口（H1–H6）：
-/// 复用 Acrylic/圆角/阴影/DirectComposition 与系统深浅色，不抢焦点、点击穿透、隐藏后释放图形资源。
+/// 复用 Acrylic/圆角/阴影/DirectComposition 与系统深浅色，不抢焦点、点击穿透。
+/// 收起后先隐藏保留一小段时间，指针在多个托盘图标之间来回时直接复用，不重建图形设备；闲置后由托盘释放。
 /// </summary>
 [SupportedOSPlatform("windows10.0.17763")]
 internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
@@ -30,24 +31,37 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
     public HWND Handle { get; private set; } = hwnd;
     public bool Closing { get; private set; }
 
+    // DWM 的亚克力背板不受 DirectComposition 透明度影响：淡入淡出时只有文字和底色在变淡，
+    // 背板始终满不透明，看起来就是一块发灰的空板子。因此有亚克力时直接显示 / 隐藏，只在纯色背景下淡入淡出。
+    private bool Fades => animations && !acrylic;
+
+    /// <summary>显示或原地切换卡片内容；正在淡出时立即恢复不透明。</summary>
     public void Show(HoverCardContent content, RECT anchor)
     {
+        bool wasClosing = Closing;
         Closing = false;
         Render(content, anchor, reset: false);
         if (!shown)
         {
-            if (animations)
-            {
+            if (Fades)
                 composition!.Root.FadeIn(FadeInMs / 1000.0);
-                composition.Commit();
-            }
+            else
+                composition!.Root.SetOpacity(1f);
+            composition.Commit();
             PInvoke.ShowWindow(Handle, SHOW_WINDOW_CMD.SW_SHOWNOACTIVATE);
             shown = true;
+        }
+        else if (wasClosing)
+        {
+            composition!.Root.SetOpacity(1f);
+            composition.Commit();
         }
     }
 
     public void Update(HoverCardContent content, RECT anchor, bool reset = false)
     {
+        if (!shown)
+            return;
         bool wasClosing = Closing;
         Closing = false;
         Render(content, anchor, reset);
@@ -58,16 +72,29 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
         }
     }
 
+    /// <summary>开始收起；返回 true 表示正在淡出，调用方应在 <see cref="FadeOutMs"/> 后调用 <see cref="Hide"/>。</summary>
     public bool BeginClose()
     {
+        if (!shown)
+            return false;
         if (Closing)
-            return animations;
+            return Fades;
         Closing = true;
-        if (!shown || !animations || composition is null)
+        if (!Fades || composition is null)
             return false;
         composition.Root.FadeOut(FadeOutMs / 1000.0);
         composition.Commit();
         return true;
+    }
+
+    /// <summary>隐藏但保留图形资源，下次悬停可立即显示。</summary>
+    public void Hide()
+    {
+        Closing = false;
+        if (!shown)
+            return;
+        PInvoke.ShowWindow(Handle, SHOW_WINDOW_CMD.SW_HIDE);
+        shown = false;
     }
 
     private void Render(HoverCardContent content, RECT anchor, bool reset)
