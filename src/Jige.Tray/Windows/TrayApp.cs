@@ -193,8 +193,8 @@ internal sealed partial class TrayApp : IDisposable
             settingsError = "配置读取失败";
         foregroundHook = InstallHook(ForegroundEvent);
         SetForegroundTracking();
-        ReadGameMode();
         RefreshStripGeometry();
+        ReadGameMode();
         RefreshIcon();
         ArmTimer(GameSettleTimer, 750);
         ProcessWork();
@@ -604,16 +604,28 @@ internal sealed partial class TrayApp : IDisposable
             return ToRect(strip);
         if (openedFromStrip && preferred is not null)
             return Desktop.TaskbarAnchor(preferred);
-        return icons.TryGetRect(clickedIconId, out var bounds) ? bounds : Desktop.TaskbarAnchor(preferred);
+        if (icons.TryGetRect(clickedIconId, out var bounds))
+            return bounds;
+        return stripWindow?.VisibleBounds is { } visibleStrip
+            ? ToRect(visibleStrip)
+            : Desktop.TaskbarAnchor(preferred);
     }
 
     private void RefreshIcon()
     {
         RefreshStrip();
+        if (!stripDisplay.ShowTrayIcons || StripGeometryPending)
+        {
+            icons.Clear();
+            StopIconRetry();
+            if (hoverIconId is not null)
+                DestroyHoverCard();
+            return;
+        }
         if (iconRetryArmed && !icons.AnyRegistered)
             return;
         // H1：不设 NIF_SHOWTIP，szTip 始终保留供读屏软件使用。
-        icons.Sync(model, darkTaskbar, suppressTooltip: false, defaultOnly: stripDisplay.DefaultIconOnly);
+        icons.Sync(model, darkTaskbar, suppressTooltip: false);
         if (hoverIconId is uint hovered && !icons.TryGetSlotKey(hovered, out _))
             DestroyHoverCard();
         if (icons.AllRegistered)

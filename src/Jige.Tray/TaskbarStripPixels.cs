@@ -65,6 +65,21 @@ internal static class TaskbarStripPixels
         "..........."
     ];
 
+    private static readonly string[] Battery =
+    [
+        "...........",
+        "...........",
+        ".XXXXXXXX..",
+        "X........X.",
+        "X........XX",
+        "X........XX",
+        "X........XX",
+        "X........X.",
+        ".XXXXXXXX..",
+        "...........",
+        "..........."
+    ];
+
     private static readonly string[] Bolt = ["...XX", "..XX.", ".XX..", "XXXXX", "..XX.", ".XX..", "XX..."];
 
     private static readonly string[][] Digits =
@@ -92,7 +107,7 @@ internal static class TaskbarStripPixels
         foreach (var segment in layout.Segments)
         {
             var (icon, text) = palette.Ink(segment.Device.Tone);
-            var shape = segment.Device.Kind switch
+            var shape = segment.Device.IsPlaceholder ? Battery : segment.Device.Kind switch
             {
                 DeviceKind.Keyboard => Keyboard,
                 DeviceKind.Mouse => Mouse,
