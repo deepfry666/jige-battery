@@ -22,6 +22,7 @@ internal sealed partial class PopupScene
             {
                 PopupAction.TrayMode => SettingRow.TrayMode,
                 PopupAction.DisplayLocation => SettingRow.DisplayLocation,
+                PopupAction.Theme => SettingRow.Theme,
                 PopupAction.Threshold => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
                 _ => null
@@ -71,7 +72,9 @@ internal sealed partial class PopupScene
             };
             var button = new HitBox(target, rect);
             subButtons.Add(button);
-            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.DisplayLocation);
+            int roundSide = row == SettingRow.TrayMode ? -1
+                : row == SettingRow.Theme && layout.Progress(row) == 0 ? 1 : 0;
+            DrawSettingBackground(canvas, button, roundSide);
             if (row != SettingRow.TrayMode)
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
@@ -80,6 +83,7 @@ internal sealed partial class PopupScene
             {
                 SettingRow.TrayMode => "托盘显示",
                 SettingRow.DisplayLocation => "显示位置",
+                SettingRow.Theme => "外观模式",
                 SettingRow.Threshold => "低电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
@@ -103,6 +107,7 @@ internal sealed partial class PopupScene
             {
                 SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
                 SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation),
+                SettingRow.Theme => Presentation.ThemeModeLabel(settings.Theme),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
                 _ => Presentation.Interval(settings.PollSeconds)
             };
@@ -147,6 +152,7 @@ internal sealed partial class PopupScene
     {
         PopupAction.TrayMode => target.Value == (int)model.Settings.TrayMode,
         PopupAction.DisplayLocation => target.Value == (int)model.Settings.DisplayLocation,
+        PopupAction.Theme => target.Value == (int)model.Settings.Theme,
         PopupAction.Threshold => target.Value == model.Settings.LowBatteryThreshold,
         PopupAction.PollInterval => target.Value == model.Settings.PollSeconds,
         _ => false
@@ -173,7 +179,8 @@ internal sealed partial class PopupScene
                 if (hit.Height > 0)
                 {
                     subButtons.Add(new(choice.Target, hit));
-                    DrawSettingBackground(canvas, new(choice.Target, rect));
+                    int optionRound = row == SettingRow.Theme && index == end - 1 ? 1 : 0;
+                    DrawSettingBackground(canvas, new(choice.Target, rect), optionRound);
                 }
                 if (choice.Target is { Action: PopupAction.TrayToggle, DeviceId: { } id })
                 {
@@ -207,15 +214,15 @@ internal sealed partial class PopupScene
         }
     }
 
-    private void DrawSettingBackground(Canvas canvas, HitBox button, bool round = false)
+    private void DrawSettingBackground(Canvas canvas, HitBox button, int roundSide = 0)
     {
         if (hover == button.Target)
         {
             var fill = pressed == button.Target ? colors.Press : colors.Hover;
-            if (round)
+            if (roundSide != 0)
             {
                 // 把靠卡片内部的圆角画到裁剪区外，避免半透明填充叠加。
-                float y = button.Target.Action == PopupAction.Autostart ? button.Y - 6 : button.Y;
+                float y = roundSide > 0 ? button.Y - 6 : button.Y;
                 canvas.PushClip(button.Rect);
                 try
                 {
@@ -230,7 +237,7 @@ internal sealed partial class PopupScene
                 canvas.Fill(button.X, button.Y, button.Width, button.Height, 0, fill);
         }
         if (focused == button.Target)
-            canvas.Stroke(button.X + 1, button.Y + 1, button.Width - 2, button.Height - 2, round ? 5 : 0, colors.Accent);
+            canvas.Stroke(button.X + 1, button.Y + 1, button.Width - 2, button.Height - 2, roundSide != 0 ? 5 : 0, colors.Accent);
     }
 
     private void DrawChevron(Canvas canvas, float cx, float cy, float progress)
@@ -262,6 +269,18 @@ internal sealed partial class PopupScene
                 canvas.Stroke(x + 1, y + 2.5f, 14, 11, 1.4f, ink, 1.3f);
                 Line(1, 10, 15, 10);
                 Line(10.5f, 11.8f, 12.5f, 11.8f);
+                break;
+            case SettingRow.Theme:
+                canvas.Ring(x + 8, y + 8, 5.8f, ink, 1.3f);
+                canvas.PushClip(new PanelRect(x + 8, y + 1, 7, 14));
+                try
+                {
+                    canvas.Dot(x + 8, y + 8, 5.8f, ink);
+                }
+                finally
+                {
+                    canvas.PopClip();
+                }
                 break;
             case SettingRow.Threshold:
                 canvas.Arc(x + 8, y + 7, 4, MathF.PI, 2 * MathF.PI, ink, 1.3f);
@@ -527,7 +546,7 @@ internal sealed partial class PopupScene
                 canvas.Text("正式版通道 · 仅手动检查时联网", 24, 169, 296, 18, 11.5f, colors.Muted,
                     align: DWRITE_TEXT_ALIGNMENT_CENTER);
                 DrawActionButton(canvas, new(PopupAction.CheckUpdatesAgain, 12, buttonY, 156, 34), "重新检查", primary: false);
-                DrawActionButton(canvas, new(PopupAction.Back, 176, buttonY, 156, 34), "返回", primary: false);
+                DrawActionButton(canvas, new(new PopupTarget(PopupAction.Back, 1), 176, buttonY, 156, 34), "返回", primary: false);
                 break;
 
             case UpdatePhase.Downloading or UpdatePhase.Verifying:
@@ -556,7 +575,7 @@ internal sealed partial class PopupScene
                 canvas.Text("更新未完成", 24, 118, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
                 canvas.TextWrapped(updateState.ErrorMessage ?? "检查或更新时发生错误。", 26, 144, 292, 50, 12.5f,
                     colors.Secondary, align: DWRITE_TEXT_ALIGNMENT_CENTER);
-                DrawActionButton(canvas, new(PopupAction.Back, 12, buttonY, 156, 34), "返回", primary: false);
+                DrawActionButton(canvas, new(new PopupTarget(PopupAction.Back, 1), 12, buttonY, 156, 34), "返回", primary: false);
                 DrawActionButton(canvas, new(PopupAction.CheckUpdatesAgain, 176, buttonY, 156, 34), "重试", primary: true);
                 break;
 

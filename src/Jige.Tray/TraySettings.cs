@@ -17,11 +17,15 @@ internal enum TrayDisplayMode
 [JsonConverter(typeof(JsonStringEnumConverter<TrayDisplayLocation>))]
 internal enum TrayDisplayLocation { Taskbar, TrayIcons }
 
+[JsonConverter(typeof(JsonStringEnumConverter<ThemeMode>))]
+internal enum ThemeMode { Auto, Light, Dark }
+
 internal sealed record TraySettings
 {
     public static IReadOnlyList<int> PollIntervals { get; } = Array.AsReadOnly<int>([30, 60, 120]);
 
     public TrayDisplayLocation DisplayLocation { get; init; } = TrayDisplayLocation.Taskbar;
+    public ThemeMode Theme { get; init; } = ThemeMode.Auto;
     public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.Custom;
     public int LowBatteryThreshold { get; init; } = 15;
     public int PollSeconds { get; init; } = 60;
@@ -90,6 +94,7 @@ internal sealed record TraySettings
             TrayMode = mode,
             DisplayLocation = DisplayLocation == TrayDisplayLocation.TrayIcons
                 ? TrayDisplayLocation.TrayIcons : TrayDisplayLocation.Taskbar,
+            Theme = Theme is ThemeMode.Light or ThemeMode.Dark ? Theme : ThemeMode.Auto,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
@@ -154,7 +159,7 @@ internal sealed class TrayFiles(string folder)
                     ?? throw new JsonException("配置缺少根对象");
             settings = loaded.Normalize();
             if (settings.PollSeconds != loaded.PollSeconds || settings.TrayMode != loaded.TrayMode ||
-                settings.DisplayLocation != loaded.DisplayLocation)
+                settings.DisplayLocation != loaded.DisplayLocation || settings.Theme != loaded.Theme)
                 SaveMigratedSettings(settings, log);
             return true;
         }

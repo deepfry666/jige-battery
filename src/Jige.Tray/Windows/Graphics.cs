@@ -291,6 +291,34 @@ internal sealed unsafe class Canvas : IDisposable
         Fill(x + 2.6f * scale, y + 5.6f * scale, 9.3f * scale, 4.8f * scale, .8f * scale, ink);
     }
 
+    public void SettingsGear(float cx, float cy, Color ink, float scale = 1f, float thickness = 1.3f)
+    {
+        float rInner = 2.2f * scale;
+        float rBase = 4.9f * scale;
+        float rOuter = 6.6f * scale;
+        float join = thickness * 0.5f;
+        Ring(cx, cy, rInner, ink, thickness);
+        const float step = MathF.PI / 3f;
+        for (int i = 0; i < 6; i++)
+        {
+            float a = i * step - MathF.PI / 2f;
+            float nextA = a + step;
+            float aLb = a - 0.28f, aLt = a - 0.16f, aRt = a + 0.16f, aRb = a + 0.28f;
+            float lbX = cx + rBase * MathF.Cos(aLb), lbY = cy + rBase * MathF.Sin(aLb);
+            float ltX = cx + rOuter * MathF.Cos(aLt), ltY = cy + rOuter * MathF.Sin(aLt);
+            float rtX = cx + rOuter * MathF.Cos(aRt), rtY = cy + rOuter * MathF.Sin(aRt);
+            float rbX = cx + rBase * MathF.Cos(aRb), rbY = cy + rBase * MathF.Sin(aRb);
+            Line(lbX, lbY, ltX, ltY, ink, thickness);
+            Line(ltX, ltY, rtX, rtY, ink, thickness);
+            Line(rtX, rtY, rbX, rbY, ink, thickness);
+            Dot(lbX, lbY, join, ink);
+            Dot(ltX, ltY, join, ink);
+            Dot(rtX, rtY, join, ink);
+            Dot(rbX, rbY, join, ink);
+            Arc(cx, cy, rBase, aRb, nextA - 0.28f, ink, thickness);
+        }
+    }
+
     public void DeviceTile(DeviceKind kind, float x, float y, float size, Color fill, Color ink)
     {
         float radius = size >= 36 ? 8 : size >= 30 ? 7 : 6;

@@ -13,7 +13,7 @@ namespace Jige.Tray.Windows;
 /// 收起后先隐藏保留一小段时间，指针在多个托盘图标之间来回时直接复用，不重建图形设备；闲置后由托盘释放。
 /// </summary>
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
+internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisposable
 {
     public const int FadeInMs = 140;
     public const int FadeOutMs = 130;
@@ -22,7 +22,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
     private Composition.Layer? surface;
     private HMONITOR monitor;
     private float scale;
-    private bool animations, acrylic, shown;
+    private bool animations, acrylic, darkTheme, shown;
     private int surfaceHeight;
     private Palette colors = null!;
     private Bounds? position;
@@ -112,14 +112,15 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd) : IDisposable
         if (newScale <= 0)
             throw new InvalidOperationException("找不到悬停卡片显示器的工作区");
 
-        bool rebuilt = reset || composition is null || monitor != screen || MathF.Abs(scale - newScale) > 0.001f;
+        bool dark = Presentation.ResolveDark(model.Settings.Theme, Desktop.DarkApps);
+        bool rebuilt = reset || composition is null || monitor != screen || MathF.Abs(scale - newScale) > 0.001f || darkTheme != dark;
         if (rebuilt)
         {
             DisposeGraphics();
             monitor = screen;
             scale = newScale;
             animations = Desktop.Animations();
-            bool dark = Desktop.DarkApps;
+            darkTheme = dark;
             acrylic = Desktop.Backdrop(Handle, dark);
             colors = Desktop.PanelPalette(dark);
             composition = new(Handle, scale);
