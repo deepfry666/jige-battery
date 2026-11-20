@@ -14,6 +14,9 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
     private readonly Lock gate = new();
     private int activeSessions;
     public int Calls { get; private set; }
+    public int Writes { get; private set; }
+    public List<HidInterface> OpenedHids { get; } = [];
+    public Action<DiagnosticOperation>? OnOperation { get; init; }
 
     public FakeReceiverTransport(params (string Path, ReceiverStep[] Steps)[] scripts) =>
         this.scripts = scripts.ToDictionary(script => script.Path, script => new Queue<ReceiverStep>(script.Steps));
@@ -21,6 +24,8 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
     public IHidSession OpenHid(HidInterface endpoint, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
+        lock (gate)
+            OpenedHids.Add(endpoint);
         CheckError(Next(endpoint.Path, DiagnosticOperation.OpenHid));
         Interlocked.Increment(ref activeSessions);
         return new Session(this, endpoint.Path, endpoint);
@@ -45,10 +50,13 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         lock (gate)
         {
             Calls++;
+            if (operation is DiagnosticOperation.HidOutput or DiagnosticOperation.SetFeature or DiagnosticOperation.SerialWrite)
+                Writes++;
             Assert.True(scripts.TryGetValue(path, out var script), $"未安排接口 {path} 的 {operation}");
             Assert.True(script!.TryDequeue(out var step), $"接口 {path} 的脚本已结束，仍收到 {operation}");
             Assert.Equal(step!.Operation, operation);
             Assert.Equal(step.Argument, argument);
+            OnOperation?.Invoke(operation);
             return step;
         }
     }
@@ -169,6 +177,14 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
                         BluetoothHid = fields[11].EndsWith(" · HID++ BLE", StringComparison.Ordinal)
                     });
                     steps.Add(fields[1], []);
+                    break;
+                case "报告ID" when fields.Length == 6 && hid.FindIndex(item => item.Path == fields[1]) is int index && index >= 0:
+                    hid[index] = hid[index] with
+                    {
+                        InputReportIds = fields[3][3..] is "-" ? null : fields[3][3..],
+                        OutputReportIds = fields[4][4..] is "-" ? null : fields[4][4..],
+                        FeatureReportIds = fields[5][5..] is "-" ? null : fields[5][5..]
+                    };
                     break;
                 case "USB" when fields.Length == 4:
                     serial.Add(new(fields[2], fields[1], null, fields[3].Split(',', StringSplitOptions.RemoveEmptyEntries)));

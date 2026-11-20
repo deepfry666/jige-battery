@@ -106,6 +106,12 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | WLmouse Beast X 系列 | `36A7:A880`、`36A7:A868`、`36A7:A883`、`36A7:A887`、`36A7:A882`，XVI-NEW | WL MOUSE HUB / HaloBattery | 仅按资料 |
 | MCHOSE A5 Pro Max 初代 | `2023:F013`（1K）、`2023:F015`（4K），XVI-NEW | HaloBattery / mchose-macos | 仅按资料 |
 | MCHOSE M7 Ultra / L7 Pro、A7 V2 Ultra | `5253:1020`（共享）、`3837:100B`（候选），反码 Feature | mchose-linux / HaloBattery | 仅按资料 |
+| ATTACK SHARK / Delux 鼠标 | `1D57:FA60`，1D57 Input 03 | HaloBattery / mouse-battery-tray / OpenMouse | 仅按资料 |
+| Inphic IN9 Pro | `1D57:FA65`，1D57 Input 03 | HaloBattery | 仅按资料 |
+| Incott 8K 鼠标 | `093A:522C`，Incott Input 09 | OpenMouse | 仅按资料 |
+| Rapoo VT7 | `24AE:1413`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
+| Rapoo VT9 Pro V2 | `24AE:14A9`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
+| Rapoo VT9 Pro | `24AE:1205`，Rapoo Feature 2A | OpenMouse | 仅按资料 |
 | [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
 | [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |

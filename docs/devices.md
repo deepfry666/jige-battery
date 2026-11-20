@@ -88,6 +88,19 @@
 | MCHOSE 鼠标 | `5253:1020` | MCHOSE 反码 Feature | 仅按资料 | mchose-linux / HaloBattery（MIT）；M7 Ultra、L7 Pro 共用接收器 |
 | MCHOSE A7 V2 Ultra | `3837:100B` | MCHOSE 反码 Feature | 仅按资料 | HaloBattery #4 描述符 / mchose-linux（MIT）；候选，要求 MI_02 |
 
+### 国产无线鼠标第二批
+
+五个 2.4 GHz 接收器在鼠标活动或电量变化时上报电量。首次收到报告前显示 `--`，之后等待上报时保留上次读数。旧款雷柏 VT9 Pro 使用只读 Feature 查询。资料与限制见[交付记录](../research/delivery-0.2.16.md)。
+
+| 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| ATTACK SHARK / Delux 鼠标 | `1D57:FA60` | 1D57 Input 03 | 仅按资料 | HaloBattery / mouse-battery-tray / OpenMouse |
+| Inphic IN9 Pro | `1D57:FA65` | 1D57 Input 03 | 仅按资料 | HaloBattery |
+| Incott 8K 鼠标 | `093A:522C` | Incott Input 09 | 仅按资料 | OpenMouse |
+| Rapoo VT7 | `24AE:1413` | Rapoo Gen 2 Input 07 | 仅按资料 | HaloBattery |
+| Rapoo VT9 Pro V2 | `24AE:14A9` | Rapoo Gen 2 Input 07 | 仅按资料 | HaloBattery |
+| Rapoo VT9 Pro | `24AE:1205` | Rapoo Feature 2A | 仅按资料 | OpenMouse |
+
 ### 游狼 G-Wolves XVI-OLD
 
 十六进制命令与 XVI-NEW 不同，且尚未在实机上验证过任意一台 XVI-OLD 型号，因此统一标为「仅按资料」：

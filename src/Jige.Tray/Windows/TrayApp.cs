@@ -762,7 +762,7 @@ internal sealed partial class TrayApp : IDisposable
         bool forceRescan = schedule.Start(nowTick, game.Game);
         startedInGame = game.Game;
         bool showBluetooth = model.Settings.ShowBluetoothDevices;
-        // 完整轮询期间暂停罗技被动推送监听，避免同一接收器短/长句柄争抢。
+        // 完整轮询期间暂停监听，由读取路径使用相同集合。
         StopPushListeners();
         var stoppingPush = pushTask;
         var source = new CancellationTokenSource();
@@ -912,8 +912,20 @@ internal sealed partial class TrayApp : IDisposable
         {
             try
             {
+                BatteryReading? lastPassiveReading = null;
                 await poll.ListenPushAsync(target, update =>
                 {
+                    if (token.IsCancellationRequested)
+                        return;
+                    if (update.Battery is { Device.UsesPassiveBatteryReports: true } reading)
+                    {
+                        // 鼠标活动时可能反复报告同一个状态，避免把重复状态送到 UI 线程。
+                        if (lastPassiveReading is { } previous && previous.Device == reading.Device &&
+                            previous.Percentage == reading.Percentage && previous.Charging == reading.Charging &&
+                            reading.ReadAt - previous.ReadAt < TimeSpan.FromSeconds(1))
+                            return;
+                        lastPassiveReading = reading;
+                    }
                     pushResults.Enqueue(update);
                     PInvoke.PostMessage(destination, PushPresenceMessage, default, default);
                 }, token).ConfigureAwait(false);
@@ -927,7 +939,7 @@ internal sealed partial class TrayApp : IDisposable
             }
             catch (Exception error)
             {
-                Desktop.Log("罗技推送监听异常", error);
+                Desktop.Log("设备推送监听异常", error);
             }
         })));
     }
@@ -2086,7 +2098,7 @@ internal sealed partial class TrayApp : IDisposable
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
             string report = await DiagnosticReport
-                .GenerateWindowsAsync(timeout.Token, context).ConfigureAwait(false);
+                .GenerateWindowsAsync(timeout.Token, context, poll.Registry).ConfigureAwait(false);
             report += "\r\n# 请先完整检查报告，再自行决定是否复制、发送。几格不会上传。\r\n";
             string log = Desktop.RecentLog(80);
             if (log.Length > 0)

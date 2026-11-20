@@ -115,6 +115,9 @@ public static class DeviceCatalog
             VerificationTier.DocsOnly, "mouse:", model.Source)),
         ..MchoseMouseAdapter.Models,
 
+        // === 仅按资料：国产鼠标第二批 ===
+        ..DomesticMouseStatus.Models,
+
         // === 仅按资料：G-Wolves XVI-OLD（独立于 XVI-NEW，尚无 XVI-OLD 实机记录） ===
         new(0x33E4, 0x3917, "G-Wolves VUK", "XVI-OLD", DeviceKind.Mouse,
             VerificationTier.DocsOnly, "mouse:", "mouse.xyz 官方型号表 / OpenMouse"),

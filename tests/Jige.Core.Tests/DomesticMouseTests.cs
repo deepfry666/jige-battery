@@ -302,7 +302,7 @@ public sealed class DomesticMouseTests
         var doc = File.ReadAllLines(Path.Combine(root.FullName, "docs", "devices.md"));
         var readme = File.ReadAllLines(Path.Combine(root.FullName, "README.md"));
         var models = MouseReceiverCatalog.DomesticModels.Select(model => DeviceCatalog.FindEntry(
-            model.Receiver.VendorId, model.Receiver.ProductId)).Concat(MchoseMouseAdapter.Models);
+            model.Receiver.VendorId, model.Receiver.ProductId)).Concat(MchoseMouseAdapter.Models).Concat(DomesticMouseStatus.Models);
         foreach (var model in models)
         {
             Assert.NotNull(model);

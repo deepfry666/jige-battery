@@ -54,7 +54,7 @@ internal static class Presentation
 {
     public static BatteryTone Tone(DeviceStatus? device, int threshold) => device switch
     {
-        { Fresh: true, Percentage: { } } when device.IsFull || device.IsCharging => BatteryTone.Charging,
+        { Percentage: { } } when device.IsFull || device.IsCharging => BatteryTone.Charging,
         { Fresh: true, Percentage: { } percent } when percent <= threshold => BatteryTone.Low,
         { Fresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         { Fresh: true, Percentage: { } } => BatteryTone.Normal,
@@ -114,6 +114,8 @@ internal static class Presentation
 
     public static string Status(DeviceStatus device, int threshold)
     {
+        if (device.Device.UsesPassiveBatteryReports && device.IsCharging)
+            return "充电中";
         if (device.Fresh)
             return Tone(device, threshold) switch
             {
@@ -125,7 +127,7 @@ internal static class Presentation
 
         string status = (device.Link, device.Issue) switch
         {
-            (LinkState.Asleep, _) => "休眠",
+            (LinkState.Asleep, _) => device.Device.UsesPassiveBatteryReports ? "等待鼠标上报电量" : "休眠",
             (LinkState.Offline, _) => "已断开",
             (LinkState.Busy, _) => "接收器被占用",
             (_, ReadIssue.AccessDenied) => "无法访问接收器",
@@ -138,7 +140,9 @@ internal static class Presentation
     }
 
     public static string Value(DeviceStatus device) => device.Last is { } last
-        ? $"{(last.IsEstimated ? "≈" : "")}{last.Percentage}%" : "–";
+        ? $"{(last.IsEstimated ? "≈" : "")}{last.Percentage}%" : EmptyValue(device);
+
+    public static string EmptyValue(DeviceStatus device) => device.Device.UsesPassiveBatteryReports ? "--" : "–";
 
     public static string Age(DateTimeOffset at, DateTimeOffset now) =>
         $"{Math.Max(0, (long)(now - at).TotalMinutes)} 分钟";
@@ -190,6 +194,8 @@ internal static class Presentation
     private static string DeviceTooltipSuffix(DeviceStatus device, int threshold)
     {
         // R1：休眠状态保留上次读数，悬停明确写「休眠中 · 上次 xx%」。
+        if (device.Link == LinkState.Asleep && device.Device.UsesPassiveBatteryReports)
+            return device.Last is not null ? $" · 等待上报 · 上次 {Value(device)}" : " · 等待上报电量";
         if (device.Link == LinkState.Asleep)
             return device.Last is not null ? $" · 休眠中 · 上次 {Value(device)}" : " · 休眠中";
         var tone = Tone(device, threshold);
