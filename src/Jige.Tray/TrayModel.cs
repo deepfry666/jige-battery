@@ -108,10 +108,15 @@ internal sealed class TrayModel
         return changed;
     }
 
-    public bool HasAsleepDevices => devices.Values.Any(item => item.Link == LinkState.Asleep);
+    public bool HasAsleepDevices => devices.Values.Any(item => item.Link == LinkState.Asleep && IsShown(item.Device));
+
+    public bool HasAsleepLogitechOrBluetoothDevices => devices.Values.Any(item =>
+        item.Link == LinkState.Asleep && IsShown(item.Device) &&
+        (item.Device.Connection == DeviceConnection.Bluetooth ||
+            item.Device.Id.StartsWith("logitech-hidpp", StringComparison.OrdinalIgnoreCase)));
 
     public HashSet<string> AsleepDeviceIds() => devices.Values
-        .Where(item => item.Link == LinkState.Asleep)
+        .Where(item => item.Link == LinkState.Asleep && IsShown(item.Device))
         .Select(item => item.Device.Id)
         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -185,7 +190,7 @@ internal sealed class TrayModel
     /// <summary>主面板自动排序规则（B7 / R1）：活跃（在线或短时休眠）按电量低→高，顶部大卡片取最低活跃设备，全离线时取最近一台离线设备。</summary>
     public MainPanelPlan BuildMainPanel()
     {
-        var visible = devices.Values.Where(item => !IsHidden(item.Device.Id)).ToArray();
+        var visible = devices.Values.Where(item => IsShown(item.Device) && !IsHidden(item.Device.Id)).ToArray();
         var online = visible.Where(item => item.IsActive)
             .OrderBy(item => item.Percentage ?? int.MaxValue)
             .ThenBy(item => item.Device.Kind)
@@ -204,7 +209,7 @@ internal sealed class TrayModel
         return new(null, HeroDisconnected: false, [], []);
     }
 
-    public DeviceStatus[] OrderedDevices() => devices.Values
+    public DeviceStatus[] OrderedDevices() => devices.Values.Where(item => IsShown(item.Device))
         .OrderByDescending(item => item.IsActive)
         .ThenBy(item => item.IsActive ? (item.Percentage ?? int.MaxValue) : 0)
         .ThenByDescending(item => item.IsActive ? DateTimeOffset.MinValue : (item.Last?.ReadAt ?? DateTimeOffset.MinValue))
@@ -212,11 +217,13 @@ internal sealed class TrayModel
         .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
-    public DeviceStatus[] OrderedForManagement() => devices.Values
+    public DeviceStatus[] OrderedForManagement() => devices.Values.Where(item => IsShown(item.Device))
         .OrderByDescending(item => item.IsActive)
         .ThenBy(item => item.Device.Kind)
         .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
+
+    private bool IsShown(DeviceIdentity device) => Settings.ShowBluetoothDevices || device.Connection != DeviceConnection.Bluetooth;
 
     public bool IsHidden(string id) => Settings.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
 
@@ -284,16 +291,42 @@ internal sealed class TrayModel
         bool scanFailed,
         DateTimeOffset now,
         int unknownReceivers = 0,
-        Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null)
+        Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null,
+        IReadOnlySet<string>? liveTargets = null) =>
+        ApplyReadings(readings, scanFailed, now, unknownReceivers, onLinkChanged, liveTargets, completePoll: true);
+
+    private bool ApplyReadings(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now,
+        int unknownReceivers, Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged,
+        IReadOnlySet<string>? liveTargets, bool completePoll)
     {
         ScanFailed = scanFailed;
         if (!scanFailed || unknownReceivers > 0)
             UnknownReceivers = unknownReceivers;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool anyFresh = false, meaningfulChange = false, removedChanged = false;
-        foreach (var reading in readings)
+        if (completePoll)
+            readings = MergeLogitechCableReadings(readings, ref meaningfulChange);
+        foreach (var input in readings)
         {
+            var reading = input;
             var device = reading.Device;
+            if (!IsShown(device) || device.Id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
+                !device.Id.Contains('/') && reading.Percentage is null)
+                continue;
+            if (!devices.ContainsKey(device.Id) && device.Id.EndsWith("/unknown", StringComparison.Ordinal) &&
+                device.Id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase))
+            {
+                string prefix = device.Id[..^"unknown".Length];
+                var alternatives = devices.Values.Where(item => item.Device.Id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    .Take(2).ToArray();
+                if (alternatives is [var existing])
+                {
+                    device = existing.Device;
+                    reading = reading with { Device = device };
+                }
+            }
+            if (device.Connection == DeviceConnection.Bluetooth && reading.Percentage is null && !devices.ContainsKey(device.Id))
+                continue;
             seen.Add(device.Id);
             if (removedOffline.Contains(device.Id))
             {
@@ -310,11 +343,12 @@ internal sealed class TrayModel
                 anyFresh = true;
                 var nextLast = new SavedBattery(device, reading.Percentage!.Value, reading.IsEstimated, reading.ReadAt);
                 if (last is null || last.Percentage != nextLast.Percentage || last.IsEstimated != nextLast.IsEstimated ||
-                    previous?.Charging != reading.Charging || previous?.Device != device || previous?.Link != resolvedLink)
+                    previous?.Charging != reading.Charging || previous?.Device != device || previous?.Link != resolvedLink ||
+                    previous?.Fresh != true)
                     meaningfulChange = true;
                 last = nextLast;
             }
-            else if (previous is null || previous.Link != resolvedLink)
+            else if (previous is null || previous.Link != resolvedLink || previous.Device != device)
             {
                 meaningfulChange = true;
             }
@@ -327,12 +361,17 @@ internal sealed class TrayModel
                 meaningfulChange = true;
         }
 
-        foreach (var id in devices.Keys.Where(id => !seen.Contains(id)).ToArray())
+        foreach (var id in completePoll ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [])
         {
             var previous = devices[id];
+            if (!IsShown(previous.Device))
+                continue;
             // R1：接收器被拔出（非枚举失败且不在设备列表中）→ 立即离线。
-            var nextLink = scanFailed ? LinkState.Unknown : LinkState.Offline;
-            asleepSince.Remove(id);
+            bool receiverStillPresent = id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
+                liveTargets?.Contains(id.Split('/', 2)[0]) == true;
+            var nextLink = ResolveLinkForSleep(id, previous.Link, scanFailed ? LinkState.Unknown :
+                receiverStillPresent || previous.Device.Connection == DeviceConnection.Bluetooth
+                    ? LinkState.Asleep : LinkState.Offline, now);
             if (previous.Link != nextLink || previous.Fresh)
                 meaningfulChange = true;
             devices[id] = previous with
@@ -348,7 +387,7 @@ internal sealed class TrayModel
         if (anyFresh)
             UpdatedAt = now;
         // 移除后已消失的设备无需继续保留标记。再次识别时重新出现。
-        if (!scanFailed)
+        if (completePoll && !scanFailed)
             removedChanged |= removedOffline.RemoveWhere(id => !seen.Contains(id)) > 0;
 
         TrimHistory();
@@ -357,6 +396,46 @@ internal sealed class TrayModel
         if (shouldSave)
             hasSavedOnce = true;
         return shouldSave;
+    }
+
+    // 继续沿用首次建档的 ID，保留跨接收器和线缆切换时的历史、别名和托盘设置。
+    private IReadOnlyList<BatteryReading> MergeLogitechCableReadings(
+        IReadOnlyList<BatteryReading> readings, ref bool changed)
+    {
+        var keyed = readings.Where(reading => LogitechUnit(reading.Device.Id) is not null)
+            .GroupBy(reading => LogitechUnit(reading.Device.Id)!, StringComparer.OrdinalIgnoreCase);
+        List<BatteryReading> merged = readings.Where(reading => LogitechUnit(reading.Device.Id) is null).ToList();
+        foreach (var group in keyed)
+        {
+            var known = devices.Values.Where(item => StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), group.Key))
+                .OrderByDescending(item => item.Last is not null).ToArray();
+            var winner = group.OrderByDescending(item => item.Link == LinkState.Online && item.Percentage is not null)
+                .ThenByDescending(item => item.Link == LinkState.Online)
+                .ThenByDescending(item => item.Link == LinkState.Asleep)
+                .ThenByDescending(item => item.Device.Connection == DeviceConnection.UsbCable)
+                .First();
+            string id = known.FirstOrDefault()?.Device.Id ?? winner.Device.Id;
+            merged.Add(winner with { Device = winner.Device with { Id = id } });
+            foreach (var duplicate in known.Skip(1))
+            {
+                string redundantId = duplicate.Device.Id;
+                changed |= devices.Remove(redundantId);
+                asleepSince.Remove(redundantId);
+                reminders.Remove(redundantId);
+                history.Remove(redundantId);
+            }
+        }
+        return merged;
+    }
+
+    private static string? LogitechUnit(string id)
+    {
+        if (!id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
+            !id.StartsWith("logitech-hidpp-direct:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        int suffix = id.LastIndexOf('/');
+        return suffix >= 0 && id.AsSpan(suffix + 1).StartsWith("unit-", StringComparison.OrdinalIgnoreCase)
+            ? id[(suffix + 1)..] : null;
     }
 
     /// <summary>应用心跳或罗技接收器推送的在线状态变化（B1 / B2 / R1 / R2）。</summary>
@@ -370,6 +449,23 @@ internal sealed class TrayModel
 
         foreach (var update in updates)
         {
+            if (update.Battery is { } battery)
+            {
+                var known = devices.GetValueOrDefault(battery.Device.Id);
+                if (known is null && LogitechUnit(battery.Device.Id) is { } unit)
+                    known = devices.Values.FirstOrDefault(item =>
+                        StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), unit));
+                if (known is not null)
+                {
+                    // 当线缆和接收器同时工作时，低优先级通道的推送不能覆盖线缆读数。
+                    if (known.Device.Connection != battery.Device.Connection || !IsShown(known.Device) ||
+                        known.Last is { } last && last.ReadAt > battery.ReadAt)
+                        continue;
+                    battery = battery with { Device = known.Device };
+                }
+                uiChanged |= ApplyReadings([battery], ScanFailed, now, UnknownReceivers, onLinkChanged, null, completePoll: false);
+                continue;
+            }
             var matches = FindMatchingDeviceIds(update);
             if (matches.Count == 0)
             {
@@ -381,6 +477,8 @@ internal sealed class TrayModel
             foreach (string id in matches)
             {
                 var previous = devices[id];
+                if (!IsShown(previous.Device) || update.Slot is not null && previous.Device.Connection == DeviceConnection.UsbCable)
+                    continue;
                 var resolvedLink = ResolveLinkForSleep(id, previous.Link, update.Link, now);
                 if (previous.Link == resolvedLink && previous.Issue == update.Issue)
                     continue;
@@ -449,7 +547,12 @@ internal sealed class TrayModel
     private List<string> FindMatchingDeviceIds(PresenceUpdate update)
     {
         if (update.DeviceId is { Length: > 0 } exact)
-            return devices.ContainsKey(exact) ? [exact] : [];
+        {
+            if (devices.ContainsKey(exact))
+                return [exact];
+            if (LogitechUnit(exact) is { } unit)
+                return devices.Keys.Where(id => StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(id), unit)).ToList();
+        }
 
         if (update.Slot is byte slot)
         {

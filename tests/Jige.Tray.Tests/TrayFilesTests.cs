@@ -55,7 +55,8 @@ public sealed class TrayFilesTests
         try
         {
             string path = Path.Combine(folder.FullName, "jige.log");
-            File.WriteAllText(path, "2000-01-01 00:00:00 原始窗口类名 example-private\n");
+            File.WriteAllText(path, "2000-01-01 00:00:00 原始窗口类名 example-private\n" +
+                "[几格日志 2] 2000-01-01 00:00:01 Logitech private-serial\n");
             var log = new TrayLog(path);
             var message = TrayLog.Describe("访问失败", new Win32Exception(5, @"D:\private\file"));
             log.Write($"{message} {TrayLog.Foreground(ForegroundKind.Other)}");

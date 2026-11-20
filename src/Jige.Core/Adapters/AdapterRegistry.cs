@@ -24,7 +24,7 @@ public sealed class AdapterRegistry
         SafetyGateStore? gates = null,
         Func<bool>? isInzoneHubRunning = null) =>
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
-            new MouseReceiverAdapter(gates), new LogitechHidppAdapter(), new LogitechHeadsetAdapter(),
+            new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates), new LogitechHeadsetAdapter(),
             new RazerFeatureAdapter(), new RazerHeadsetAdapter());
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
@@ -60,6 +60,14 @@ public sealed class AdapterRegistry
                 issue => [issue], cancellationToken)
             : ReadSingleAsync(device, transport, trace, cancellationToken);
     }
+
+    public Task<IReadOnlyList<BatteryReading>> RefreshSleepingLogitechAsync(
+        DetectedDevice device, IReceiverTransport transport, IReadOnlySet<string> onlyDeviceIds, CancellationToken token) =>
+        device.Adapter is LogitechHidppAdapter logitech && !DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out _)
+            ? ReadWithDeadlineAsync(device,
+                inner => logitech.ReadSelectedAsync(device.Target, transport, null, inner, onlyDeviceIds),
+                issue => [issue], token)
+            : Task.FromResult<IReadOnlyList<BatteryReading>>([]);
 
     public async Task<PresenceUpdate?> CheckPresenceAsync(
         DetectedDevice device, IReceiverTransport transport, CancellationToken cancellationToken)

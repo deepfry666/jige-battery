@@ -36,6 +36,32 @@ public sealed record DisabledDevicePath(
 /// </summary>
 public static class DeviceCatalog
 {
+    // Solaar base_usb.py: receivers with HID++ support. The 27 MHz EX100 uses a separate route.
+    internal static string? LogitechReceiverFamily(ushort? pid) => pid switch
+    {
+        0xC548 => "Bolt",
+        0xC52B or 0xC532 => "Unifying",
+        0xC518 or 0xC51A or 0xC51B or 0xC521 or 0xC525 or 0xC526 or
+            0xC52E or 0xC52F or 0xC531 or 0xC534 or 0xC535 or 0xC537 => "Nano",
+        0xC539 or 0xC53A or 0xC53D or 0xC53F or 0xC541 or 0xC545 or 0xC547 or 0xC54D => "LIGHTSPEED",
+        _ => null
+    };
+
+    internal static string? LogitechHidppHeadset(ushort? pid) => pid switch
+    {
+        0x0A66 => "Logitech G533",
+        0x0AC4 => "Logitech G535",
+        0x0A5C => "Logitech G633",
+        0x0A89 => "Logitech G635",
+        0x0A5B => "Logitech G933",
+        0x0A87 => "Logitech G935",
+        0x0AB5 or 0x0AFE or 0x0B1F => "Logitech G733",
+        0x0AA7 => "Logitech G PRO",
+        0x0AAA or 0x0ABA => "Logitech G PRO X",
+        0x0AFB or 0x0AFC => "Logitech G PRO X 2",
+        _ => null
+    };
+
     /// <summary>当前已启用协议路径的设备目录及其三级验证状态。</summary>
     public static IReadOnlyList<DeviceCatalogEntry> Entries { get; } =
     [
@@ -147,8 +173,6 @@ public static class DeviceCatalog
             VerificationTier.DocsOnly, "logitech-headset:", "HeadsetControl / HaloBattery（MIT）"),
         new(0x046D, 0x0B18, "Logitech G522 LIGHTSPEED", "Logitech Centurion", DeviceKind.Headset,
             VerificationTier.DocsOnly, "logitech-headset:", "HeadsetControl"),
-        new(0x046D, 0x0B45, "Logitech G PRO X 3 LIGHTSPEED", "Logitech Centurion", DeviceKind.Headset,
-            VerificationTier.DocsOnly, "logitech-headset:", "HeadsetControl"),
         new(0x046D, 0x0B21, "Logitech G325 LIGHTSPEED", "Logitech Centurion", DeviceKind.Headset,
             VerificationTier.DocsOnly, "logitech-headset:", "HeadsetControl #581"),
         new(0x046D, 0x0B1C, "ASTRO A50 Gen 5", "ASTRO Gen 5", DeviceKind.Headset,
@@ -251,6 +275,9 @@ public static class DeviceCatalog
         new(0x33E4, 0x3517, "G-Wolves Fenrir Asym 8K", "XVI-OLD / XVI-NEW 冲突",
             "社区存在 XVI-OLD 与 XVI-NEW 两代协议冲突记录，待实机抓包确认",
             "mouse.xyz env-models.json / OpenMouse"),
+
+        new(0x046D, 0x0B45, "Logitech G PRO X 3 LIGHTSPEED", "Logitech Centurion",
+            "当前版本未启用此路径，等待单独实机核对", "research/acceptance-0.2.4.md"),
 
         // ASTRO A50 X（046D:0B0B）：集合与查询未核实。
         new(0x046D, 0x0B0B, "ASTRO A50 X", "Logitech 耳机候选",

@@ -57,11 +57,12 @@ internal sealed partial class PopupScene
             {
                 SettingRow.GameSilent => PopupAction.GameSilent,
                 SettingRow.Autostart => PopupAction.Autostart,
+                SettingRow.Bluetooth => PopupAction.ShowBluetooth,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
             var button = new HitBox(target, rect);
             subButtons.Add(button);
-            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.Autostart);
+            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.Bluetooth);
             if (row != SettingRow.TrayMode)
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
@@ -72,14 +73,19 @@ internal sealed partial class PopupScene
                 SettingRow.Threshold => "低电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
+                SettingRow.Bluetooth => "显示蓝牙设备",
                 _ => "开机自启"
             };
             canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
 
-            if (row is SettingRow.GameSilent or SettingRow.Autostart)
+            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.Bluetooth)
             {
-                DrawSwitch(canvas, SwitchRect(rect),
-                    row == SettingRow.GameSilent ? settings.GameSilent : settings.StartWithWindows);
+                DrawSwitch(canvas, SwitchRect(rect), row switch
+                {
+                    SettingRow.GameSilent => settings.GameSilent,
+                    SettingRow.Autostart => settings.StartWithWindows,
+                    _ => settings.ShowBluetoothDevices
+                });
                 continue;
             }
 
@@ -269,6 +275,13 @@ internal sealed partial class PopupScene
                 Line(8, 4.8f, 8, 8);
                 Line(8, 8, 10.2f, 9.4f);
                 break;
+            case SettingRow.Bluetooth:
+                Line(8, 1.5f, 8, 14.5f);
+                Line(8, 1.5f, 12.5f, 5.5f);
+                Line(12.5f, 5.5f, 3.5f, 12.5f);
+                Line(3.5f, 3.5f, 12.5f, 10.5f);
+                Line(12.5f, 10.5f, 8, 14.5f);
+                break;
             case SettingRow.Autostart:
                 Line(8, 2, 8, 7.5f);
                 canvas.Arc(x + 8, y + 8.13f, 5.2f, -.856f, MathF.PI + .856f, ink, 1.3f);
@@ -291,6 +304,7 @@ internal sealed partial class PopupScene
         var settings = model.Settings;
         UpdateThumb(ref gameThumb, ref gameMotion, SwitchRect(Settings!.RowRect(SettingRow.GameSilent)), settings.GameSilent);
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
+        UpdateThumb(ref bluetoothThumb, ref bluetoothMotion, SwitchRect(Settings.RowRect(SettingRow.Bluetooth)), settings.ShowBluetoothDevices);
     }
 
     private void UpdateThumb(ref Composition.Layer? thumb, ref ThumbMotion? motion, PanelRect track, bool enabled)
@@ -388,7 +402,7 @@ internal sealed partial class PopupScene
             canvas.Text(model.Name(device.Device), 59, name.Y, name.Width - 8, name.Height, 13.5f, Dim(colors.Ink), ellipsis: true);
         }
 
-        float prefix = canvas.Text("2.4G · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
+        float prefix = canvas.Text($"{Presentation.Connection(device.Device)} · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
         DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
 
         float iconTop = y + 12.125f;

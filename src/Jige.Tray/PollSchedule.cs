@@ -60,7 +60,7 @@ internal sealed class PollSchedule(long createdMs)
 
     public long? Due(TraySettings settings, long nowMs, bool game)
     {
-        if (Running)
+        if (Running || HeartbeatRunning)
             return null;
         if (userRequested || urgentRescan)
             return nowMs;

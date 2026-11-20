@@ -9,7 +9,7 @@ internal static class LogitechHeadsetProtocol
     private static ReadOnlySpan<byte> Prefix(ushort pid) => pid switch
     {
         0x0AF7 => [0x51],
-        0x0B18 or 0x0B45 => [0x50, 0x23],
+        0x0B18 => [0x50, 0x23],
         _ => throw new ArgumentOutOfRangeException(nameof(pid))
     };
 
@@ -20,7 +20,7 @@ internal static class LogitechHeadsetProtocol
             (0x0B1C, LogitechHeadsetQuery.Battery) => [0x02, 0x0C, 0x03, 0, 0x06, 0x0C],
             (0x0B21, LogitechHeadsetQuery.Battery) => [0x50, 0x23, 0x0B, 0, 3, 0x1A, 0, 3, 0, 7, 0x0A],
             (0x0AF7, LogitechHeadsetQuery.LegacyBattery) => [0x51, 8, 0, 3, 0x1A, 0, 3, 0, 4, 0x0A],
-            (0x0AF7 or 0x0B18 or 0x0B45, _) => [],
+            (0x0AF7 or 0x0B18, _) => [],
             _ => throw new ArgumentOutOfRangeException(nameof(query))
         };
         var report = new byte[ReportLength];

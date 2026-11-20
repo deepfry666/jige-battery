@@ -84,6 +84,9 @@ internal static unsafe partial class Native
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true)]
     internal static partial nint GetClassDevs(in Guid classGuid, nint enumerator, nint parent, uint flags);
 
+    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true)]
+    internal static partial nint GetAllClassDevs(nint classGuid, nint enumerator, nint parent, uint flags);
+
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiDestroyDeviceInfoList")]
     internal static partial int DestroyDeviceInfoList(nint set);
 
@@ -115,6 +118,9 @@ internal static unsafe partial class Native
 
     [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_Parent")]
     internal static partial uint GetParent(out uint parent, uint devInst, uint flags);
+
+    [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_DevNode_Status")]
+    internal static partial uint GetDevNodeStatus(out uint status, out uint problem, uint devInst, uint flags);
 
     [LibraryImport("cfgmgr32.dll", EntryPoint = "CM_Get_Device_IDW")]
     internal static partial uint GetDeviceId(uint devInst, char* buffer, uint length, uint flags);

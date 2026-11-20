@@ -10,7 +10,7 @@ namespace Jige.Tray;
 
 internal sealed class TrayLog(string path)
 {
-    private const string FormatPrefix = "[几格日志 2] ";
+    private const string FormatPrefix = "[几格日志 3] ";
     private const int Limit = 1024 * 1024;
     private readonly object gate = new();
 

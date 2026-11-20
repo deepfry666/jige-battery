@@ -1,6 +1,6 @@
 namespace Jige.Core.Adapters;
 
-internal enum HidppFeature : ushort { DeviceInfo = 0x0003, DeviceName = 0x0005, Battery = 0x1000, Voltage = 0x1001, Unified = 0x1004 }
+internal enum HidppFeature : ushort { DeviceInfo = 0x0003, DeviceName = 0x0005, Battery = 0x1000, Voltage = 0x1001, Unified = 0x1004, Adc = 0x1F20 }
 
 internal static class LogitechHidppProtocol
 {
@@ -11,7 +11,7 @@ internal static class LogitechHidppProtocol
 
     public static byte[] GetFeature(byte slot, HidppFeature feature)
     {
-        if (feature is not (HidppFeature.DeviceInfo or HidppFeature.DeviceName or HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Unified))
+        if (feature is not (HidppFeature.DeviceInfo or HidppFeature.DeviceName or HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Unified or HidppFeature.Adc))
             throw new ArgumentOutOfRangeException(nameof(feature));
         // Root 回复不回显 feature ID。不同查表请求使用不同 software ID，隔离超时后的迟到回复。
         byte softwareId = feature switch
@@ -20,6 +20,7 @@ internal static class LogitechHidppProtocol
             HidppFeature.DeviceName => 0x0B,
             HidppFeature.Battery => 0x0C,
             HidppFeature.DeviceInfo => 0x0E,
+            HidppFeature.Adc => 0x0F,
             _ => 0x0D
         };
         return Encode(slot, 0, 0, (byte)((ushort)feature >> 8), (byte)feature, softwareId: softwareId);
@@ -30,9 +31,9 @@ internal static class LogitechHidppProtocol
     {
         bool allowed = feature switch
         {
-            HidppFeature.DeviceName => function == 1 ? offset != byte.MaxValue : function is 0 or 2 && offset == 0,
+            HidppFeature.DeviceName => function == 1 ? offset < 64 : function is 0 or 2 && offset == 0,
             HidppFeature.Unified => function <= 1 && offset == 0,
-            HidppFeature.DeviceInfo or HidppFeature.Battery or HidppFeature.Voltage => function == 0 && offset == 0,
+            HidppFeature.DeviceInfo or HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Adc => function == 0 && offset == 0,
             _ => false
         };
         if (!allowed || !IsFeatureIndex(index))
@@ -45,7 +46,7 @@ internal static class LogitechHidppProtocol
 
     private static byte[] Encode(byte slot, byte index, byte function, byte p0, byte p1 = 0, byte p2 = 0, byte softwareId = 0x0A)
     {
-        if (slot is < 1 or > 6)
+        if (!IsDeviceAddress(slot))
             throw new ArgumentOutOfRangeException(nameof(slot));
         var report = new byte[LongLength];
         report[0] = 0x11;
@@ -58,31 +59,67 @@ internal static class LogitechHidppProtocol
         return report;
     }
 
-    public static byte[] ReadPairing(byte slot, ushort pid)
+    public static bool IsDeviceAddress(byte address) => address is >= 1 and <= 6 or 0xFF;
+
+    public static byte[] ReadRegister(byte slot, byte register) => EncodeRegister(slot, 0x81, register);
+
+    internal static byte[] EncodeRegister(byte slot, byte subId, byte register)
     {
-        if (slot is < 1 or > 6)
-            throw new ArgumentOutOfRangeException(nameof(slot));
-        byte selector = pid switch
+        if (!IsDeviceAddress(slot) || subId != 0x81 ||
+            !(register is 0x07 or 0x0D || register == 0xB5 && slot == 0xFF))
+            throw new ArgumentOutOfRangeException(nameof(register), "HID++ 寄存器查询超出只读白名单");
+        return [0x10, slot, subId, register, 0, 0, 0];
+    }
+
+    public static bool HasReportShape(ReadOnlySpan<byte> report) =>
+        (report.Length == LongLength && report[0] == 0x11) ||
+        (report.Length is ShortLength or LongLength && report[0] == 0x10);
+
+    public static byte? Error(byte[]? report) =>
+        report is { Length: >= 7 } && report[2] is 0x8F or 0xFF ? report[5] : null;
+
+    public static bool IsUnreachable(byte[]? report) => Error(report) is 0x04 or 0x09;
+
+    public static bool IsPing(ReadOnlySpan<byte> request) => request[2] == 0 && request[3] == 0x1A;
+
+    public static bool TryRegisterBattery(ReadOnlySpan<byte> reply, byte register,
+        out int percentage, out bool estimated, out ChargingState charging)
+    {
+        percentage = 0;
+        estimated = register == 0x07;
+        charging = ChargingState.Unknown;
+        if (!HasReportShape(reply) || reply[2] != 0x81 || reply[3] != register)
+            return false;
+        if (register == 0x0D)
         {
-            0xC548 => (byte)(0x50 + slot),
-            0xC52B or 0xC532 => (byte)(0x20 + slot - 1),
-            _ => throw new ArgumentOutOfRangeException(nameof(pid))
-        };
-        return [0x10, 0xFF, 0x83, 0xB5, selector, 0, 0];
+            percentage = reply[4];
+            charging = (reply[6] & 0xF0) switch
+            {
+                0x30 => ChargingState.NotCharging,
+                0x50 => ChargingState.Charging,
+                0x90 => ChargingState.Full,
+                _ => ChargingState.Unknown
+            };
+            return percentage <= 100 && charging != ChargingState.Unknown;
+        }
+        if (register != 0x07)
+            return false;
+        percentage = reply[4] switch { 7 => 100, 5 => 50, 3 => 20, 1 => 5, _ => -1 };
+        charging = (reply[5] & 0x22) == 0x22 ? ChargingState.Full :
+            (reply[5] & 0x21) == 0x21 ? ChargingState.Charging :
+            reply[5] == 0 ? ChargingState.NotCharging : ChargingState.Unknown;
+        return percentage >= 0;
     }
 
     public static bool Matches(ReadOnlySpan<byte> report, ReadOnlySpan<byte> request)
     {
-        if (!((report.Length == LongLength && report[0] == 0x11) ||
-            (report.Length is ShortLength or LongLength && report[0] == 0x10)) || report[1] != request[1])
+        if (!HasReportShape(report) || report[1] != request[1])
             return false;
         if (report[2] is 0x8F or 0xFF)
             return report[3] == request[2] && report[4] == request[3];
         if (report[2] != request[2] || report[3] != request[3])
             return false;
-        if (request[2] == 0x83 && request[1] == 0xFF)
-            return report[0] == 0x11 && report[4] == request[4];
-        return request[2] != 0 || request[3] != 0x1A || report[6] == request[6];
+        return !IsPing(request) || report[6] == request[6];
     }
 
     public static bool IsSuccess(byte[]? frame) => frame is not null && frame[2] is not (0x8F or 0xFF);
@@ -95,7 +132,7 @@ internal static class LogitechHidppProtocol
     {
         slot = 0;
         connected = false;
-        if (report.Length < ShortLength || report[0] is not (0x10 or 0x11) || report[1] is < 1 or > 6)
+        if (!HasReportShape(report) || report[0] != 0x10 || report[1] is < 1 or > 6)
             return false;
         if (report[2] == 0x40)
         {
@@ -116,14 +153,6 @@ internal static class LogitechHidppProtocol
     {
         0 or 2 => DeviceKind.Keyboard,
         3 or 5 => DeviceKind.Mouse,
-        _ => DeviceKind.Other
-    };
-
-    public static DeviceKind PairingKind(byte type) => type switch
-    {
-        1 or 3 => DeviceKind.Keyboard,
-        2 or 8 => DeviceKind.Mouse,
-        0x0D => DeviceKind.Headset,
         _ => DeviceKind.Other
     };
 

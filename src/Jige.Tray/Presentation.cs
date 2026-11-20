@@ -86,6 +86,13 @@ internal static class Presentation
 
     public static int FilledCells(int? percent, int count) => ((percent ?? 0) * count + 50) / 100;
 
+    public static string Connection(DeviceIdentity device) => device.Connection switch
+    {
+        DeviceConnection.Bluetooth => "蓝牙",
+        DeviceConnection.UsbCable => "USB",
+        _ => "2.4G"
+    };
+
     public static string Status(DeviceStatus device, DateTimeOffset now, int threshold)
     {
         if (device.Fresh)
@@ -94,7 +101,7 @@ internal static class Presentation
                 BatteryTone.Charging => device.IsFull ? "已充满" : "充电中",
                 BatteryTone.Low => "电量低，该充电了",
                 BatteryTone.Warning => "电量偏低",
-                _ => device.Last?.IsEstimated == true ? "2.4G 已连接 · 电压估算" : "2.4G 已连接"
+                _ => device.Last?.IsEstimated == true ? $"{Connection(device.Device)} 已连接 · 电量估算" : $"{Connection(device.Device)} 已连接"
             };
 
         string status = (device.Link, device.Issue) switch

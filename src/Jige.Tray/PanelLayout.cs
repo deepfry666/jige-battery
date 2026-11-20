@@ -14,7 +14,7 @@ internal static class PanelLayout
     public const int Width = 344;
     public const int NoticeHeight = 144;
     public const int MainRowHeight = 48;
-    public const int SettingsHeight = 323;
+    public const int SettingsHeight = 367;
     public const int DeviceRowsTop = 99;
     public const float DeviceRowHeight = 54.25f;
     public const int DeviceBaseHeight = 153;

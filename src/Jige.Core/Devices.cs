@@ -1,5 +1,6 @@
 namespace Jige.Core;
 
+public enum DeviceConnection { Receiver, UsbCable, Bluetooth }
 public enum DeviceKind { Mouse, Headset, Keyboard, Other }
 public enum LinkState { Online, Asleep, Offline, Busy, Unknown }
 public enum ChargingState { Unknown, NotCharging, Charging, Full }
@@ -21,15 +22,22 @@ public enum VerificationTier
 public sealed record DeviceIdentity(
     string Id, string Name, DeviceKind Kind,
     AdaptationSource Source = AdaptationSource.Catalog,
-    VerificationTier Verification = VerificationTier.DocsOnly);
+    VerificationTier Verification = VerificationTier.DocsOnly,
+    DeviceConnection Connection = DeviceConnection.Receiver);
 
 public sealed record PresenceUpdate(
-    string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None);
+    string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None)
+{
+    public BatteryReading? Battery { get; init; }
+}
 
 public sealed record BatteryReading(
     DeviceIdentity Device, int? Percentage, bool IsEstimated, ChargingState Charging,
     LinkState Link, DateTimeOffset ReadAt, ReadIssue Issue = ReadIssue.None, string? Detail = null)
 {
+    internal string? BluetoothContainer { get; init; }
+    internal ulong? BluetoothAddress { get; init; }
+    internal string? ProtocolSummary { get; init; }
     public int? Percentage { get; } = Percentage is < 0 or > 100
         ? throw new ArgumentOutOfRangeException(nameof(Percentage))
         : Percentage;
@@ -43,6 +51,9 @@ public sealed record HidInterface(
     ushort? FeatureLength, byte? InterfaceNumber, ReadIssue MetadataIssue = ReadIssue.None,
     string? MetadataError = null) : ReceiverEndpoint(ReceiverId, Path)
 {
+    internal ulong? BluetoothAddress { get; init; }
+    internal bool BluetoothHid { get; init; }
+    internal bool InputOnly { get; init; }
     internal byte? RequiredInputReportId { get; init; }
     internal byte? RequiredOutputReportId { get; init; }
     internal byte? RequiredFeatureReportId { get; init; }
@@ -54,7 +65,10 @@ public sealed record UsbSerialPort(
 
 public sealed record DeviceInventory(
     IReadOnlyList<HidInterface> Hid, IReadOnlyList<UsbSerialPort> Serial,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings)
+{
+    public IReadOnlyList<BluetoothDevice> Bluetooth { get; init; } = [];
+}
 
 public enum FrameDirection { Sent, Received, Incomplete }
 public delegate void FrameTrace(FrameDirection direction, ReadOnlySpan<byte> bytes);

@@ -1,59 +1,121 @@
 using System.Buffers.Binary;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
+using Jige.Core.Diagnostics;
 
 namespace Jige.Core.Adapters;
 
-internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter, IPushPresenceAdapter
+internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMultiDeviceAdapter, IPushPresenceAdapter
 {
     private static int nextMarker;
+    private readonly SafetyGateStore safety = gates ?? new();
+    private readonly Dictionary<string, EndpointState> endpoints = new(StringComparer.OrdinalIgnoreCase);
+
+    private sealed class EndpointState
+    {
+        public readonly SlotState[] Slots = Enumerable.Range(0, 7).Select(_ => new SlotState()).ToArray();
+        public SlotState Slot(byte address) => Slots[address == 0xFF ? 0 : address];
+        public bool Confirmed;
+    }
+
+    private sealed class SlotState
+    {
+        public int Generation;
+        public bool Disconnected;
+        public bool Reconnect;
+        public BatteryReading? Last;
+        public BatteryQuery? Query;
+    }
+
+    private sealed record BatteryQuery(HidppFeature Feature, byte Index, byte Flags, byte Register = 0)
+    {
+        public byte[] Request(byte address) => Register != 0
+            ? LogitechHidppProtocol.ReadRegister(address, Register)
+            : LogitechHidppProtocol.ReadFeature(address, Feature, Index, Feature == HidppFeature.Unified ? (byte)1 : (byte)0);
+
+        public string Label => Register != 0 ? $"寄存器 {Register:X2}" : $"{(ushort)Feature:X4}";
+
+        public bool TryBattery(ReadOnlySpan<byte> reply, out int? level, out bool estimated,
+            out ChargingState charging, out LinkState link)
+        {
+            level = null;
+            estimated = false;
+            charging = ChargingState.Unknown;
+            link = LinkState.Online;
+            if (Register != 0)
+            {
+                if (!LogitechHidppProtocol.TryRegisterBattery(reply, Register, out int percent, out estimated, out charging))
+                    return false;
+                level = percent;
+                return true;
+            }
+            switch (Feature)
+            {
+                case HidppFeature.Unified:
+                    if ((Flags & 2) != 0)
+                    {
+                        if (reply[4] > 100)
+                            return false;
+                        level = reply[4];
+                    }
+                    else
+                    {
+                        level = reply[5] switch { 8 => 100, 4 => 50, 2 => 20, 1 => 5, _ => (int?)null };
+                        estimated = level.HasValue;
+                        if (!estimated)
+                            return false;
+                    }
+                    if ((Flags & 1) != 0)
+                        charging = LogitechHidppProtocol.Charging(reply[6]);
+                    return true;
+                case HidppFeature.Battery:
+                    if (reply[4] > 100 || reply[6] is 5 or 6 || reply[4] == 0 && reply[6] == 0)
+                        return false;
+                    level = reply[4];
+                    charging = LogitechHidppProtocol.Charging(reply[6], legacy: true);
+                    return true;
+                case HidppFeature.Adc when (reply[6] & 1) == 0:
+                    link = LinkState.Offline;
+                    return true;
+                case HidppFeature.Adc:
+                    charging = (reply[6] & 2) != 0 ? ChargingState.Charging : ChargingState.NotCharging;
+                    break;
+                case HidppFeature.Voltage:
+                    charging = (reply[6] & 0x80) == 0 ? ChargingState.NotCharging : (reply[6] & 7) switch
+                    {
+                        0 => ChargingState.Charging,
+                        1 => ChargingState.Full,
+                        2 => ChargingState.NotCharging,
+                        _ => ChargingState.Unknown
+                    };
+                    break;
+            }
+            level = LogitechHidppProtocol.EstimateVoltage(BinaryPrimitives.ReadUInt16BigEndian(reply[4..]));
+            estimated = level.HasValue;
+            return estimated;
+        }
+
+        public string Summary(ReadOnlySpan<byte> reply) => Register switch
+        {
+            0x0D => $"{reply[4]:X2} {reply[6]:X2}",
+            0x07 => $"{reply[4]:X2} {reply[5]:X2}",
+            _ => Convert.ToHexString(reply.Slice(4, Feature == HidppFeature.Unified && reply[0] == 0x11 ? 4 : 3))
+        };
+    }
 
     public PresenceProbeKind PresenceKind => PresenceProbeKind.PushListener;
 
-    // 罗技在线状态依靠接收器被动推送的 0x41/0x40 事件更新，不走定时心跳。
     public ValueTask<PresenceUpdate?> CheckPresenceAsync(
-        DeviceTarget target, IReceiverTransport transport, CancellationToken cancellationToken) =>
+        DeviceTarget target, IReceiverTransport transport, CancellationToken token) =>
         ValueTask.FromResult<PresenceUpdate?>(null);
-
-    public async Task ListenPushAsync(
-        DeviceTarget target, IReceiverTransport transport, Action<PresenceUpdate> onUpdate, CancellationToken token)
-    {
-        if (target.Endpoint is not HidInterface longHid || !IsLong(longHid) || !IsKnownReceiver(longHid.ProductId))
-            return;
-
-        // 优先监听短报告集合（0x41 连接推送走 HID++ 1.0 短报告），缺失短集合时回退长集合。
-        var listenEndpoint = target.ShortHid is { } shortHid && IsShort(shortHid)
-            ? shortHid with { RequiredInputReportId = 0x10 }
-            : longHid with { RequiredInputReportId = 0x11 };
-
-        using var session = transport.OpenHid(listenEndpoint, token);
-        var buffer = new byte[listenEndpoint.InputLength ?? LogitechHidppProtocol.LongLength];
-        while (!token.IsCancellationRequested)
-        {
-            int count = await session.ReadInputAsync(buffer, token).ConfigureAwait(false);
-            if (count == 0)
-                break;
-            if (LogitechHidppProtocol.TryParseConnectionEvent(buffer.AsSpan(0, count), out byte slot, out bool connected))
-                onUpdate(new(longHid.ReceiverId, slot, null, connected ? LinkState.Online : LinkState.Offline));
-        }
-    }
-
-    internal static bool UsesReceiverName(HidInterface hid) => !IsKnownReceiver(hid.ProductId) && IsLong(hid);
-
-    private static bool IsKnownReceiver(ushort? pid) => pid is
-        0xC539 or 0xC53A or 0xC53D or 0xC53F or 0xC541 or 0xC545 or 0xC547 or 0xC54D or
-        0xC548 or 0xC52B or 0xC532;
 
     private static bool IsLong(HidInterface hid) => hid is
     {
-        VendorId: 0x046D, ProductId: not null, UsagePage: 0xFF00, Usage: 2,
-        InputLength: LogitechHidppProtocol.LongLength, OutputLength: LogitechHidppProtocol.LongLength,
-        MetadataIssue: ReadIssue.None
-    } && hid.ProductId is not (0x0AF7 or 0x0B18 or 0x0B21 or 0x0B45 or 0x0B1C or 0x0B0B) &&
-        (IsKnownReceiver(hid.ProductId) || hid.Product is { } product &&
-            (product.Contains("receiver", StringComparison.OrdinalIgnoreCase) ||
-             product.Contains("dongle", StringComparison.OrdinalIgnoreCase) ||
-             product.Contains("接收器", StringComparison.Ordinal)));
+        VendorId: 0x046D, ProductId: not null, InputLength: LogitechHidppProtocol.LongLength,
+        OutputLength: LogitechHidppProtocol.LongLength, MetadataIssue: ReadIssue.None
+    } && DeviceCatalog.FindDisabledPath(hid.VendorId, hid.ProductId) is null &&
+        (hid is { UsagePage: 0xFF00, Usage: 2 } or { UsagePage: 0xFF43, Usage: 0x0202 } ||
+            hid is { ProductId: 0x0AC4, UsagePage: 0x000C, Usage: 1 });
 
     private static bool IsShort(HidInterface hid) => hid is
     {
@@ -62,16 +124,144 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter, IPushPresenceA
         MetadataIssue: ReadIssue.None
     };
 
+    private static bool ReceiverLabel(string? product) =>
+        product is not null && (product.Contains("receiver", StringComparison.OrdinalIgnoreCase) ||
+            product.Contains("dongle", StringComparison.OrdinalIgnoreCase) || product.Contains("接收器", StringComparison.Ordinal));
+
+    internal static bool UsesReceiverName(HidInterface hid) => IsLong(hid) && hid is { UsagePage: 0xFF00, Usage: 2 } &&
+        DeviceCatalog.LogitechReceiverFamily(hid.ProductId) is null && ReceiverLabel(hid.Product);
+
+    internal static bool IsBluetooth(HidInterface hid) =>
+        hid.BluetoothHid || hid.BluetoothAddress.HasValue || hid.Path.Contains("VID&0002046D", StringComparison.OrdinalIgnoreCase);
+
+    internal static bool IsHeadset(HidInterface hid) => IsLong(hid) &&
+        DeviceCatalog.LogitechHidppHeadset(hid.ProductId) is not null &&
+        (hid.ProductId == 0x0AC4 ? hid is { UsagePage: 0x000C, Usage: 1 } : hid is { UsagePage: 0xFF43, Usage: 0x0202 });
+
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
+        var targets = new List<DeviceTarget>();
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(IsLong)))
         {
-            var id = $"logitech-hidpp:{endpoint.ReceiverId}";
-            var name = $"Logitech HID++ 接收器 {endpoint.ProductId:X4}";
-            var shortHid = HidQuery.UniqueCollections(inventory.Hid.Where(hid =>
-                IsShort(hid) && hid.ProductId == endpoint.ProductId &&
-                StringComparer.OrdinalIgnoreCase.Equals(hid.ReceiverId, endpoint.ReceiverId))).SingleOrDefault();
-            yield return new(new(id, name, DeviceKind.Other), endpoint, "0") { ShortHid = shortHid };
+            var family = DeviceCatalog.LogitechReceiverFamily(endpoint.ProductId);
+            string? headset = IsHeadset(endpoint) ? DeviceCatalog.LogitechHidppHeadset(endpoint.ProductId) : null;
+            bool bluetooth = IsBluetooth(endpoint) && endpoint is { UsagePage: 0xFF43, Usage: 0x0202 };
+            bool usbCollection = endpoint is { UsagePage: 0xFF00, Usage: 2 } && !IsBluetooth(endpoint);
+            bool receiver = usbCollection && (family is not null || ReceiverLabel(endpoint.Product));
+            if (safety.IsBlocked(endpoint, out _) || (!bluetooth && !usbCollection && headset is null))
+                continue;
+
+            var shortHid = HidQuery.UniqueCollections(inventory.Hid.Where(hid => IsShort(hid) &&
+                hid.ProductId == endpoint.ProductId && SameReceiver(hid, endpoint))).SingleOrDefault();
+            bool cable = usbCollection && !receiver && shortHid is not null;
+            if (!bluetooth && !receiver && !cable && headset is null)
+                continue;
+
+            var connection = bluetooth ? DeviceConnection.Bluetooth : cable ? DeviceConnection.UsbCable : DeviceConnection.Receiver;
+            string id = bluetooth ? BluetoothBattery.DeviceId(endpoint.ReceiverId, endpoint.BluetoothAddress) :
+                receiver ? $"logitech-hidpp:{endpoint.ReceiverId}" : $"logitech-hidpp-direct:{endpoint.ReceiverId}";
+            string name = receiver ? $"Logitech {family ?? "HID++"} 接收器 {endpoint.ProductId:X4}" :
+                headset ?? (bluetooth ? BluetoothBattery.UnnamedHidpp : endpoint.Product ?? "Logitech 无线设备");
+            var device = new DeviceIdentity(id, name, headset is null ? DeviceKind.Other : DeviceKind.Headset,
+                family is null && headset is null ? AdaptationSource.Generic : AdaptationSource.Catalog, Connection: connection);
+            targets.Add(new(device, endpoint, receiver ? "0" : "255") { ShortHid = shortHid });
+        }
+
+        if (inventory.Warnings.Count == 0)
+        {
+            var live = targets.Select(target => target.Endpoint.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            lock (endpoints)
+            {
+                foreach (string path in endpoints.Keys.Where(path => !live.Contains(path)).ToArray())
+                    endpoints.Remove(path);
+            }
+        }
+        return targets;
+    }
+
+    private static bool SameReceiver(HidInterface first, HidInterface second) =>
+        StringComparer.OrdinalIgnoreCase.Equals(first.ReceiverId, second.ReceiverId);
+
+    private EndpointState State(HidInterface endpoint)
+    {
+        lock (endpoints)
+        {
+            if (!endpoints.TryGetValue(endpoint.Path, out var state))
+                endpoints.Add(endpoint.Path, state = new());
+            return state;
+        }
+    }
+
+    public async Task ListenPushAsync(DeviceTarget target, IReceiverTransport transport, Action<PresenceUpdate> onUpdate,
+        CancellationToken token)
+    {
+        if (target.Endpoint is not HidInterface endpoint || !IsLong(endpoint) || safety.IsBlocked(endpoint, out _))
+            return;
+        var state = State(endpoint);
+        if (UsesReceiverName(endpoint) && !Volatile.Read(ref state.Confirmed))
+            return;
+
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
+        var listeners = new List<Task> { ListenAsync(endpoint, 0x11) };
+        if (target.ShortHid is { } shortHid)
+            listeners.Add(ListenAsync(shortHid, 0x10));
+
+        try
+        {
+            await await Task.WhenAny(listeners).ConfigureAwait(false);
+        }
+        finally
+        {
+            await lifetime.CancelAsync().ConfigureAwait(false);
+            try { await Task.WhenAll(listeners).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        }
+
+        async Task ListenAsync(HidInterface input, byte reportId)
+        {
+            using var session = transport.OpenHid(input with { RequiredInputReportId = reportId, InputOnly = true },
+                lifetime.Token);
+            var buffer = new byte[input.InputLength!.Value];
+            while (!lifetime.IsCancellationRequested)
+            {
+                int count = await session.ReadInputAsync(buffer, lifetime.Token).ConfigureAwait(false);
+                if (count == 0)
+                    return;
+                if (HandleEvent(target, state, buffer.AsSpan(0, count), allowBattery: true) is { } update)
+                    onUpdate(update);
+            }
+        }
+    }
+
+    private static PresenceUpdate? HandleEvent(DeviceTarget target, EndpointState state, ReadOnlySpan<byte> report,
+        bool allowBattery)
+    {
+        var endpoint = (HidInterface)target.Endpoint;
+        lock (state)
+        {
+            if (target.Slot == "0" && LogitechHidppProtocol.TryParseConnectionEvent(report, out byte address, out bool connected))
+            {
+                var slot = state.Slot(address);
+                slot.Generation++;
+                slot.Query = null;
+                slot.Disconnected = !connected;
+                slot.Reconnect = true;
+                return new(endpoint.ReceiverId, address, slot.Last?.Device.Id, connected ? LinkState.Online : LinkState.Offline);
+            }
+            if (!allowBattery || !LogitechHidppProtocol.HasReportShape(report) ||
+                !LogitechHidppProtocol.IsDeviceAddress(report[1]) || (target.Slot == "0") == (report[1] == 0xFF) ||
+                report[3] != 0)
+                return null;
+
+            var batterySlot = state.Slot(report[1]);
+            if (batterySlot.Disconnected || batterySlot.Last is not { } last ||
+                batterySlot.Query is not { Feature: HidppFeature.Unified or HidppFeature.Battery } query ||
+                report[2] != query.Index || !query.TryBattery(report, out int? level, out bool estimated, out var charging, out var link) ||
+                level is null)
+                return null;
+            var reading = Reading(last.Device, level, estimated, charging, link, last.ProtocolSummary, endpoint);
+            batterySlot.Last = reading;
+            return new(endpoint.ReceiverId, report[1] == 0xFF ? null : report[1], reading.Device.Id, link) { Battery = reading };
         }
     }
 
@@ -79,213 +269,402 @@ internal sealed class LogitechHidppAdapter : IMultiDeviceAdapter, IPushPresenceA
         FrameTrace? trace, CancellationToken token)
     {
         var devices = await ReadDevicesAsync(target, transport, trace, token).ConfigureAwait(false);
-        return devices.Count switch
-        {
-            1 => devices[0],
-            0 => new(target.Device, null, false, ChargingState.Unknown, LinkState.Unknown, DateTimeOffset.UtcNow,
-                Detail: "未确认接收器下有已配对的 HID++ 2.0 设备"),
-            _ => new(target.Device, null, false, ChargingState.Unknown, LinkState.Online, DateTimeOffset.UtcNow,
-                Detail: $"接收器下确认了 {devices.Count} 个槽位，请使用多设备读取接口")
-        };
+        return devices.Count == 1 ? devices[0] : AdapterRegistry.Failure(target, ReadIssue.None,
+            devices.Count == 0 ? "未确认有已配对的 HID++ 设备" : $"已确认 {devices.Count} 个槽位，请使用多设备读取接口");
     }
 
-    public async ValueTask<IReadOnlyList<BatteryReading>> ReadDevicesAsync(DeviceTarget target,
-        IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
+    public ValueTask<IReadOnlyList<BatteryReading>> ReadDevicesAsync(DeviceTarget target,
+        IReceiverTransport transport, FrameTrace? trace, CancellationToken token) =>
+        ReadSelectedAsync(target, transport, trace, token, onlyDeviceIds: null);
+
+    internal async ValueTask<IReadOnlyList<BatteryReading>> ReadSelectedAsync(DeviceTarget target,
+        IReceiverTransport transport, FrameTrace? trace, CancellationToken token, IReadOnlySet<string>? onlyDeviceIds)
     {
-        if (target.Endpoint is not HidInterface endpoint || !IsLong(endpoint))
-            return [AdapterRegistry.Failure(target, ReadIssue.IoError, "HID++ 长报告集合不匹配")];
+        if (target.Endpoint is not HidInterface endpoint || !IsLong(endpoint) || safety.IsBlocked(endpoint, out _))
+            return [AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "HID++ 集合未通过安全检查")];
 
-        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x11, RequiredOutputReportId = 0x11 }, token);
-        bool known = IsKnownReceiver(endpoint.ProductId);
-        bool hasPairingRoute = target.ShortHid is { } shortHid && IsShort(shortHid) &&
-            shortHid.ProductId == endpoint.ProductId &&
-            StringComparer.OrdinalIgnoreCase.Equals(shortHid.ReceiverId, endpoint.ReceiverId) &&
-            endpoint.ProductId is 0xC548 or 0xC52B or 0xC532;
+        bool receiver = target.Slot == "0";
+        var state = State(endpoint);
+        var addresses = receiver ? new byte[] { 1, 2, 3, 4, 5, 6 } : [0xFF];
+        if (onlyDeviceIds is not null)
+        {
+            lock (state)
+            {
+                addresses = addresses.Where(address =>
+                {
+                    string? knownId = state.Slot(address).Last?.Device.Id;
+                    if (knownId is not null && onlyDeviceIds.Contains(knownId))
+                        return true;
+                    if (!receiver)
+                        return onlyDeviceIds.Contains(target.Device.Id);
+                    return onlyDeviceIds.Any(id => id.StartsWith($"{target.Device.Id}/{address}/", StringComparison.OrdinalIgnoreCase));
+                }).ToArray();
+            }
+            if (addresses.Length == 0)
+                return [];
+        }
+        var results = new List<BatteryReading>();
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(6));
+        CancellationToken scanToken = deadline.Token;
 
-        List<BatteryReading> results = [];
-        using var scanDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        scanDeadline.CancelAfter(TimeSpan.FromSeconds(6));
-        var scanToken = scanDeadline.Token;
-        IHidSession? shortSession = null;
         try
         {
-            for (byte slot = 1; slot <= (known ? 6 : 1); slot++)
+            using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x11, RequiredOutputReportId = 0x11 }, scanToken);
+            using var shortSession = OpenShort();
+            bool guarded = UsesReceiverName(endpoint) && !Volatile.Read(ref state.Confirmed);
+            bool invalidPing = false;
+            var features = new Dictionary<(byte, byte), HidppFeature>();
+            foreach (byte slot in addresses)
             {
-                var marker = unchecked((byte)Interlocked.Increment(ref nextMarker));
-                var ping = await QueryAsync(LogitechHidppProtocol.Ping(slot, marker)).ConfigureAwait(false);
-                bool online = LogitechHidppProtocol.IsSuccess(ping) && ping![4] is >= 2 and < 0xFF;
-                if (!known)
+                var result = await ReadSlotAsync(slot).ConfigureAwait(false);
+                if (invalidPing)
                 {
-                    // 未收录 PID 仅探测一次对应槽的 Root。即使应答正常也不调用动态索引。
-                    var feature = online
-                        ? await QueryAsync(LogitechHidppProtocol.GetFeature(slot, HidppFeature.Unified)).ConfigureAwait(false)
-                        : null;
-                    return [new(target.Device, null, false, ChargingState.Unknown,
-                        online ? LinkState.Online : LinkState.Unknown, DateTimeOffset.UtcNow,
-                        Detail: LogitechHidppProtocol.IsSuccess(feature)
-                            ? $"未知 PID 的 Root 探测有回复，1004 索引 {feature![4]:X2}"
-                            : "未知 PID 的只读探测未确认电量功能")];
+                    safety.Block(endpoint, "首个 HID++ Ping 应答格式不匹配");
+                    Forget();
+                    return [AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "首个 HID++ Ping 应答格式不匹配")];
+                }
+                if (result is not null)
+                    results.Add(result);
+            }
+
+            async ValueTask<BatteryReading?> ReadSlotAsync(byte slot)
+            {
+                SlotState entry = state.Slot(slot);
+                BatteryReading? previous;
+                BatteryQuery? cached;
+                int generation;
+                bool disconnected;
+                bool reconnect;
+                lock (state)
+                {
+                    previous = entry.Last;
+                    cached = entry.Query;
+                    generation = entry.Generation;
+                    disconnected = entry.Disconnected;
+                    reconnect = entry.Reconnect;
                 }
 
-                var device = new DeviceIdentity($"{target.Device.Id}/{slot}/unknown",
-                    $"Logitech 无线设备（槽 {slot}）", DeviceKind.Other);
-                if (online)
+                var device = reconnect ? target.Device : previous?.Device ?? target.Device;
+                if (receiver && (previous is null || reconnect))
+                    device = device with { Id = $"{device.Id}/{slot}/unknown", Name = $"Logitech 无线设备（槽 {slot}）" };
+                string route = receiver ? $"接收器槽位 {slot}" : target.Device.Connection switch
                 {
-                    // 当前接收器句柄下，每个槽独立缓存。关闭句柄即丢弃，重新打开时重新确认索引。
-                    var reader = new SlotReader(slot, QueryAsync);
-                    results.Add(await reader.ReadAsync(device).ConfigureAwait(false));
-                    continue;
-                }
+                    DeviceConnection.Bluetooth => "蓝牙 HID++",
+                    DeviceConnection.UsbCable => "线缆",
+                    _ => "耳机接收器"
+                };
 
-                // 无回复并不能证明槽已配对。仅用明确的不可达错误或可解析配对记录显示离线。
-                bool unreachable = ping is not null && ping[2] == 0x8F && ping[5] is 0x04 or 0x09;
-                if (!unreachable && ping is not null)
-                    continue;
-                if (hasPairingRoute)
+                string version = "未知";
+                var indices = new Dictionary<HidppFeature, byte>();
+                if (cached is not null)
                 {
-                    shortSession ??= transport.OpenHid(target.ShortHid! with { RequiredOutputReportId = 0x10 }, scanToken);
-                    var request = LogitechHidppProtocol.ReadPairing(slot, endpoint.ProductId!.Value);
-                    var pair = await HidQuery.OutputAsync(shortSession, session, request,
-                        LogitechHidppProtocol.LongLength, reply => LogitechHidppProtocol.Matches(reply, request),
-                        trace, scanToken, 200).ConfigureAwait(false);
-                    if (LogitechHidppProtocol.IsSuccess(pair))
+                    var reply = await QueryAsync(cached.Request(slot)).ConfigureAwait(false);
+                    if (ParseBattery(cached, reply, previous?.ProtocolSummary) is { } updated)
+                        return Remember(updated, cached);
+                    if (reply is null || LogitechHidppProtocol.IsUnreachable(reply))
+                        return Remember(Unavailable(LogitechHidppProtocol.IsUnreachable(reply), previous?.ProtocolSummary),
+                            reply is null ? cached : null);
+                    lock (state)
                     {
-                        bool bolt = endpoint.ProductId == 0xC548;
-                        ushort wpid = bolt ? BinaryPrimitives.ReadUInt16LittleEndian(pair.AsSpan(6))
-                            : BinaryPrimitives.ReadUInt16BigEndian(pair.AsSpan(7));
-                        if (wpid is not (0 or ushort.MaxValue))
+                        if (entry.Generation == generation)
+                            entry.Query = null;
+                    }
+                    // 功能索引被设备拒绝，下轮重新 Ping 和查表。
+                    return Remember(Unavailable(false, previous?.ProtocolSummary), null);
+                }
+
+                byte marker = unchecked((byte)Interlocked.Increment(ref nextMarker));
+                var ping = await QueryAsync(LogitechHidppProtocol.Ping(slot, marker)).ConfigureAwait(false);
+                byte? error = LogitechHidppProtocol.Error(ping);
+                if (error == 0x08)
+                {
+                    device = previous?.Device ?? device;
+                    return previous is null ? null : Remember(Unavailable(true), null);
+                }
+                if (LogitechHidppProtocol.IsUnreachable(ping))
+                {
+                    device = previous?.Device ?? device;
+                    return Remember(Unavailable(true), null);
+                }
+                if (ping is null)
+                {
+                    device = previous?.Device ?? device;
+                    return previous is null && receiver && onlyDeviceIds is null ? null : Remember(Unavailable(disconnected), null);
+                }
+
+                if (error == 0x01)
+                {
+                    version = "1.0";
+                    foreach (byte register in new byte[] { 0x0D, 0x07 })
+                    {
+                        var legacy = new BatteryQuery(default, 0, 0, register);
+                        var reply = await QueryAsync(legacy.Request(slot)).ConfigureAwait(false);
+                        if (ParseBattery(legacy, reply) is { } reading)
+                            return Remember(reading, legacy);
+                        if (LogitechHidppProtocol.IsUnreachable(reply))
+                            return Remember(Unavailable(true), null);
+                    }
+                    return Remember(Reading(device, null, false, ChargingState.Unknown, LinkState.Online, Summary(), endpoint), null);
+                }
+                if (error is not null || ping[4] is < 2 or 0xFF)
+                    return previous is null && receiver ? null : Remember(Unavailable(disconnected), null);
+
+                version = $"{ping[4]}.{ping[5]}";
+                string? unit = UnitDigest(await ReadFeatureAsync(HidppFeature.DeviceInfo).ConfigureAwait(false));
+                var size = await ReadFeatureAsync(HidppFeature.DeviceName).ConfigureAwait(false);
+                if (size?[4] is > 0 and <= 64)
+                {
+                    var name = new byte[size[4]];
+                    for (int offset = 0; offset < name.Length;)
+                    {
+                        var chunk = await ReadFeatureAsync(HidppFeature.DeviceName, 1, (byte)offset).ConfigureAwait(false);
+                        if (chunk is null)
+                            break;
+                        int count = Math.Min(name.Length - offset, chunk[0] == 0x10 ? 3 : 16);
+                        chunk.AsSpan(4, count).CopyTo(name.AsSpan(offset));
+                        offset += count;
+                        if (offset == name.Length && !name.Contains((byte)0))
                         {
-                            var type = pair![bolt ? 5 : 11];
-                            device = device with
-                            {
-                                Id = device.Id[..^"unknown".Length] + $"wpid-{wpid:X4}",
-                                Kind = LogitechHidppProtocol.PairingKind((byte)(type & 0x0F))
-                            };
-                            unreachable = true;
+                            string decoded = Encoding.UTF8.GetString(name).Trim();
+                            if (decoded.Length > 0 && !decoded.Any(char.IsControl))
+                                device = device with { Name = decoded };
                         }
                     }
                 }
-                if (unreachable)
-                    results.Add(new(device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
-                        Detail: $"已配对槽 {slot} 当前不可达"));
+                var type = await ReadFeatureAsync(HidppFeature.DeviceName, 2).ConfigureAwait(false);
+                if (type is not null && device.Kind != DeviceKind.Headset)
+                    device = device with { Kind = LogitechHidppProtocol.NameKind(type[4]) };
+                if (device.Connection != DeviceConnection.Bluetooth)
+                {
+                    string? suffix = unit ?? ((previous is null || reconnect) && receiver ? ModelDigest(device) : null);
+                    if (suffix is not null)
+                        device = device with { Id = receiver ? $"{target.Device.Id}/{slot}/{suffix}" : $"{target.Device.Id}/{suffix}" };
+                }
+
+                HidppFeature[] batteryFeatures = device.Kind == DeviceKind.Headset
+                    ? [HidppFeature.Unified, HidppFeature.Adc, HidppFeature.Battery, HidppFeature.Voltage]
+                    : [HidppFeature.Unified, HidppFeature.Battery, HidppFeature.Voltage];
+                foreach (var feature in batteryFeatures)
+                {
+                    byte index = await FindFeatureAsync(feature).ConfigureAwait(false);
+                    if (!LogitechHidppProtocol.IsFeatureIndex(index))
+                        continue;
+                    byte flags = 0;
+                    if (feature == HidppFeature.Unified)
+                    {
+                        var caps = await ReadFeatureAsync(feature).ConfigureAwait(false);
+                        if (caps is null)
+                            continue;
+                        flags = caps[5];
+                    }
+                    var query = new BatteryQuery(feature, index, flags);
+                    var frame = await QueryAsync(query.Request(slot)).ConfigureAwait(false);
+                    if (ParseBattery(query, frame) is { } reading)
+                        return Remember(reading, query);
+                    if (LogitechHidppProtocol.IsUnreachable(frame))
+                        return Remember(Unavailable(true), null);
+                }
+                return Remember(Reading(device, null, false, ChargingState.Unknown, LinkState.Online, Summary(), endpoint), null);
+
+                async ValueTask<byte> FindFeatureAsync(HidppFeature feature)
+                {
+                    if (indices.TryGetValue(feature, out byte index))
+                        return index;
+                    var response = await QueryAsync(LogitechHidppProtocol.GetFeature(slot, feature)).ConfigureAwait(false);
+                    index = LogitechHidppProtocol.IsSuccess(response) ? response![4] : (byte)0;
+                    indices.Add(feature, index);
+                    return index;
+                }
+
+                async ValueTask<byte[]?> ReadFeatureAsync(HidppFeature feature, byte function = 0, byte offset = 0)
+                {
+                    byte index = await FindFeatureAsync(feature).ConfigureAwait(false);
+                    if (!LogitechHidppProtocol.IsFeatureIndex(index))
+                        return null;
+                    var frame = await QueryAsync(LogitechHidppProtocol.ReadFeature(slot, feature, index, function, offset))
+                        .ConfigureAwait(false);
+                    return LogitechHidppProtocol.IsSuccess(frame) ? frame : null;
+                }
+
+                string Summary() => $"{route}；HID++ {version}；功能索引 " +
+                    (indices.Count == 0 ? "—" : string.Join("、", indices.Where(item => LogitechHidppProtocol.IsFeatureIndex(item.Value))
+                        .Select(item => $"{(ushort)item.Key:X4}={item.Value:X2}").DefaultIfEmpty("—")));
+
+                BatteryReading Unavailable(bool offline, string? summary = null) =>
+                    Reading(device, null, false, ChargingState.Unknown, offline ? LinkState.Offline : LinkState.Asleep,
+                        summary ?? Summary(), endpoint, offline ? ReadIssue.None : ReadIssue.Timeout);
+
+                BatteryReading? ParseBattery(BatteryQuery query, byte[]? reply, string? oldSummary = null)
+                {
+                    if (!LogitechHidppProtocol.IsSuccess(reply) ||
+                        !query.TryBattery(reply, out var percent, out bool estimated, out var charging, out var link))
+                        return null;
+                    var summary = oldSummary?.Split("；电量 ", 2)[0] ?? Summary();
+                    return Reading(device, percent, estimated, charging, link,
+                        $"{summary}；电量 {query.Label}，回复载荷 {query.Summary(reply!)}", endpoint);
+                }
+
+                BatteryReading Remember(BatteryReading reading, BatteryQuery? query)
+                {
+                    lock (state)
+                    {
+                        if (entry.Generation != generation)
+                            return Unavailable(entry.Disconnected);
+                        entry.Last = reading;
+                        entry.Query = query;
+                        if (reading.Link == LinkState.Online)
+                        {
+                            entry.Disconnected = false;
+                            entry.Reconnect = false;
+                        }
+                        return reading;
+                    }
+                }
+            }
+
+            IHidSession? OpenShort()
+            {
+                if (target.ShortHid is not { } hid || !IsShort(hid) || hid.ProductId != endpoint.ProductId || !SameReceiver(endpoint, hid))
+                    return null;
+                try
+                {
+                    return transport.OpenHid(hid with { RequiredInputReportId = 0x10, RequiredOutputReportId = 0x10 }, scanToken);
+                }
+                catch (TransportException error) when (error.Issue is ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.IoError)
+                {
+                    return null;
+                }
+            }
+
+            async ValueTask<byte[]?> QueryAsync(byte[] request)
+            {
+                bool register = request[0] == 0x10;
+                if (register && shortSession is null)
+                    return null;
+                bool ping = LogitechHidppProtocol.IsPing(request);
+                bool malformed = false;
+                var response = await QueryCollectionsAsync(register ? shortSession! : session, session, shortSession, request, frame =>
+                {
+                    if (LogitechHidppProtocol.Matches(frame, request))
+                        return true;
+                    HandleEvent(target, state, frame, allowBattery: false);
+                    if (guarded && ping && !LogitechHidppProtocol.HasReportShape(frame))
+                        malformed = true;
+                    return false;
+                }, trace is null ? null : (direction, bytes) => trace(direction, direction == FrameDirection.Sent
+                    ? bytes : DiagnosticPrivacy.HidReply(this, endpoint, bytes, request, features)), scanToken).ConfigureAwait(false);
+
+                if (guarded && ping)
+                {
+                    byte? error = LogitechHidppProtocol.Error(response);
+                    invalidPing = response is null ? malformed : error is null && response[4] is < 2 or 0xFF;
+                    if (!invalidPing && response is not null)
+                    {
+                        Volatile.Write(ref state.Confirmed, true);
+                        guarded = false;
+                    }
+                }
+                return response;
             }
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
             results.Add(AdapterRegistry.Failure(target, ReadIssue.Timeout, "HID++ 接收器扫描超时"));
         }
-        catch (TransportException error) when (results.Count > 0)
+        catch (TransportException error)
         {
-            results.Add(AdapterRegistry.Failure(target, error.Issue, error.Message));
-        }
-        finally
-        {
-            shortSession?.Dispose();
+            if (error.Issue == ReadIssue.Disconnected)
+            {
+                Forget();
+                results.Clear();
+            }
+            results.Add(Reading(target.Device, null, false, ChargingState.Unknown,
+                error.Issue switch
+                {
+                    ReadIssue.Disconnected => LinkState.Offline,
+                    ReadIssue.Timeout => LinkState.Asleep,
+                    ReadIssue.Busy => LinkState.Busy,
+                    _ => LinkState.Unknown
+                }, null, endpoint, error.Issue));
         }
         return results;
 
-        ValueTask<byte[]?> QueryAsync(byte[] request) => HidQuery.OutputAsync(session, session, request,
-            LogitechHidppProtocol.LongLength, reply => LogitechHidppProtocol.Matches(reply, request),
-            trace, scanToken, 200);
+        void Forget()
+        {
+            lock (endpoints)
+                endpoints.Remove(endpoint.Path);
+        }
     }
 
-    private static string IdentitySuffix(byte[]? info, DeviceIdentity device)
+    private static async ValueTask<byte[]?> QueryCollectionsAsync(IHidSession output, IHidSession longInput,
+        IHidSession? shortInput, byte[] request, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
     {
-        if (info is { Length: LogitechHidppProtocol.LongLength })
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(200);
+        var work = deadline.Token;
+        var reads = new List<Task<byte[]?>>(2);
+        try
         {
-            var unit = info.AsSpan(5, 4);
-            if (unit.ContainsAnyExcept((byte)0) && unit.ContainsAnyExcept(byte.MaxValue))
-            {
-                // P1–P4 为 Unit ID，P6–P11 为型号 ID。两者结合可区分同槽换配对。
-                byte[] identity = [.. unit, .. info.AsSpan(10, 6)];
-                return $"unit-{Convert.ToHexString(SHA256.HashData(identity).AsSpan(0, 12))}";
-            }
+            await output.WriteOutputAsync(request, work).ConfigureAwait(false);
+            trace?.Invoke(FrameDirection.Sent, request);
+            reads.Add(ReadAsync(longInput, LogitechHidppProtocol.LongLength));
+            if (shortInput is not null)
+                reads.Add(ReadAsync(shortInput, LogitechHidppProtocol.ShortLength));
+            var completed = await Task.WhenAny(reads).ConfigureAwait(false);
+            return await completed.ConfigureAwait(false);
         }
-        byte[] metadata = Encoding.UTF8.GetBytes($"{device.Kind}:{device.Name}");
-        return $"model-{Convert.ToHexString(SHA256.HashData(metadata).AsSpan(0, 12))}";
-    }
-
-    private sealed class SlotReader(byte slot, Func<byte[], ValueTask<byte[]?>> query)
-    {
-        private readonly Dictionary<HidppFeature, byte> indices = [];
-
-        private async ValueTask<byte[]?> ReadFeatureAsync(HidppFeature feature, byte function = 0, byte offset = 0)
+        catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            if (!indices.TryGetValue(feature, out byte index))
-            {
-                var response = await query(LogitechHidppProtocol.GetFeature(slot, feature)).ConfigureAwait(false);
-                if (!LogitechHidppProtocol.IsSuccess(response))
-                    return null;
-                index = response![4];
-                indices.Add(feature, index);
-            }
-            if (!LogitechHidppProtocol.IsFeatureIndex(index))
-                return null;
-            var frame = await query(LogitechHidppProtocol.ReadFeature(slot, feature, index, function, offset)).ConfigureAwait(false);
-            return LogitechHidppProtocol.IsSuccess(frame) ? frame : null;
+            return null;
+        }
+        finally
+        {
+            await deadline.CancelAsync().ConfigureAwait(false);
+            try { await Task.WhenAll(reads).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (work.IsCancellationRequested) { }
         }
 
-        public async ValueTask<BatteryReading> ReadAsync(DeviceIdentity device)
+        async Task<byte[]?> ReadAsync(IHidSession input, int length)
         {
-            var size = await ReadFeatureAsync(HidppFeature.DeviceName).ConfigureAwait(false);
-            if (size?[4] is > 0 and <= 64)
+            var buffer = new byte[length];
+            while (true)
             {
-                var name = new byte[size[4]];
-                for (int offset = 0; offset < name.Length;)
+                int count = await input.ReadInputAsync(buffer, work).ConfigureAwait(false);
+                work.ThrowIfCancellationRequested();
+                if (count == 0)
+                    throw new TransportException(ReadIssue.Disconnected, "HID 输入通道已关闭");
+                var frame = buffer[..count];
+                lock (reads)
                 {
-                    var chunk = await ReadFeatureAsync(HidppFeature.DeviceName, 1, (byte)offset).ConfigureAwait(false);
-                    if (chunk is null)
-                        break;
-                    int capacity = chunk[0] == 0x10 ? 3 : 16;
-                    int count = Math.Min(name.Length - offset, capacity);
-                    chunk.AsSpan(4, count).CopyTo(name.AsSpan(offset));
-                    offset += count;
-                    if (offset == name.Length && !name.Contains((byte)0))
-                        device = device with { Name = Encoding.UTF8.GetString(name) };
+                    trace?.Invoke(FrameDirection.Received, frame);
+                    if (matches(frame))
+                        return frame;
                 }
             }
-
-            var type = await ReadFeatureAsync(HidppFeature.DeviceName, 2).ConfigureAwait(false);
-            if (type is not null)
-                device = device with { Kind = LogitechHidppProtocol.NameKind(type[4]) };
-
-            // Unit ID 只用于本机区分同型号的不同设备，不保存原始值。
-            var info = await ReadFeatureAsync(HidppFeature.DeviceInfo).ConfigureAwait(false);
-            string suffix = IdentitySuffix(info, device);
-            device = device with { Id = device.Id[..^"unknown".Length] + suffix };
-
-            var capabilities = await ReadFeatureAsync(HidppFeature.Unified).ConfigureAwait(false);
-            if (capabilities is not null && (capabilities[5] & 0x02) != 0)
-            {
-                var reading = await ReadFeatureAsync(HidppFeature.Unified, 1).ConfigureAwait(false);
-                if (reading is not null && reading[4] <= 100)
-                    return Make(reading[4], false, (capabilities[5] & 1) != 0
-                        ? LogitechHidppProtocol.Charging(reading[6]) : ChargingState.Unknown, $"HID++ 1004，状态 {reading[6]:X2}");
-            }
-
-            var legacy = await ReadFeatureAsync(HidppFeature.Battery).ConfigureAwait(false);
-            if (legacy is not null && legacy[4] is > 0 and <= 100 && legacy[6] is not (5 or 6))
-                return Make(legacy[4], false, LogitechHidppProtocol.Charging(legacy[6], legacy: true),
-                    $"HID++ 1000，状态 {legacy[6]:X2}");
-
-            var voltage = await ReadFeatureAsync(HidppFeature.Voltage).ConfigureAwait(false);
-            if (voltage is not null)
-            {
-                int millivolts = BinaryPrimitives.ReadUInt16BigEndian(voltage.AsSpan(4));
-                int? estimate = LogitechHidppProtocol.EstimateVoltage(millivolts);
-                var charging = (voltage[6] & 0x80) == 0 ? ChargingState.NotCharging : (voltage[6] & 0x07) switch
-                {
-                    0 => ChargingState.Charging,
-                    1 => ChargingState.Full,
-                    2 => ChargingState.NotCharging,
-                    _ => ChargingState.Unknown
-                };
-                return Make(estimate, estimate.HasValue, charging, $"HID++ 1001，{millivolts} mV，标志 {voltage[6]:X2}");
-            }
-            return Make(null, false, ChargingState.Unknown, "未获得有效 HID++ 电量回复");
-
-            BatteryReading Make(int? percent, bool estimated, ChargingState state, string detail) =>
-                new(device, percent, estimated, state, LinkState.Online, DateTimeOffset.UtcNow, Detail: detail);
         }
     }
+
+    private static BatteryReading Reading(DeviceIdentity device, int? percent, bool estimated, ChargingState charging,
+        LinkState link, string? summary, HidInterface endpoint, ReadIssue issue = ReadIssue.None) =>
+        new(device, percent, estimated, charging, link, DateTimeOffset.UtcNow, issue)
+        {
+            ProtocolSummary = summary,
+            BluetoothContainer = device.Connection == DeviceConnection.Bluetooth ? endpoint.ReceiverId : null,
+            BluetoothAddress = endpoint.BluetoothAddress
+        };
+
+    private static string? UnitDigest(byte[]? info)
+    {
+        if (info is not { Length: LogitechHidppProtocol.LongLength } || info[0] != 0x11)
+            return null;
+        var unit = info.AsSpan(5, 4);
+        if (!unit.ContainsAnyExcept((byte)0) || !unit.ContainsAnyExcept(byte.MaxValue))
+            return null;
+        byte[] identity = [.. unit, .. info.AsSpan(10, 6)];
+        return $"unit-{Convert.ToHexString(SHA256.HashData(identity).AsSpan(0, 12))}";
+    }
+
+    private static string ModelDigest(DeviceIdentity device) =>
+        $"model-{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"{device.Kind}:{device.Name}")).AsSpan(0, 12))}";
 }

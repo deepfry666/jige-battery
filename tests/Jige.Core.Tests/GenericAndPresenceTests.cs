@@ -263,8 +263,10 @@ public sealed class GenericAndPresenceTests
             new(DiagnosticOperation.HidInput, "1001411020A940"), // 槽 1 重连 (0x20, bit6=0)
             new(DiagnosticOperation.HidInput, Issue: ReadIssue.Disconnected)
         ]));
-        await Assert.ThrowsAsync<TransportException>(() =>
-            registry.ListenPushAsync(device, pushTransport, events.Add, CancellationToken.None));
+        await Assert.ThrowsAsync<TransportException>(() => registry.ListenPushAsync(device,
+            new BatteryTransportStub(hid => hid.Path == shortHid.Path
+                ? pushTransport.OpenHid(hid, CancellationToken.None) : new BatteryHidStub(_ => [])),
+            events.Add, CancellationToken.None));
 
         Assert.Equal(2, events.Count);
         Assert.Equal((byte)1, events[0].Slot);

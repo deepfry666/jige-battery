@@ -15,19 +15,16 @@ public static partial class DiagnosticPrivacy
     // 设备字符串由固件控制。仅导出经过核对的完整通用名称，其余使用每份报告独立的指纹。
     private static readonly string[] GenericProducts =
         ["ATK ZERO", "ATK Zero", "ATK A9 Air+", "ATK A9 Ultimate", "ATK F1 Ultimate",
-         "Finalmouse UltralightX", "UltralightX", "G-Wolves Receiver RS", "Receiver RS"];
+         "Finalmouse UltralightX", "UltralightX", "G-Wolves Receiver RS", "Receiver RS",
+         "MX Anywhere 3S", "Logitech MX Anywhere 3S", "MX Keys", "MX Keys S", "MX Keys Mini"];
 
-    // 已知品牌前缀白名单：用于设备历史和日志中的安全设备名称，杜绝用户自定义别名、路径或序列号泄漏。
-    private static readonly string[] SafeDevicePrefixes =
-        ["ATK ", "ATK鼠标", "G-Wolves ", "Finalmouse ", "Sony INZONE", "INZONE ", "Razer ", "Logitech ", "ASTRO "];
-
+    // 固件与蓝牙别名均可包含个人信息。日志与历史仅允许完整的目录名称和固定标签。
     public static string SafeDeviceLabel(DeviceIdentity device)
     {
-        string raw = device.Name?.Trim() ?? "";
-        if (raw.Length is > 0 and <= 48 &&
-            !raw.Contains('\\') && !raw.Contains('/') && !raw.Contains(':') &&
-            SafeDevicePrefixes.Any(prefix => raw.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-            return raw;
+        if (GenericProducts.Contains(device.Name, StringComparer.Ordinal) ||
+            DeviceCatalog.Entries.Any(entry => StringComparer.Ordinal.Equals(entry.Model, device.Name)) ||
+            device.Name is "ATK 鼠标" or "Finalmouse ULX" or "INZONE H9")
+            return device.Name;
         return device.Kind switch
         {
             DeviceKind.Mouse => "无线鼠标",
@@ -161,11 +158,14 @@ public static partial class DiagnosticPrivacy
         raw[..4].CopyTo(result);
         if (request[0] == 0x10)
         {
-            // B5 配对记录保留选择器、类型和 WPID。Bolt 偏移 8 起是配对序号。
-            if (raw[4] >= 0x50)
-                raw[4..8].CopyTo(result[4..]);
-            else
-                raw[4..12].CopyTo(result[4..]);
+            if (request[2] == 0x81 && request[3] is 0x07 or 0x0D)
+            {
+                result[4] = raw[4];
+                if (request[3] == 0x07)
+                    result[5] = raw[5];
+                else
+                    result[6] = raw[6];
+            }
             return;
         }
         if (request[2] == 0)
@@ -187,7 +187,7 @@ public static partial class DiagnosticPrivacy
             HidppFeature.DeviceInfo => 17,
             HidppFeature.DeviceName when function != 1 => 5, // 名称长度或设备类型。
             HidppFeature.Unified => function == 0 ? 6 : 8,
-            HidppFeature.Battery or HidppFeature.Voltage => 7,
+            HidppFeature.Battery or HidppFeature.Voltage or HidppFeature.Adc => 7,
             _ => 4
         };
         raw[4..Math.Min(length, payloadEnd)].CopyTo(result[4..]);
@@ -203,7 +203,7 @@ public static partial class DiagnosticPrivacy
             raw[..end].CopyTo(result);
             return;
         }
-        if (pid is not (0x0AF7 or 0x0B18 or 0x0B45) || request.Length != LogitechHeadsetProtocol.ReportLength)
+        if (pid is not (0x0AF7 or 0x0B18) || request.Length != LogitechHeadsetProtocol.ReportLength)
             return;
 
         int prefix = pid == 0x0AF7 ? 1 : 2;

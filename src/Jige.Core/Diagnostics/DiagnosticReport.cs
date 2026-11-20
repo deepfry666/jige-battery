@@ -23,7 +23,7 @@ public sealed record DiagnosticProcessMetrics(
 public sealed record DiagnosticSettingsSummary(
     string TrayMode, int LowBatteryThreshold, int PollSeconds, int GamePollSeconds,
     int HeartbeatSeconds, int GameHeartbeatSeconds, bool GameSilent, int CustomGameProcessCount,
-    bool StartWithWindows, int BlockedReceiverCount);
+    bool StartWithWindows, int BlockedReceiverCount, bool ShowBluetoothDevices = true);
 
 public sealed record DiagnosticContext(
     IReadOnlyList<DiagnosticDeviceHistory>? DeviceHistories = null,
@@ -46,7 +46,7 @@ public static class DiagnosticReport
         try
         {
             // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合；不打开任何报告通道。
-            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken).ConfigureAwait(false);
+            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken, includeBluetooth: true).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -85,6 +85,8 @@ public static class DiagnosticReport
             string product = DiagnosticPrivacy.Product(endpoint.Product, salt);
             if (LogitechHidppAdapter.UsesReceiverName(endpoint))
                 product += " · HID++ Receiver"; // 回放所需的非识别性匹配标记。
+            if (endpoint.VendorId == 0x046D && LogitechHidppAdapter.IsBluetooth(endpoint))
+                product += " · HID++ BLE";
             report.AppendLine(FormattableString.Invariant(
                 $"HID|{id}|{ReceiverAlias(endpoint)}|{endpoint.VendorId:X4}|{endpoint.ProductId:X4}|{endpoint.UsagePage:X4}|{endpoint.Usage:X4}|{endpoint.InputLength}|{endpoint.OutputLength}|{endpoint.FeatureLength}|{endpoint.InterfaceNumber:X2}|{product}"));
             // B3：路径开关登记在禁用表中的设备，直接说明原因且不打开设备句柄。
@@ -120,6 +122,7 @@ public static class DiagnosticReport
 
         report.AppendLine(FormattableString.Invariant($"枚举警告数量 {inventory.Warnings.Count}"));
         var devices = registry.Detect(inventory).ToArray();
+        var bluetoothHid = new List<BatteryReading>();
         foreach (var adapter in registry.Adapters)
         {
             var targets = devices.Where(device => device.Adapter == adapter).ToArray();
@@ -164,9 +167,26 @@ public static class DiagnosticReport
                 if (truncated)
                     report.AppendLine($"截断 {id} 耗尽诊断记录上限");
                 foreach (var reading in readings)
+                {
                     report.AppendLine(FormattableString.Invariant(
                         $"结果 {id} {elapsed} ms {reading.Device.Kind} 电量 {reading.Percentage?.ToString(CultureInfo.InvariantCulture) ?? "-"}% {reading.Charging} {reading.Link} {reading.Issue}"));
+                    if (adapter is LogitechHidppAdapter or LogitechHeadsetAdapter)
+                    {
+                        var protocol = reading.ProtocolSummary ?? "未取得协议回复";
+                        report.AppendLine($"罗技|{id}|{reading.Device.Kind}|{protocol}");
+                        if (reading.Device.Connection == DeviceConnection.Bluetooth)
+                            bluetoothHid.Add(reading);
+                    }
+                }
             }
+        }
+
+        var bluetooth = BluetoothBattery.Merge(bluetoothHid, inventory.Bluetooth, DateTimeOffset.UtcNow);
+        int bluetoothIndex = 0;
+        foreach (var reading in bluetooth)
+        {
+            report.AppendLine(FormattableString.Invariant(
+                $"蓝牙电量来源|B{++bluetoothIndex}|{reading.Device.Kind}|{DiagnosticPrivacy.Product(reading.Device.Name, salt)}|电量={reading.Percentage?.ToString(CultureInfo.InvariantCulture) ?? "-"}%|{reading.Link}|{reading.ProtocolSummary ?? "蓝牙 HID++；未取得协议回复"}"));
         }
 
         AppendContextSections(report, context);
@@ -249,7 +269,7 @@ public static class DiagnosticReport
             report.AppendLine();
             report.AppendLine("# 当前设置摘要");
             report.AppendLine(FormattableString.Invariant(
-                $"设置|托盘模式={DiagnosticPrivacy.SanitizeText(summary.TrayMode)}|低电量阈值={summary.LowBatteryThreshold}%|查询间隔={summary.PollSeconds}s/游戏中{summary.GamePollSeconds}s|心跳={summary.HeartbeatSeconds}s/游戏中{summary.GameHeartbeatSeconds}s|游戏中不打扰={(summary.GameSilent ? "开" : "关")}|自定义游戏进程数={summary.CustomGameProcessCount}|开机自启={(summary.StartWithWindows ? "开" : "关")}|安全门拦截数={summary.BlockedReceiverCount}"));
+                $"设置|托盘模式={DiagnosticPrivacy.SanitizeText(summary.TrayMode)}|低电量阈值={summary.LowBatteryThreshold}%|查询间隔={summary.PollSeconds}s/游戏中{summary.GamePollSeconds}s|心跳={summary.HeartbeatSeconds}s/游戏中{summary.GameHeartbeatSeconds}s|游戏中不打扰={(summary.GameSilent ? "开" : "关")}|自定义游戏进程数={summary.CustomGameProcessCount}|开机自启={(summary.StartWithWindows ? "开" : "关")}|显示蓝牙设备={(summary.ShowBluetoothDevices ? "开" : "关")}|安全门拦截数={summary.BlockedReceiverCount}"));
         }
     }
 
@@ -278,8 +298,8 @@ public static class DiagnosticReport
             .AppendLine("USB 列为接口｜接收器｜硬件 ID。OP 列格式见 PRIVACY.md。");
     }
 
-    // 只输出厂商自定义集合（使用页 FF00–FFFF），任何品牌都列出；标准键盘、鼠标、音量等集合一律不出现在报告里。
-    private static bool IsRelevantHid(HidInterface hid) => hid.UsagePage is >= 0xFF00;
+    // 罗技 G535 的只读电量通道是已登记的 Consumer 集合。
+    private static bool IsRelevantHid(HidInterface hid) => hid.UsagePage is >= 0xFF00 || LogitechHidppAdapter.IsHeadset(hid);
 
     private static ReceiverEndpoint NormalizeEndpoint(ReceiverEndpoint endpoint) =>
         endpoint is HidInterface hid ? hid with

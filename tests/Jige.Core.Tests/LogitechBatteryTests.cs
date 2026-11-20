@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Jige.Core.Adapters;
 
 namespace Jige.Core.Tests;
@@ -8,7 +10,7 @@ public sealed class LogitechBatteryTests
         "USB Receiver", 0xFF00, 2, 20, 20, 0, 2);
 
     [Fact]
-    public async Task DefaultRegistrySeparatesSlotsAndRereadsFeatureIndicesAfterReopen()
+    public async Task ReceiverCachesBatteryQueriesUntilItIsRemoved()
     {
         // Solaar #2961 的 PRO X 2 硬件报告，动态索引 06、94%、未充电。
         var capturedRequest = Frame("11010617", 20);
@@ -16,7 +18,7 @@ public sealed class LogitechBatteryTests
         Assert.True(LogitechHidppProtocol.Matches(capturedReply, capturedRequest));
         Assert.True(LogitechHidppProtocol.Matches(Frame("11010006060005", 20), Frame("110100061004", 20)));
         var firstSession = new BatteryHidStub(request => Reply(request, mouseIndex: 6));
-        var secondSession = new BatteryHidStub(request => Reply(request, mouseIndex: 12));
+        var secondSession = new BatteryHidStub(request => Reply(request, mouseIndex: 6));
         var registry = AdapterRegistry.CreateDefault();
         var target = Assert.Single(registry.Detect(new([Receiver], [], [])));
         var transport = new BatteryTransportStub(_ => firstSession);
@@ -47,7 +49,9 @@ public sealed class LogitechBatteryTests
         Assert.Equal(3, first.Select(item => item.Device.Id).Distinct().Count());
         Assert.Equal(first.Select(item => item.Device.Id), second.Select(item => item.Device.Id));
         Assert.Equal(94, second[0].Percentage);
-        var replacementSession = new BatteryHidStub(request => Reply(request, mouseIndex: 6, "55667788"));
+        Assert.Empty(registry.Detect(new([], [], [])));
+        target = Assert.Single(registry.Detect(new([Receiver], [], [])));
+        var replacementSession = new BatteryHidStub(request => Reply(request, mouseIndex: 12, "55667788"));
         var replacement = await registry.ReadDevicesAsync(target, new BatteryTransportStub(_ => replacementSession),
             null, CancellationToken.None);
         Assert.NotEqual(first[0].Device.Id, replacement[0].Device.Id);
@@ -56,8 +60,9 @@ public sealed class LogitechBatteryTests
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, firstSession.Writes.Where(IsPing).Select(request => request[1]));
         Assert.Single(firstSession.Writes, request => request.AsSpan(1, 5).SequenceEqual(new byte[] { 1, 0, 0x0B, 0, 5 }));
         Assert.Single(firstSession.Writes, request => request.AsSpan(1, 5).SequenceEqual(new byte[] { 1, 0, 0x0A, 0x10, 4 }));
-        Assert.DoesNotContain(secondSession.Writes, request => request[1] == 1 && request[2] == 6);
-        Assert.Contains(secondSession.Writes, request => request[1] == 1 && request[2] == 12);
+        Assert.Equal(Frame("1101061A", 20), Assert.Single(secondSession.Writes, request => request[1] == 1));
+        Assert.Equal(Frame("1102080A", 20), Assert.Single(secondSession.Writes, request => request[1] == 2));
+        Assert.Contains(replacementSession.Writes, request => request[1] == 1 && request[2] == 12);
         Assert.True(firstSession.Closed && secondSession.Closed);
         Assert.Equal((byte?)0x11, Assert.Single(transport.Opened).RequiredOutputReportId);
 
@@ -83,7 +88,8 @@ public sealed class LogitechBatteryTests
                 (2, 7, 0x1A) => Frame("1102071A47353135", 20),
                 (2, 7, 0x2A) => Frame("1102072A00", 20),
                 (2, 0, 0x0A) => Frame("1102000A06", 20),
-                (2, 6, 0x0A) => Frame("1102060A0F01", 20), // 仅档位，无 SoC。
+                (2, 6, 0x0A) => Frame("1102060A0001", 20), // 不公布百分比，也未给出可用档位。
+                (2, 6, 0x1A) => Frame("1102061AFF000000", 20),
                 (2, 0, 0x0C) => Frame("1102000C08", 20),
                 (2, 8, 0x0A) => Frame("1102080A2D1401", 20),
                 _ => throw new InvalidOperationException($"意外发包 {Convert.ToHexString(request)}")
@@ -95,36 +101,45 @@ public sealed class LogitechBatteryTests
     }
 
     [Theory]
-    [InlineData(0xC52B, "10FF83B5200000", "11FF83B520000040A9000002")]
-    [InlineData(0xC548, "10FF83B5510000", "11FF83B55102A94012345678")]
-    public async Task PairingReadDistinguishesOfflineFromAnEmptySlot(int pid, string expected, string reply)
+    [InlineData(0xC52B, 0x04)]
+    [InlineData(0xC548, 0x09)]
+    public async Task ShortCollectionAnswersAllEmptySlotsWithoutWaitingForLongCollection(int pid, int disconnected)
     {
         var longHid = Receiver with { ProductId = (ushort)pid };
         var shortHid = longHid with { Path = "logi-short", Usage = 1, InputLength = 7, OutputLength = 7 };
-        var session = new BatteryHidStub(request => request[1] == 1 ? [] : [Frame($"10{request[1]:X2}8F001A08", 7)]);
-        var pairing = new BatteryHidStub(request =>
+        var shortSession = new BatteryHidStub(_ => throw new InvalidOperationException("意外短集合发包"));
+        var longSession = new BatteryHidStub(request =>
         {
-            Assert.Equal(expected, Convert.ToHexString(request));
-            session.Enqueue(Frame(reply, 20));
+            Assert.True(IsPing(request));
+            shortSession.Enqueue(Frame($"10{request[1]:X2}8F001A{(request[1] == 1 ? disconnected : 8):X2}", 7));
             return [];
         });
         var registry = AdapterRegistry.CreateDefault();
         var target = Assert.Single(registry.Detect(new([longHid, shortHid], [], [])));
-        var readings = await registry.ReadDevicesAsync(target, new BatteryTransportStub(hid =>
-            hid.Path == shortHid.Path ? pairing : session), null, CancellationToken.None);
-        var offline = Assert.Single(readings);
-        Assert.Equal(LinkState.Offline, offline.Link);
-        Assert.Equal(DeviceKind.Mouse, offline.Device.Kind);
-        Assert.Equal(ReadIssue.None, offline.Issue);
-        Assert.True(session.Closed && pairing.Closed);
+        var timer = Stopwatch.StartNew();
+        var reading = Assert.Single(await registry.ReadDevicesAsync(target, new BatteryTransportStub(hid =>
+            hid.Path == shortHid.Path ? shortSession : longSession), null, CancellationToken.None));
+
+        Assert.Equal(LinkState.Offline, reading.Link);
+        Assert.Equal(6, longSession.Writes.Count);
+        Assert.Empty(shortSession.Writes);
+        Assert.True(timer.Elapsed < TimeSpan.FromMilliseconds(750), $"空槽检查耗时 {timer.Elapsed}");
     }
 
     [Fact]
-    public async Task UnknownLogitechStopsAtRootAndNeverReadsDynamicIndices()
+    public async Task NamedUnknownReceiverReadsAllSlotsAfterItsFirstPing()
     {
         var receiver = Receiver with { ProductId = 0xC5FF };
-        var session = new BatteryHidStub(request => IsPing(request)
-            ? [Frame($"1101001A0201{request[6]:X2}", 20)] : [Frame("1101000A06", 20)]);
+        var session = new BatteryHidStub(request => (request[1], request[2], request[3]) switch
+        {
+            (6, 0, 0x1A) => [Frame($"1106001A0201{request[6]:X2}", 20)],
+            (_, 0, 0x1A) => [Frame($"10{request[1]:X2}8F001A08", 7)],
+            (_, 0, 0x0A) => [Frame("1106000A06", 20)],
+            (_, 0, _) => [Frame($"110600{request[3]:X2}00", 20)],
+            (_, 6, 0x0A) => [Frame("1106060A0F03", 20)],
+            (_, 6, 0x1A) => [Frame("1106061A5E0800", 20)],
+            _ => throw new InvalidOperationException("意外发包")
+        });
         var registry = AdapterRegistry.CreateDefault();
         Assert.Empty(registry.Detect(new([receiver with { Product = "Logitech Wired Mouse" }], [], [])));
         var target = Assert.Single(registry.Detect(new([receiver], [], [])));
@@ -132,10 +147,9 @@ public sealed class LogitechBatteryTests
         var reading = Assert.Single(await registry.ReadDevicesAsync(target, new BatteryTransportStub(_ => session),
             null, CancellationToken.None));
 
-        Assert.Equal(2, session.Writes.Count);
         Assert.True(IsPing(session.Writes[0]));
-        Assert.Equal(Frame("1101000A1004", 20), session.Writes[1]);
-        Assert.Null(reading.Percentage);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5, 6 }, session.Writes.Where(IsPing).Select(request => request[1]));
+        Assert.Equal(94, reading.Percentage);
     }
 
     [Fact]
@@ -165,7 +179,7 @@ public sealed class LogitechBatteryTests
     }
 
     [Fact]
-    public async Task ReceiverRemovalPreservesAnAlreadyReadSlot()
+    public async Task ReceiverRemovalClearsSlotsImmediately()
     {
         var session = new BatteryHidStub(request => (request[1], request[2], request[3]) switch
         {
@@ -182,7 +196,7 @@ public sealed class LogitechBatteryTests
         var target = Assert.Single(registry.Detect(new([Receiver], [], [])));
         var results = await registry.ReadDevicesAsync(target, new BatteryTransportStub(_ => session), null, CancellationToken.None);
 
-        Assert.Collection(results, slot => Assert.Equal(0, slot.Percentage), failure => Assert.Equal(ReadIssue.Disconnected, failure.Issue));
+        Assert.Equal(ReadIssue.Disconnected, Assert.Single(results).Issue);
         Assert.True(session.Closed);
     }
 
@@ -194,13 +208,18 @@ public sealed class LogitechBatteryTests
         Assert.False(LogitechHidppProtocol.Matches(Frame("1102001A02013A", 20), ping));
         Assert.False(LogitechHidppProtocol.Matches(Frame("1101001A020139", 20), ping));
         Assert.False(LogitechHidppProtocol.Matches(Frame("11020010020139", 20), ping));
-        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.Ping(0xFF, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.Ping(7, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.GetFeature(1, (HidppFeature)0x00C2));
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadFeature(1, HidppFeature.Unified, 3, 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadFeature(1, HidppFeature.Battery, 3, 1));
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadFeature(1, HidppFeature.Unified, 0x80, 0));
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadFeature(1, HidppFeature.Unified, 0x82, 0));
-        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadPairing(1, 0xC54D));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.EncodeRegister(1, 0x80, 0x07));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.EncodeRegister(1, 0x82, 0x07));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.EncodeRegister(0xFF, 0x83, 0xB5));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadRegister(0xFF, 0x01));
+        Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHidppProtocol.ReadFeature(1, HidppFeature.Adc, 0x35, 1));
+        Assert.Equal(Frame("10FF81B5000000", 7), LogitechHidppProtocol.ReadRegister(0xFF, 0xB5));
     }
 
     [Theory]
@@ -261,7 +280,6 @@ public sealed class LogitechBatteryTests
     [InlineData(0x0AF7, true, true)]
     [InlineData(0x0AF7, false, false)]
     [InlineData(0x0B18, true, false)]
-    [InlineData(0x0B45, true, false)]
     public async Task LegacyFixedRequestRequiresTheExactPidAndExplicitMissingFeature(int pid, bool reply, bool legacy)
     {
         var hid = Receiver with { ProductId = (ushort)pid, UsagePage = 0xFFA0, Usage = 1, InterfaceNumber = 3,
@@ -328,7 +346,7 @@ internal sealed class BatteryTransportStub(Func<HidInterface, IHidSession> open)
 
 internal sealed class BatteryHidStub(Func<byte[], byte[][]> respond, bool feature = false) : IHidSession
 {
-    private readonly Queue<byte[]> queue = new();
+    private readonly ConcurrentQueue<byte[]> queue = new();
     public List<byte[]> Writes { get; } = [];
     public bool Closed { get; private set; }
 
@@ -368,7 +386,8 @@ internal sealed class BatteryHidStub(Func<byte[], byte[][]> respond, bool featur
         if (!feature)
             throw new InvalidOperationException("意外读取 Feature");
         Assert.Equal(0, report[0]);
-        queue.Dequeue().CopyTo(report, 0);
+        Assert.True(queue.TryDequeue(out var frame));
+        frame.CopyTo(report, 0);
         return ValueTask.CompletedTask;
     }
 

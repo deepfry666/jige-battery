@@ -15,6 +15,7 @@ internal sealed record TraySettings
     public int PollSeconds { get; init; } = 60;
     public int GamePollSeconds { get; init; } = 300;
     public bool GameSilent { get; init; } = true;
+    public bool ShowBluetoothDevices { get; init; } = true;
     public bool StartWithWindows { get; init; } = true;
     public bool? WelcomeShown { get; init; }
     public string[] GameProcessNames { get; init; } = [];

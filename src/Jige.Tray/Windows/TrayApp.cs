@@ -69,6 +69,7 @@ internal sealed class TrayApp : IDisposable
     private bool iconRetryArmed;
     private int iconFailures;
     private bool hasHeartbeatDevices;
+    private bool bluetoothRefreshPending;
     private bool hadAsleepDevices;
     private DetectedDevice[] currentPushTargets = [];
     private CancellationTokenSource? pushCancellation;
@@ -515,7 +516,7 @@ internal sealed class TrayApp : IDisposable
         }
 
         // R3：当设备首次进入休眠态时记录 GetLastInputInfo 基线，之后仅在有新键鼠输入时给休眠设备补发心跳（最多每 2 秒一次）。
-        bool hasAsleep = hasHeartbeatDevices && model.HasAsleepDevices;
+        bool hasAsleep = model.HasAsleepDevices && (hasHeartbeatDevices || model.HasAsleepLogitechOrBluetoothDevices);
         if (hasAsleep && !hadAsleepDevices)
             schedule.SyncLastInputTick(Desktop.LastInputTick());
         hadAsleepDevices = hasAsleep;
@@ -552,7 +553,7 @@ internal sealed class TrayApp : IDisposable
             dueMs = Math.Max(0, pollTick - nowTick);
         if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) is long hbTick)
             dueMs = EarlierMs(dueMs, Math.Max(0, hbTick - nowTick));
-        if (hasHeartbeatDevices && model.HasAsleepDevices && !game.Game && !schedule.Running && !schedule.HeartbeatRunning)
+        if ((hasHeartbeatDevices || model.HasAsleepLogitechOrBluetoothDevices) && model.HasAsleepDevices && !game.Game && !schedule.Running && !schedule.HeartbeatRunning)
             dueMs = EarlierMs(dueMs, PollSchedule.InputCheckIntervalMs);
 
         DateTimeOffset? wallDue = model.NextSleepTimeout(now);
@@ -598,8 +599,10 @@ internal sealed class TrayApp : IDisposable
     {
         bool forceRescan = schedule.Start(nowTick, game.Game);
         startedInGame = game.Game;
+        bool showBluetooth = model.Settings.ShowBluetoothDevices;
         // 完整轮询期间暂停罗技被动推送监听，避免同一接收器短/长句柄争抢。
         StopPushListeners();
+        var stoppingPush = pushTask;
         var source = new CancellationTokenSource();
         cancellation = source;
         cancelWork = Task.CompletedTask;
@@ -611,7 +614,8 @@ internal sealed class TrayApp : IDisposable
             DetectedDevice[] pushTargets = [];
             try
             {
-                (result, pushTargets) = await poll.RunAsync(forceRescan, token).ConfigureAwait(false);
+                await stoppingPush.ConfigureAwait(false);
+                (result, pushTargets) = await poll.RunAsync(forceRescan, showBluetooth, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -638,8 +642,9 @@ internal sealed class TrayApp : IDisposable
             _ = DisposeCancellation(completed, cancelWork);
         cancellation = null;
         schedule.Complete();
-        if (cancelled && !startedInGame)
-            schedule.Request(userInitiated: false);
+        if (cancelled && (!startedInGame || bluetoothRefreshPending))
+            schedule.Request(userInitiated: bluetoothRefreshPending);
+        bluetoothRefreshPending = false;
 
         if (result is not null && !cancelled)
         {
@@ -653,7 +658,7 @@ internal sealed class TrayApp : IDisposable
             events.FlushReadFailuresIfDue(nowTick);
 
             bool shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
-                result.UnknownReceivers, events.LogDeviceLinkChange);
+                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets);
             if (shouldSave || gates.BlockedCount != model.InitialBlockedReceivers.Count)
                 SaveState();
             RefreshIcon();
@@ -670,6 +675,11 @@ internal sealed class TrayApp : IDisposable
     private void StartHeartbeat(long nowTick, IReadOnlySet<string>? onlyDeviceIds = null, bool inputWake = false)
     {
         schedule.StartHeartbeat(nowTick, inputWake);
+        bool pausedPush = inputWake && currentPushTargets.Length > 0;
+        if (pausedPush)
+            StopPushListeners();
+        var stoppingPush = pausedPush ? pushTask : Task.CompletedTask;
+        bool showBluetooth = model.Settings.ShowBluetoothDevices;
         var source = new CancellationTokenSource();
         heartbeatCancellation = source;
         var token = source.Token;
@@ -679,7 +689,8 @@ internal sealed class TrayApp : IDisposable
             PresenceUpdate[] updates;
             try
             {
-                updates = await poll.RunHeartbeatAsync(token, onlyDeviceIds).ConfigureAwait(false);
+                await stoppingPush.ConfigureAwait(false);
+                updates = await poll.RunHeartbeatAsync(token, onlyDeviceIds, showBluetooth).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -702,6 +713,8 @@ internal sealed class TrayApp : IDisposable
         heartbeatCancellation?.Dispose();
         heartbeatCancellation = null;
         schedule.CompleteHeartbeat();
+        if (cancellation is null && pushCancellation is null && currentPushTargets.Length > 0)
+            StartPushListeners(currentPushTargets);
 
         if (updates.Length > 0)
         {
@@ -711,6 +724,8 @@ internal sealed class TrayApp : IDisposable
             var (uiChanged, needsRefresh) = model.ApplyPresence(updates, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
             if (uiChanged)
             {
+                if (updates.Any(update => update.Battery is not null))
+                    SaveState();
                 RefreshIcon();
                 RenderPopup();
             }
@@ -772,6 +787,8 @@ internal sealed class TrayApp : IDisposable
         var (uiChanged, needsRefresh) = model.ApplyPresence(batch, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
         if (uiChanged)
         {
+            if (batch.Any(update => update.Battery is not null))
+                SaveState();
             RefreshIcon();
             RenderPopup();
         }
@@ -865,11 +882,22 @@ internal sealed class TrayApp : IDisposable
         }
 
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
+        bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
         if (remove is not null)
             model.RemoveOffline(remove);
         if (gameSettingChanged)
             SetForegroundTracking();
+        if (bluetoothChanged)
+        {
+            if (cancellation is { } activePoll)
+            {
+                bluetoothRefreshPending = true;
+                if (!activePoll.IsCancellationRequested)
+                    cancelWork = activePoll.CancelAsync();
+            }
+            schedule.Request(userInitiated: true);
+        }
         SaveState();
         RefreshIcon();
         RenderPopup();
@@ -1120,6 +1148,9 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.GameSilent:
                 ChangeSettings(model.Settings with { GameSilent = !model.Settings.GameSilent });
                 break;
+            case PopupAction.ShowBluetooth:
+                ChangeSettings(model.Settings with { ShowBluetoothDevices = !model.Settings.ShowBluetoothDevices });
+                break;
             case PopupAction.Autostart:
                 ChangeSettings(model.Settings with { StartWithWindows = !model.Settings.StartWithWindows });
                 break;
@@ -1361,7 +1392,8 @@ internal sealed class TrayApp : IDisposable
             settings.GameSilent,
             settings.GameProcessNames.Length,
             settings.StartWithWindows,
-            gates.BlockedCount);
+            gates.BlockedCount,
+            settings.ShowBluetoothDevices);
         return new(
             DeviceHistories: model.DiagnosticHistories(),
             ProcessMetrics: Desktop.CollectProcessMetrics(startedAt),

@@ -5,7 +5,7 @@ using Jige.Core.Adapters;
 namespace Jige.Core.Windows;
 
 [SupportedOSPlatform("windows")]
-public static class WindowsDeviceDiscovery
+public static partial class WindowsDeviceDiscovery
 {
     private static readonly SemaphoreSlim ScanGate = new(1);
     private static readonly Guid ComInterface = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
@@ -17,13 +17,18 @@ public static class WindowsDeviceDiscovery
     };
 
     public static Task<DeviceInventory> ScanAsync(
-        CancellationToken cancellationToken, Func<ushort?, ushort?, bool>? inspectHid = null, bool includeUnknownHid = false) =>
+        CancellationToken cancellationToken, Func<ushort?, ushort?, bool>? inspectHid = null, bool includeUnknownHid = false,
+        bool includeBluetooth = false) =>
         OperationDeadline.RunAsync(async token =>
         {
             await ScanGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                return Scan(inspectHid, includeUnknownHid, token);
+                var inventory = Scan(inspectHid, includeUnknownHid, token);
+                if (!includeBluetooth)
+                    return inventory;
+                var (bluetooth, warnings) = ScanBluetooth(token);
+                return inventory with { Bluetooth = bluetooth, Warnings = [.. inventory.Warnings, .. warnings] };
             }
             finally
             {
@@ -42,8 +47,10 @@ public static class WindowsDeviceDiscovery
         ScanInterfaces(hidClass, (set, node, path) =>
         {
             var nodeId = ReadInstanceId(node.DevInst);
-            var vid = ReadHexTag(path, "VID_", 4) ?? ReadHexTag(nodeId, "VID_", 4);
-            var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4);
+            var vid = ReadHexTag(path, "VID_", 4) ?? ReadHexTag(nodeId, "VID_", 4) ??
+                ReadHexTag(path, "VID&0002", 4) ?? ReadHexTag(nodeId, "VID&0002", 4);
+            var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4) ??
+                ReadHexTag(path, "PID&", 4) ?? ReadHexTag(nodeId, "PID&", 4);
             bool known = inspectHid is null || inspectHid(vid, pid);
             if ((known || includeUnknownHid) &&
                 InspectHid(set, node, path, nodeId, vid, pid, known, token) is { } endpoint)
@@ -161,7 +168,7 @@ public static class WindowsDeviceDiscovery
             var attributes = WindowsReceiverTransport.ReadAttributes(handle);
             vid = attributes.VendorId;
             pid = attributes.ProductId;
-            if (readProduct && caps.UsagePage >= 0xFF00)
+            if (readProduct && (caps.UsagePage >= 0xFF00 || vid == 0x046D && pid == 0x0AC4))
             {
                 char* chars = stackalloc char[126];
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
@@ -170,7 +177,11 @@ public static class WindowsDeviceDiscovery
             token.ThrowIfCancellationRequested();
             var receiver = ReadReceiverId(set, node, nodeId, path);
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,
-                caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber);
+                caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber)
+            {
+                BluetoothAddress = vid == 0x046D && (path.Contains("VID&0002046D", StringComparison.OrdinalIgnoreCase) ||
+                    caps is { UsagePage: 0xFF43, Usage: 0x0202 }) ? FindBluetoothAddress(node.DevInst) : null
+            };
         }
         catch (TransportException error)
         {
@@ -261,8 +272,8 @@ public static class WindowsDeviceDiscovery
 
     private static unsafe string ReadInstanceId(uint devInst)
     {
-        char* buffer = stackalloc char[200];
-        return Native.GetDeviceId(devInst, buffer, 200, 0) == 0 ? new string(buffer) : "";
+        char* buffer = stackalloc char[256];
+        return Native.GetDeviceId(devInst, buffer, 256, 0) == 0 ? new string(buffer) : "";
     }
 
     private static ushort? ReadHexTag(string text, string tag, int digits)

@@ -10,7 +10,8 @@ internal sealed record PollResult(
     ReceiverChange[]? ReceiverChanges = null,
     UnknownReceiverInfo[]? Unknowns = null,
     bool HasHeartbeatDevices = false,
-    bool Scanned = false)
+    bool Scanned = false,
+    IReadOnlySet<string>? LiveTargets = null)
 {
     public static int CountUnknown(DeviceInventory inventory, IEnumerable<DetectedDevice> detected)
     {

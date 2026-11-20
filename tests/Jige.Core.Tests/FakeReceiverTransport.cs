@@ -92,7 +92,7 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             if (op == DiagnosticOperation.HidOutput && hid is not null)
             {
                 var rebased = expected.ToArray();
-                if (hid is { VendorId: 0x046D, UsagePage: 0xFF00 } && expected.Length == 20 &&
+                if (hid.VendorId == 0x046D && expected.Length == 20 &&
                     expected[2] == 0 && expected[3] == 0x1A)
                     rebased[6] = buffer[6];
                 else if (hid is { VendorId: 0x1532, ProductId: 0x0565, UsagePage: 0xFF14 } &&
@@ -164,7 +164,10 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
                 case "HID" when fields.Length == 12:
                     hid.Add(new(fields[2], fields[1], HexNumber(fields[3]), HexNumber(fields[4]), fields[11],
                         HexNumber(fields[5]), HexNumber(fields[6]), Length(fields[7]), Length(fields[8]),
-                        Length(fields[9]), (byte?)HexNumber(fields[10])));
+                        Length(fields[9]), (byte?)HexNumber(fields[10]))
+                    {
+                        BluetoothHid = fields[11].EndsWith(" · HID++ BLE", StringComparison.Ordinal)
+                    });
                     steps.Add(fields[1], []);
                     break;
                 case "USB" when fields.Length == 4:

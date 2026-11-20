@@ -63,41 +63,69 @@ BitMouse 请求的校验为 ID 和校验槽之后的字节和取低 8 位。回�
 
 XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做有限次 GetFeature。两代分别校验自己的回复头和电量范围。旧协议可识别休眠状态，超时和乱码不会生成新读数。旧协议测试用实机验证实现公布的帧布局和合成百分比，新协议测试使用公开的 60% 实机记录。设备缓存可能返回旧回复，单次成功无法证明无线端仍在线。[XVI-OLD 实机验证实现](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/drivers/gwolves/xvi-hid.ts) · [XVI-NEW 实机记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#3-response-frame)
 
-## Logitech HID++ 2.0
+## 罗技 HID++ 1.0 与 2.0
 
-已知接收器均使用 VID `046D`。Lightspeed 包括 `C539/C53A/C53D/C53F/C541/C545/C547/C54D`，Bolt 为 `C548`，Unifying 为 `C52B/C532`。读取要求唯一的 `FF00:0002` 长报告集合，Input/Output 均为 20 字节、ID `11`。使用多设备读取接口时，按同一物理接收器串行查询槽 1–6，每个已确认的槽输出一条记录。
+本节适配属于「仅按资料」。几格通过离线回放检查读取流程，Windows 11 实机表现待确认。
 
-| 只读请求 | 发送约束与结果 |
+### 2.4G 接收器
+
+匹配 VID `046D`、唯一的 `FF00:0002` 长集合（输入和输出各 20 字节，报告 ID `11`）。同 PID、同物理容器的 `FF00:0001` 短集合（各 7 字节，ID `10`）用于接收短回复和发送旧版寄存器读。已收录的 PID 如下。[Solaar 接收器目录](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/base_usb.py)
+
+| 家族 | PID |
 | --- | --- |
-| IRoot Ping `f1` | `11 槽 00 1A 00 00 标记` 后补零。匹配槽、事务及回显标记，要求主版本至少为 2 |
-| IRoot GetFeature `f0` | 仅查 `0003`、`0005`、`1004`、`1000`、`1001`。各查询使用不同 software ID，迟到的查表回复无法用于其他 feature。动态索引排除 HID++ 1.0 寄存器命令范围。索引在当前物理接收器会话的对应槽内缓存，关闭句柄即失效 |
-| `0003/f0` | 只读设备身份。Unit ID 与型号 ID 组合做本机散列。报告遮蔽 Unit ID。缺少有效 Unit ID 时按名称和类型区分，无法区分返回相同元数据的两台设备。[字段定义](https://openlogi.org/hidpp/features/x0003-device-information) |
-| `0005/f0–2` | 读 UTF-8 名称长度、名称片段和设备种类，按类型映射键盘、鼠标。无有效名称时显示槽编号 |
-| `1004/f0–1` | 先读能力。仅能力字节 bit1 确认支持 SoC 才读取百分比，接受 0–100。bit0 未标为可充电时保持充电未知 |
-| `1000/f0` | 接受 1–100，并排除明确的电池无效、温度错误状态 |
-| `1001/f0` | 大端毫伏，3.5–4.2 V 按单节锂电工作区间线性映射到 0–100%，标为电压估算并保留 mV。超出区间只报告 mV，外部供电时，低三位状态 1 标记已充满、3–7 保持未知 |
-| HID++ 1.0 `83 B5` | 仅 Bolt/Unifying 在具备唯一短报告集合（`FF00:0001`、7 字节、Output ID `10`）且槽无应答或明确不可达时使用。向接收器地址 `FF` 读指定槽的配对表，长回复需回显选择字节 |
-| HID++ 1.0 `0x41 / 0x40`（只读被动监听） | 仅挂起 Input 读取接收器主动推送的设备连接/断开事件，不发送寄存器写入命令；`0x41` 载荷字节 4 的 bit6（`0x40`）置位判定为离线，清零判定为在线，`0x40` 解配判定为离线。来源：[Solaar notifications.py](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/notifications.py)、[Linux hid-logitech-hidpp.c](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c) |
+| Bolt | `C548` |
+| Unifying | `C52B/C532` |
+| Nano | `C518/C51A/C51B/C521/C525/C526/C52E/C52F/C531/C534/C535/C537` |
+| LIGHTSPEED | `C539/C53A/C53D/C53F/C541/C545/C547/C54D` |
 
-明确不可达或确认已配对但 Ping 无回复的槽显示“离线”。明确空槽和无法确认配对的静默槽不生成设备。未知 `046D` PID 只有产品字符串表明是接收器且匹配长报告描述符时才对槽 1 发送一次 Ping，应答有效后最多再查一次 Root `1004`，输出探测结果。地址 `FF` 仅用于允许的配对表读。寄存器写 `80/82`、配对控制、通知开关、DFU 及配置均不在白名单中。
+逐槽查询 1–6。未知 PID 需要产品描述包含 `receiver`、`dongle` 或「接收器」，且通过同一描述符检查。首次只发 Root Ping，校验成功回复的版本和事务标记，或错误回复的地址和回显。格式不符由第三道安全门记住，点「重新检测」后可重试。短、长集合同时等待回复。错误 `08` 为空槽，`04/09` 为明确不可达。已识别设备无回复进入休眠，保留上次读数。接收器移除、`40/41` 断连或重连清除相应缓存。缓存仅在内存中保存，用接收器接口、槽位与设备身份区分。已找到电量功能的设备下一轮只需一条电量查询。[HaloBattery HID++ 说明](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 通知解析](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/notifications.py)
 
-| 清单型号 | 路由与证据 | 验证 |
+### HID++ 1.0 电量寄存器
+
+只有 Ping 回显错误 `01`（旧设备不识别 HID++ 2.0 子命令）才通过短集合读 `10 <地址> 81 <寄存器> 00 00 00`。先读 `0D`，回复 P0 是百分比，P2 高四位 `3/5/9` 分别是未充电、充电中和已充满。没有有效读数时读 `07`，P0 档位 `7/5/3/1` 分别显示约 `100/50/20/5%`。P1 按 `21/22` 掩码识别正在充电或已充满。寄存器 `B5` 只允许 `81` 形式。资料中的 Bolt / Unifying 完整配对记录使用 `83`，0.2.4 不主动读配对表。首次启动遇到一直静默且没有历史读数的槽位时，等它回复后才显示。[HaloBattery 旧寄存器解析](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 长寄存器定义](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp10.py)
+
+### USB 线缆
+
+鼠标或键盘自身 PID 下须同时具有 `FF00:0001` 和 `FF00:0002` 集合。查询地址改为 `FF`，其余沿用功能发现与电量解析。线缆和接收器可同时读到时，按 `0003` 的 Unit ID 和型号字段生成的摘要合并，优先显示有效的线缆读数。同名设备仍各自保留。Unit ID 缺失时保留各连接，避免误合并两台设备。[HaloBattery USB 直连路由](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py)
+
+### 蓝牙 HID++
+
+Windows HID 路径含 `VID&0002046D`（或能沿蓝牙设备节点取得地址），VID 为 `046D`，长集合为 `FF43:0202`，按 `FF` 读取。产品名优先使用 `0005`，否则采用 Windows 蓝牙名称。与 Windows 蓝牙属性按同一容器或地址合并，有有效 HID++ 电量时优先采用其百分比与充电状态。诊断看 `罗技|H…` 的协议细节及 `蓝牙电量来源|B…` 的最终来源。源文件中的 MX Anywhere 3S 与 MX Keys 回放使用合成数据。[HID++ 2.0 草案](https://lekensteyn.nl/files/logitech/logitech_hidpp_2.0_specification_draft_2012-06-04.pdf) · [Linux HID++ 驱动](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c)
+
+### Windows 蓝牙电量属性
+
+适用于 Windows 已提供电量的蓝牙外设。用 SetupAPI 读取 `{104EA319-6EE2-4701-BD47-8DDBF425BBE5}, 2`。只有类型为 BYTE、长度为 1 且在 0–100 的值可用。用设备连接属性记录显式断开，主蓝牙节点优先于服务节点。属性暂缺时保留上次读数并显示休眠。此路线不打开设备报告通道，不主动向设备发包，诊断标为「蓝牙属性（由 Windows 提供）」。设置「显示蓝牙设备」默认开启。[BatteryHub 本机属性用法](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor/blob/main/src/drivers/generic.cpp) · [Microsoft SetupDiGetDevicePropertyW](https://learn.microsoft.com/windows/win32/api/setupapi/nf-setupapi-setupdigetdevicepropertyw)
+
+### HID++ 耳机
+
+适配 G533、G535、G633/G635、G933/G935、G733、G PRO / G PRO X 和部分 PRO X 2 变体。已收录 HID++ 耳机按地址 `FF`，匹配 `FF43:0202`，G535 `0AC4` 用 `000C:0001`。优先查询 `1004`，其次查 `1F20`，P0/P1 为大端毫伏值，P2 bit0 为已连接、bit1 为充电。毫伏转换为近似百分比并显示 `≈`。仅有非白名单旧命令的耳机固件暂不适配。[HaloBattery 耳机 PID 与路由](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [HeadsetControl](https://github.com/Sapd/HeadsetControl) · [Linux ADC 字段](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c)
+
+### HID++ 2.0 读取白名单
+
+长报告格式为 `11 <地址> <功能索引> <函数<<4 | 软件ID> <参数...>`，补零至 20 字节。成功回显地址、索引和函数/软件 ID。错误回复以 `10 <地址> 8F` 或 `11 <地址> FF` 起头，随后回显请求索引、函数/软件 ID、错误码。每个动态索引只从同一设备的 Root 结果取得。功能索引落在旧寄存器命令或保留范围时拒绝使用。写寄存器 `80/82`、设置、配对控制、通知设置和固件更新均不允许。下表字段来自 [HaloBattery](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) 和 [Linux HID++ 驱动](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c)。
+
+| 功能 | 只读函数 | 回复 |
 | --- | --- | --- |
-| PRO X SUPERLIGHT 2、G309 LIGHTSPEED、PRO X2 SUPERSTRIKE | 已知接收器。多方开源实现一致 | 未在实机验证 |
-| PRO X SUPERLIGHT 2 DEX、G515 LIGHTSPEED TKL | 已知接收器。单一来源 | 未在实机验证 |
-| PRO 2 LIGHTSPEED、PRO X TKL LIGHTSPEED、G915 X LIGHTSPEED、G915 X LIGHTSPEED TKL | 原配接收器或电量事务未核实。已知接收器下由槽位应答决定是否读取 | 未在实机验证 |
+| Root | f0 查表，f1 Ping | 功能索引/标志/版本，或协议主/次版本及事务标记 |
+| `0003` 设备信息 | f0 | P0 实体数、P1–P4 Unit ID、P6–P11 型号字段 |
+| `0005` 名称和类型 | f0 长度、f1 分段名称、f2 类型 | 长度、名称片段或类型字节 |
+| `1004` Unified Battery | f0 能力、f1 状态 | P0 百分比、P1 档位、P2 充电状态、P3 外部供电 |
+| `1000` Battery Status | f0 状态 | P0 百分比、P1 下一档、P2 充电状态 |
+| `1001` Battery Voltage | f0 电压 | P0/P1 大端毫伏，P2 含充电标志 |
+| `1F20` ADC Measurement | f0 ADC | P0/P1 大端毫伏，P2 含连接和充电标志 |
 
-离线测试包含 PRO X SUPERLIGHT 2 的 Root 查表和 94% 电量实机字节，以及模拟的名称、多槽、重开换索引、配对表、后备电量和迟到回复。[Solaar 实机日志 #2961](https://github.com/pwr-Solaar/Solaar/issues/2961) · [HID++ 2.0 草案](https://lekensteyn.nl/files/logitech/logitech_hidpp_2.0_specification_draft_2012-06-04.pdf) · [设备清单](../research/device-catalog.md#1-罗技-logitech-g)
+已发现的 `1004` 或 `1000` 电量功能可主动推送事件 `00`。监听已知设备、槽位与索引匹配的事件，直接更新读数，无需主动开启通知或追加查询。回放以公开的 PRO X SUPERLIGHT 2 字节及合成鼠标、键盘、耳机样本覆盖上述解析。[Solaar 报文记录 #2961](https://github.com/pwr-Solaar/Solaar/issues/2961)
 
 ## Logitech Centurion 与 ASTRO A50 Gen 5
 
 | 型号 | PID、集合、白名单 | 证据 | 验证 |
 | --- | --- | --- | --- |
 | G PRO X 2 LIGHTSPEED | `0AF7`，MI_03、`FFA0:0001`，前缀 `51` | 多方开源实现一致 | 未在实机验证 |
-| G522 LIGHTSPEED、G PRO X 3 LIGHTSPEED | `0B18/0B45`，MI_03、`FFA0:0001`，前缀 `50 23` | 单一来源 | 未在实机验证 |
 | G325 LIGHTSPEED | `0B21`，MI_03、`FFA0:0001`，仅固定 `50 23 0B 00 03 1A 00 03 00 07 0A` 查询 | 单一来源 | 未在实机验证 |
 | ASTRO A50 Gen 5 | `0B1C`，MI_08、`FF32:0074`，仅 `02 0C 03 00 06 0C` | 单一来源 | 未在实机验证 |
 | ASTRO A50 X | `0B0B`，集合与查询未核实，保持禁用 | 未核实 | 未在实机验证 |
+
+PRO X 3 `046D:0B45` 保持关闭。
 
 以上查询的报告长度均为 64 字节，尾部补零。Centurion 桥仅允许查询接收器 Root 的 `0003`、桥内 Root 的 `0104` 及其 `f0`。桥内帧验证长度、内部索引及事务，跳过 ACK、断链通知和不匹配的内层帧。仅在 `0AF7` 完成桥接查表且收到 `0104` 索引明确为零时，允许备用查询 `51 08 00 03 1A 00 03 00 04 0A`。无回复时结束，读失败回显阶段。EQ、睡眠设置、任意桥转发等均不允许。
 
@@ -153,18 +181,18 @@ V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机
 ### 统一判定规则
 
 1. **明确离线**：仅在以下两种情况下立即判定为 `Offline`（托盘图标变灰，悬停显示「已断开 · 上次 xx%」）：
-   - 协议明确回复无线端未连接：例如 Compx `0x03` 在线标志为 `0`、Razer 90B 状态字节为 `0x04`、Razer BlackShark V2 HyperSpeed `0x20` 链路为 `0`、Logitech HID++ 推送 `0x41`（bit6=1）或 `0x40`；
+   - 协议明确回复无线端未连接：例如 Compx `0x03` 在线标志为 `0`、Razer 90B 状态字节为 `0x04`、Razer BlackShark V2 HyperSpeed `0x20` 链路为 `0`、Logitech HID++ 错误 `04/09`、推送 `0x41`（bit6=1）或 `0x40`、Windows 蓝牙明确报告断开；
    - USB 接收器被物理拔出（传输层返回 `Disconnected`，或非失败枚举中接收器已消失）。
 2. **查询超时一律算休眠**：Compx、游狼（含 XVI-OLD 与 XVI-NEW）、ULX、BitMouse 等协议在查询超时且没有任何回复时（以及 XVI-OLD 休眠帧、ULX `0x24=0`），均归为 `Asleep`（休眠）：
    - 保留上次有效电量读数；
    - 托盘图标与面板**不变灰**，继续按上次读数对应正常/偏低/低电量色显示，且不把设备折叠进「离线设备」；
    - 托盘悬停提示写明「休眠中 · 上次 xx%」；休眠期间不触发低电量提醒。
 3. **连续休眠 10 分钟转离线**：处于 `Asleep` 状态的设备若连续超过 `TrayModel.SleepToOfflineTimeout`（10 分钟）仍没有任何回复，则自动转为 `Offline` 并变灰；一旦进入 `Offline`，后续超时或休眠帧不再将其拉回 `Asleep`，只有收到明确的 `Online` 响应才会恢复在线。
-4. **动一下就刷新**：存在休眠中的心跳设备且当前不在游戏中时，几格通过 Win32 `GetLastInputInfo` 检查系统最后一次键鼠输入时间戳是否变化（不安装键盘/鼠标钩子、不读取也不记录任何输入内容）。一旦检测到新输入，立即对处于休眠状态的设备补发一次心跳（最多每 2 秒一次），恢复在线后立即刷新完整电量。
+4. **动一下就刷新**：存在休眠中的可补查外设（心跳设备、罗技 HID++ 或蓝牙设备）且当前不在游戏中时，几格通过 Win32 `GetLastInputInfo` 检查系统最后一次键鼠输入时间戳是否变化（不安装键盘/鼠标钩子、不读取也不记录任何输入内容）。一旦检测到新输入，立即对处于休眠状态的设备补发一次心跳（最多每 2 秒一次），恢复在线后立即刷新完整电量。
 
 ## Windows 传输约定
 
-`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。登记在路径开关表 `DeviceCatalog.DisabledPaths` 中、证据不足或存在写入风险的路径，在打开设备句柄之前就会被跳过，并在诊断报告里标注「已识别，暂未启用：原因」。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
+`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。登记在路径开关表 `DeviceCatalog.DisabledPaths` 中、证据不足或存在写入风险的路径，在打开设备句柄之前就会被跳过，并在诊断报告里标注「已识别，暂未启用：原因」。罗技推送使用只读访问。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
 
 重叠读写取消时调用 `CancelIoEx`。同步的 SetupAPI、打开设备和 HID Feature 调用在工作线程上执行，外层有期限。驱动若迟迟未返回，调用者可先结束等待，工作线程在驱动返回后释放句柄和接收器锁。雷蛇 90B 使用 HID Feature 通道。罗技和雷蛇在打开已匹配的集合后，用 HID 描述符核对查询所需的报告 ID。[HID 报告 API 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/sending-hid-reports) · [串口句柄文档](https://learn.microsoft.com/en-us/windows/win32/devio/communications-resource-handles)
 

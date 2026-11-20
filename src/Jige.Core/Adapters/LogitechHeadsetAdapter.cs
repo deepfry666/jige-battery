@@ -18,7 +18,6 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     {
         0x0AF7 => "Logitech G PRO X 2 LIGHTSPEED",
         0x0B18 => "Logitech G522 LIGHTSPEED",
-        0x0B45 => "Logitech G PRO X 3 LIGHTSPEED",
         0x0B21 => "Logitech G325 LIGHTSPEED",
         0x0B1C => "ASTRO A50 Gen 5",
         _ => null
@@ -89,8 +88,15 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
                 ? Reading(level, charging) : Failed("未收到匹配的耳机电量回复");
         }
 
-        BatteryReading Failed(string detail) => AdapterRegistry.Failure(target, ReadIssue.Timeout, detail);
+        BatteryReading Failed(string detail) =>
+            AdapterRegistry.Failure(target, ReadIssue.Timeout, detail) with
+            {
+                Link = LinkState.Asleep, ProtocolSummary = $"耳机接收器；{detail}"
+            };
         BatteryReading Reading(int level, ChargingState charging, string? detail = null) =>
-            new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow, Detail: detail);
+            new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow)
+            {
+                ProtocolSummary = $"耳机接收器；{detail ?? "专用电量查询"}；回复电量 {level:X2}，充电 {charging}"
+            };
     }
 }

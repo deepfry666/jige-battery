@@ -13,12 +13,14 @@
 | ATK Compx-OUT | `373B:1031`（F1 Ultimate）、共用接收器 `373B:101A/11D9/1278`（默认「ATK 鼠标」，协议返回 CID/MID 时显示具体型号），以及同家族 `373B` + `FF02:0002`（17/17）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
 | ATK BitMouse | ATK ZERO `373B:1155`（`FF05:0001`），以及同家族 `373B` + `FF05:0001`（64/64）通用识别 | 多方开源实现一致 / 通用适配 | 仅按资料 |
 | 游狼 XVI-OLD | 从官方网页驱动型号表导入 21 款 `XVI=1` 旧协议型号（如 HTX Mini 8K `33E4:2717`、VUK `33E4:3917`、HT-S2 / HTS Plus / HSK Pro 等），`MI_02 / FFFF:0000` | 依据官方网页驱动型号表 | 仅按资料 |
-| [Logitech HID++ 2.0](docs/protocols.md#logitech-hid-20) | 已知 Lightspeed、Bolt、Unifying 接收器逐槽查找设备，支持时读取设备身份，例如 PRO X SUPERLIGHT 2、G309、G515 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
-| [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G PRO X 3、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
+| [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
+| [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
+| [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |
+| [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |
 | [Razer 90B](docs/protocols.md#razer-90b-feature) | 14 款鼠标、3 款键盘的无线接收器，逐型号匹配 PID、接口、TID（协议忙时自动重试最多 3 次） | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [Razer BlackShark V2 HyperSpeed](docs/protocols.md#razer-pa-与-blackshark-64b) | `1532:0565`，MI_03、`FF14:0001`，直接查询 | 多方开源实现一致 | 仅按资料 |
-| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/053A/0536`）、BlackShark V3（`057A/0577`）、ATK A9 Ultra（`373B:111A`）、ATK 星闪/前置校验候选、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`） | 证据不足或存在写入/断链风险，打开句柄前跳过 | 暂未启用 |
+| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/053A/0536`）、BlackShark V3（`057A/0577`）、ATK A9 Ultra（`373B:111A`）、ATK 星闪/前置校验候选、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 证据不足或存在写入/断链风险，打开句柄前跳过 | 暂未启用 |
 
 完整设备支持表、三级验证状态和暂未启用原因见 [设备支持清单](docs/devices.md)。其余候选型号保留在 [设备清单](research/device-catalog.md)。
 
@@ -39,7 +41,7 @@ Windows 实机截图待补，预留托盘、主面板和管理设备页的位置
 ## 安装与使用
 
 1. 从 [最新正式 Release](https://github.com/deepfry666/jige-battery/releases/latest) 下载 `Jige-Setup-<版本>-x64.exe` 和同版 `SHA256SUMS.txt`（如需提前试用主分支改动，可从滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build) 获取，详见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
-2. 在 PowerShell 运行 `Get-FileHash .\Jige-Setup-0.2.3-x64.exe -Algorithm SHA256`，将文件名替换为下载的版本，并和清单里的散列核对。
+2. 在 PowerShell 运行 `Get-FileHash .\Jige-Setup-0.2.4-x64.exe -Algorithm SHA256`，将文件名替换为下载的版本，并和清单里的散列核对。
 3. 运行安装器，从开始菜单打开「几格」。首次安装默认勾选「开机时启动几格」。几格安装到当前用户的 `%LOCALAPPDATA%\Programs\Jige`，无需管理员权限。在 Windows 的「已安装的应用」（或「应用和功能」）可查看版本和卸载。
 
 首次运行时，几格会在托盘上方提示如何把图标从上箭头拖到时钟旁。托盘默认采用「每台设备一个图标」模式，每台勾选显示的设备都有独立图标，悬停提示带设备名；也可在设置里切换为「只显示电量最低的设备」。无线鼠标静止休眠导致查询超时时，几格保留上次读数且图标**不变灰**，悬停写明「休眠中 · 上次 xx%」；连续休眠超过 10 分钟仍无回复，或协议明确报告未连接 / 拔出接收器时，图标转为灰色并提示「已断开 · 上次 xx%」。动一下键鼠即可唤醒并补查休眠中的设备（使用 `GetLastInputInfo`，不装钩子、不记录任何输入，最多每 2 秒一次）。

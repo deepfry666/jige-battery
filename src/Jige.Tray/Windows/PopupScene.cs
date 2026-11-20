@@ -7,7 +7,7 @@ namespace Jige.Tray.Windows;
 internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
-    GameSilent, Autostart, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
+    GameSilent, Autostart, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect
 }
 
@@ -74,7 +74,8 @@ internal sealed partial class PopupScene : IDisposable
     private readonly List<HitBox> subButtons = [];
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
-    private ThumbMotion? gameMotion, autostartMotion;
+    private Composition.Layer? bluetoothThumb;
+    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion;
     private string? error;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
@@ -412,7 +413,7 @@ internal sealed partial class PopupScene : IDisposable
             disconnected ? colors.Secondary : colors.Ink, 600, ellipsis: true);
         float tagX = 69 + Math.Min(nameWidth, 194) + 6;
         canvas.Fill(tagX, 69, 34, 16, 4, colors.Chip);
-        canvas.Text("2.4G", tagX, 69, 34, 16, 10.5f, colors.Secondary, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        canvas.Text(Presentation.Connection(device.Device), tagX, 69, 34, 16, 10.5f, colors.Secondary, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
 
         // 顶部卡片不再显示「固定在托盘」；无在线设备时明确标明「已断开」，同时展示适配徽标（A4 / B4 / B7）。
         float metaX = 69;
@@ -657,6 +658,7 @@ internal sealed partial class PopupScene : IDisposable
         refresh?.Dispose();
         gameThumb?.Dispose();
         autostartThumb?.Dispose();
+        bluetoothThumb?.Dispose();
         frame.Dispose();
     }
 }

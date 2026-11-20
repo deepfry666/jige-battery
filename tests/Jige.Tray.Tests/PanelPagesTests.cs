@@ -10,7 +10,7 @@ public sealed class PanelPagesTests
     [InlineData((int)PanelPage.Main, 0, 700, 157, 0)]
     [InlineData((int)PanelPage.Main, 1, 700, 247, 0)]
     [InlineData((int)PanelPage.Main, 30, 400, 391, 3)]
-    [InlineData((int)PanelPage.Settings, 40, 700, 323, 0)]
+    [InlineData((int)PanelPage.Settings, 40, 700, 367, 0)]
     [InlineData((int)PanelPage.Devices, 0, 700, 153, 0)]
     [InlineData((int)PanelPage.Devices, 5, 700, 425, 5)]
     [InlineData((int)PanelPage.Devices, 40, 424, 370, 4)]
@@ -21,9 +21,9 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData(0, 0, 323)]
-    [InlineData(50, 0.7944, 431)]
-    [InlineData(250, 1, 459)]
+    [InlineData(0, 0, 367)]
+    [InlineData(50, 0.7944, 475)]
+    [InlineData(250, 1, 503)]
     public void ResizeUsesPrototypeCurveAndKeepsBottomAgainstTray(int elapsed, double expected, int expectedHeight)
     {
         double eased = PanelLayout.Ease(elapsed / 250d);
@@ -41,10 +41,10 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData(null, 52, 96, 140, 184, 228, 323)]
-    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 391)]
-    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 459)]
-    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 425)]
+    [InlineData(null, 52, 96, 140, 184, 228, 367)]
+    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 435)]
+    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 503)]
+    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 469)]
     public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int trayMode, int threshold,
         int game, int poll, int autostart, int height)
     {
@@ -52,7 +52,7 @@ public sealed class PanelPagesTests
         if (expanded is int expandedRow)
             Assert.True(panel.Toggle((SettingRow)expandedRow, 0, animate: false, selectedIndex: 0));
 
-        int[] tops = [trayMode, threshold, game, poll, autostart];
+        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44];
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = panel.RowRect(row);
@@ -86,7 +86,7 @@ public sealed class PanelPagesTests
         panel.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         panel.Advance(50);
         float beforeSwitch = panel.Height;
-        Assert.InRange(beforeSwitch, 427, 433);
+        Assert.InRange(beforeSwitch, 471, 477);
         Assert.True(panel.OptionHitRect(SettingRow.Threshold, 3).Height is > 0 and < 34);
 
         panel.Toggle(SettingRow.PollInterval, 50, animate: true, selectedIndex: 1);
@@ -94,17 +94,17 @@ public sealed class PanelPagesTests
         Assert.Equal(beforeSwitch, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.Threshold, 0).Height);
         panel.Advance(300);
-        Assert.Equal(425, panel.Height);
+        Assert.Equal(469, panel.Height);
         Assert.Equal(0, panel.VisibleHeight(SettingRow.Threshold));
         Assert.Equal(34, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         Assert.False(panel.Animating);
 
         Assert.True(panel.Collapse(300, animate: true));
         Assert.False(panel.Collapse(301, animate: true));
-        Assert.Equal(425, panel.Height);
+        Assert.Equal(469, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         panel.Advance(550);
-        Assert.Equal(323, panel.Height);
+        Assert.Equal(367, panel.Height);
     }
 
     [Theory]
@@ -127,7 +127,7 @@ public sealed class PanelPagesTests
             panel.Toggle((SettingRow)row, 0, animate: false, selectedIndex: 0);
             Assert.True(panel.Select(target, model, 1, animate: false, Save));
             Assert.Null(panel.Expanded);
-            Assert.Equal(323, panel.Height);
+            Assert.Equal(367, panel.Height);
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);

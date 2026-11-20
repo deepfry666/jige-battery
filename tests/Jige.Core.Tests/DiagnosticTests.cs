@@ -178,20 +178,14 @@ public sealed class DiagnosticTests
             (1, 6, 0x1A) => [Frame("1101061A5E080100", 20)],
             _ => throw new InvalidOperationException("意外发包")
         });
-        var shortSession = new BatteryHidStub(request =>
-        {
-            Assert.Equal("10FF83B5520000", Convert.ToHexString(request));
-            longSession.Enqueue(Frame("11FF83B55202A94012345678", 20));
-            return [];
-        });
+        var shortSession = new BatteryHidStub(_ => throw new InvalidOperationException("意外短集合查询"));
 
         string report = await DiagnosticReport.GenerateAsync(new([longHid, shortHid], [], []),
             new BatteryTransportStub(hid => hid.Path == shortHid.Path ? shortSession : longSession));
         Assert.Contains("匹配 Logitech HID++ H1（长报告） H2（短报告）", report);
         Assert.Contains("OP|H2|OpenHid|", report);
-        Assert.Contains("OP|H2|HidOutput|", report);
+        Assert.Contains("罗技|H1|Mouse|接收器槽位 1；HID++ 4.2", report);
         Assert.Contains("OP|H1|HidInput|", report);
-        Assert.Contains("|11FF83B55202A940000000000000000000000000|1", report);
         Assert.Contains("|1101080A0100000000000140A900000000000000|1", report);
         Assert.DoesNotContain("414C494345", report);
         Assert.DoesNotContain("Private Receiver Name", report);
@@ -206,7 +200,7 @@ public sealed class DiagnosticTests
             offline =>
             {
                 Assert.Equal(LinkState.Offline, offline.Link);
-                Assert.EndsWith("/wpid-40A9", offline.Device.Id);
+                Assert.EndsWith("/2/unknown", offline.Device.Id);
             });
     }
 
@@ -215,9 +209,13 @@ public sealed class DiagnosticTests
     {
         var hid = new HidInterface("receiver", "unknown-path", 0x046D, 0xC5FF, "私有名称 dongle",
             0xFF00, 2, 20, 20, 0, 2);
-        var session = new BatteryHidStub(request => request[3] == 0x1A
-            ? [Frame($"1101001A0201{request[6]:X2}", 20)]
-            : [Frame("1101000A060005", 20)]);
+        var session = new BatteryHidStub(request => (request[1], request[2], request[3]) switch
+        {
+            (1, 0, 0x1A) => [Frame($"1101001A0201{request[6]:X2}", 20)],
+            (_, 0, 0x1A) => [Frame($"10{request[1]:X2}8F001A08", 7)],
+            (1, 0, _) => [Frame($"110100{request[3]:X2}00", 20)],
+            _ => throw new InvalidOperationException("意外发包")
+        });
         string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
         Assert.DoesNotContain("私有名称", report);
         Assert.Equal(LinkState.Online, Assert.Single(await Replay(report)).Link);

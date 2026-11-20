@@ -16,7 +16,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
     public IHidSession OpenHid(HidInterface endpoint, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var handle = Open(endpoint.Path, ReadWrite, ShareReadWrite, Overlapped, false);
+        var handle = Open(endpoint.Path, endpoint.InputOnly ? 0x80000000 : ReadWrite, ShareReadWrite, Overlapped, false);
         try
         {
             var attributes = ReadAttributes(handle);

@@ -77,16 +77,22 @@
 | G-Wolves HTX ACE | `33E4:5703` | XVI-OLD | 仅按资料 | `mouse.xyz` 官方型号表 / OpenMouse |
 | G-Wolves HSK Plus ACE | `33E4:5903` | XVI-OLD | 仅按资料 | `mouse.xyz` 官方型号表 / OpenMouse |
 
-### Logitech HID++ 2.0 与耳机
+### 罗技 HID++ 1.0 / 2.0、蓝牙与耳机
 
 | 设备 / 接收器 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
 | --- | --- | --- | --- | --- |
 | LIGHTSPEED 接收器 | `046D:C539`、`046D:C53A`、`046D:C53D`、`046D:C53F`、`046D:C541`、`046D:C545`、`046D:C547`、`046D:C54D` | Logitech HID++ 2.0 | 仅按资料 | Solaar / OpenLogi / OpenMouse |
 | Logi Bolt 接收器 | `046D:C548` | Logitech HID++ 2.0 | 仅按资料 | Solaar / OpenLogi |
 | Unifying 接收器 | `046D:C52B`、`046D:C532` | Logitech HID++ 2.0 | 仅按资料 | Solaar / OpenLogi |
+| Nano 接收器 | `046D:C518/C51A/C51B/C521/C525/C526/C52E/C52F/C531/C534/C535/C537` | HID++ 1.0 / 2.0 | 仅按资料 | Solaar / HaloBattery |
+| 其余罗技接收器 | `046D`，接收器名称和 `FF00:0002` 同时匹配 | HID++ 1.0 / 2.0 | 仅按资料 | 通过首个 Ping 安全门后查询 |
+| 罗技鼠标、键盘线缆 | 同 PID 的 `FF00:0001` / `FF00:0002` | HID++ 直连 | 仅按资料 | HaloBattery |
+| 罗技蓝牙鼠标、键盘 | `046D` 蓝牙 HID，`FF43:0202` | HID++ over BLE | 仅按资料 | Linux HID++、公开协议 |
+| 任意品牌蓝牙外设 | Windows 提供电量属性 | Windows 本机属性 | 仅按资料 | BatteryHub / Windows SetupAPI |
+| Logitech G533 / G535 / G633 / G635 / G933 / G935 | `046D:0A66/0AC4/0A5C/0A89/0A5B/0A87` | HID++ 耳机 | 仅按资料 | HaloBattery / HeadsetControl |
+| Logitech G733 / G PRO / G PRO X / G PRO X 2（HID++ 变体） | `046D:0AB5/0AFE/0B1F/0AA7/0AAA/0ABA/0AFB/0AFC` | HID++ 耳机 | 仅按资料 | HaloBattery / HeadsetControl |
 | Logitech G PRO X 2 LIGHTSPEED | `046D:0AF7` | Logitech Centurion | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
 | Logitech G522 LIGHTSPEED | `046D:0B18` | Logitech Centurion | 仅按资料 | HeadsetControl |
-| Logitech G PRO X 3 LIGHTSPEED | `046D:0B45` | Logitech Centurion | 仅按资料 | HeadsetControl |
 | Logitech G325 LIGHTSPEED | `046D:0B21` | Logitech Centurion | 仅按资料 | HeadsetControl #581 |
 | ASTRO A50 Gen 5 | `046D:0B1C` | ASTRO Gen 5 | 仅按资料 | HeadsetControl |
 
@@ -133,4 +139,5 @@
 | ATK A9 Pro Max 2.0 NK 候选 | `373B:11DC`、`373B:11DB` | BitMouse 候选 | PID 与协议通道未经实机核实 | `research/device-catalog.md` |
 | G-Wolves Receiver RS | `33E4:3854` | Compx-OUT / XVI-NEW 候选 | 精确 Usage 与校验式未核实，且存在 Compx 与 XVI-NEW 候选冲突 | `gwolves-battery-overlay` |
 | G-Wolves Fenrir Asym 8K | `33E4:3517` | XVI-OLD / XVI-NEW 冲突 | 社区存在 XVI-OLD 与 XVI-NEW 两代协议冲突记录，待实机抓包确认 | `mouse.xyz` / OpenMouse |
+| Logitech G PRO X 3 LIGHTSPEED | `046D:0B45` | Logitech Centurion | 当前版本保持关闭，待单独复核 | 0.2.4 验收标准 |
 | ASTRO A50 X | `046D:0B0B` | Logitech 耳机候选 | HID 集合与只读电量查询尚未核实 | `docs/protocols.md` / HeadsetControl |
