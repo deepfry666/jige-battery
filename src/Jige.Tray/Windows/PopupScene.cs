@@ -179,6 +179,7 @@ internal sealed partial class PopupScene : IDisposable
         else
         {
             devices = model.OrderedForManagement();
+            Settings?.UpdateTrayChoices(model, devices);
             mainEntries = [];
         }
 

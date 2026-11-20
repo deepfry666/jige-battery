@@ -6,11 +6,14 @@ using Jige.Core.Windows;
 
 namespace Jige.Core.Adapters;
 
-internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMultiDeviceAdapter, IPushPresenceAdapter
+internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
+    IReadOnlyDictionary<string, DeviceIdentity>? savedSlots = null) : IMultiDeviceAdapter, IPushPresenceAdapter
 {
     private static int nextMarker;
     private readonly SafetyGateStore safety = gates ?? new();
     private readonly Dictionary<string, EndpointState> endpoints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, DeviceIdentity> startupSlots = savedSlots is null
+        ? new(StringComparer.OrdinalIgnoreCase) : new(savedSlots, StringComparer.OrdinalIgnoreCase);
 
     private sealed class EndpointState
     {
@@ -42,6 +45,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
         public bool Disconnected;
         public bool Reconnect;
         public BatteryReading? Last;
+        public DeviceIdentity? SavedDevice;
         public string? UnitDigest;
         public string? QueryIdentity;
     }
@@ -204,12 +208,20 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
     private static bool SameReceiver(HidInterface first, HidInterface second) =>
         StringComparer.OrdinalIgnoreCase.Equals(first.ReceiverId, second.ReceiverId);
 
-    private EndpointState State(HidInterface endpoint)
+    private EndpointState State(HidInterface endpoint, DeviceTarget target)
     {
         lock (endpoints)
         {
             if (!endpoints.TryGetValue(endpoint.Path, out var state))
+            {
                 endpoints.Add(endpoint.Path, state = new());
+                if (target.Slot == "0")
+                {
+                    for (byte slot = 1; slot <= 6; slot++)
+                        if (startupSlots.Remove($"{target.Device.Id}/{slot}", out var device))
+                            state.Slot(slot).SavedDevice = device;
+                }
+            }
             return state;
         }
     }
@@ -219,7 +231,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
     {
         if (target.Endpoint is not HidInterface endpoint || !IsLong(endpoint) || safety.IsBlocked(endpoint, out _))
             return;
-        var state = State(endpoint);
+        var state = State(endpoint, target);
         if (UsesReceiverName(endpoint) && !Volatile.Read(ref state.Confirmed))
             return;
 
@@ -268,7 +280,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
                 state.SetQuery(address, null, null);
                 slot.Disconnected = !connected;
                 slot.Reconnect = true;
-                return new(endpoint.ReceiverId, address, slot.Last?.Device.Id, connected ? LinkState.Online : LinkState.Offline);
+                return new(endpoint.ReceiverId, address, (slot.Last?.Device ?? slot.SavedDevice)?.Id,
+                    connected ? LinkState.Online : LinkState.Offline);
             }
             if (!allowBattery || !LogitechHidppProtocol.HasReportShape(report) ||
                 !LogitechHidppProtocol.IsDeviceAddress(report[1]) || (target.Slot == "0") == (report[1] == 0xFF) ||
@@ -306,7 +319,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
             return [AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "HID++ 集合未通过安全检查")];
 
         bool receiver = target.Slot == "0";
-        var state = State(endpoint);
+        var state = State(endpoint, target);
         var addresses = receiver ? new byte[] { 1, 2, 3, 4, 5, 6 } : [0xFF];
         if (onlyDeviceIds is not null)
         {
@@ -354,6 +367,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
             {
                 SlotState entry = state.Slot(slot);
                 BatteryReading? previous;
+                DeviceIdentity? known;
                 BatteryQuery? cached;
                 int generation;
                 bool disconnected;
@@ -362,6 +376,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
                 lock (state)
                 {
                     previous = entry.Last;
+                    known = previous?.Device ?? entry.SavedDevice;
                     cached = state.Query(slot);
                     unit = entry.UnitDigest;
                     generation = entry.Generation;
@@ -399,20 +414,11 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
                 var ping = await QueryAsync(LogitechHidppProtocol.Ping(slot, marker)).ConfigureAwait(false);
                 byte? legacyError = LogitechHidppProtocol.LegacyError(ping);
                 if (receiver && legacyError == 0x08)
-                {
-                    device = previous?.Device ?? device;
-                    return previous is null ? null : Remember(Unavailable(true), null);
-                }
-                if (Unreachable(ping))
-                {
-                    device = previous?.Device ?? device;
                     return Remember(Unavailable(true), null);
-                }
+                if (Unreachable(ping))
+                    return Remember(Unavailable(true), null);
                 if (ping is null)
-                {
-                    device = previous?.Device ?? device;
-                    return previous is null && receiver && onlyDeviceIds is null ? null : Remember(Unavailable(disconnected), null);
-                }
+                    return Remember(Unavailable(disconnected), null);
 
                 if (legacyError == 0x01)
                 {
@@ -518,8 +524,9 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
                     (indices.Count == 0 ? "—" : string.Join("、", indices.Where(item => LogitechHidppProtocol.IsFeatureIndex(item.Value))
                         .Select(item => $"{(ushort)item.Key:X4}={item.Value:X2}").DefaultIfEmpty("—")));
 
-                BatteryReading Unavailable(bool offline, string? summary = null) =>
-                    Reading(device, null, false, ChargingState.Unknown, offline ? LinkState.Offline : LinkState.Asleep,
+                BatteryReading Unavailable(bool offline, string? summary = null, DeviceIdentity? identity = null) =>
+                    Reading(identity ?? known ?? device, null, false, ChargingState.Unknown,
+                        offline ? LinkState.Offline : LinkState.Asleep,
                         summary ?? Summary(), endpoint, offline ? ReadIssue.None : ReadIssue.Timeout);
 
                 BatteryReading? ParseBattery(BatteryQuery query, byte[]? reply, string? oldSummary = null)
@@ -532,13 +539,34 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null) : IMul
                         $"{summary}；电量 {query.Label}，回复载荷 {query.Summary(reply!)}", endpoint);
                 }
 
-                BatteryReading Remember(BatteryReading reading, BatteryQuery? query)
+                BatteryReading? Remember(BatteryReading reading, BatteryQuery? query)
                 {
                     lock (state)
                     {
                         if (entry.Generation != generation)
-                            return Unavailable(entry.Disconnected);
+                        {
+                            var current = entry.Last?.Device ?? entry.SavedDevice;
+                            return receiver && current is null ? null : Unavailable(entry.Disconnected, identity: current);
+                        }
+                        // 在线但暂时无读数时仍可输出诊断信息。只有读到过电量后才记住槽位。
+                        if (receiver && reading.Percentage is null)
+                        {
+                            if (known is null)
+                                return reading.Link == LinkState.Online ? reading : null;
+                            if (!StringComparer.OrdinalIgnoreCase.Equals(reading.Device.Id, known.Id))
+                            {
+                                if (reading.Link != LinkState.Online)
+                                    return null;
+                                if (!reading.Device.Id.EndsWith("/unknown", StringComparison.Ordinal))
+                                    return reading;
+                                reading = reading with { Device = known };
+                            }
+                            // 首轮只有链路状态时保留启动时的身份，用真实读数重新确认设备。
+                            if (previous is null)
+                                return reading;
+                        }
                         entry.Last = reading;
+                        entry.SavedDevice = null;
                         entry.UnitDigest = unit;
                         state.SetQuery(slot, query is null ? null : unit ?? reading.Device.Id, query);
                         if (reading.Link == LinkState.Online)

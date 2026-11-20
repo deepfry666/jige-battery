@@ -166,12 +166,17 @@ section{margin-top:28px}
 .crow .chev{color:var(--ink-3);flex:none;transition:transform .25s cubic-bezier(.1,.9,.2,1)}
 .crow[aria-expanded="true"] .chev{transform:rotate(90deg)}
 .opts{max-height:0;overflow:hidden;transition:max-height .25s cubic-bezier(.1,.9,.2,1)}
-.opts.open{max-height:220px}
+.opts.open{max-height:204px}
+.opts > div{max-height:204px;overflow-y:auto}
 .opt{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 14px 0 44px;border:0;background:transparent;color:var(--ink);font:inherit;font-size:13px;text-align:left;cursor:pointer}
 .opt:hover{background:var(--hover)}
 .opt .ck{margin-left:auto;color:var(--accent);opacity:0}
 .opt[aria-checked="true"] .ck{opacity:1}
 .opt[aria-checked="true"]{font-weight:600}
+.opt.device-choice{padding-left:52px;font-weight:400}
+.device-choice .chk{margin-left:auto;flex-shrink:0}
+.device-choice[aria-checked="true"] .chk{background:var(--accent);border-color:var(--accent);color:var(--flyout-solid)}
+.device-choice span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* 面板内分页：设置页与设备页从右侧推入，返回时主页从左侧回来 */
 .pages{position:relative;overflow:hidden;transition:height .25s cubic-bezier(.1,.9,.2,1)}
@@ -400,7 +405,7 @@ section{margin-top:28px}
     <div class="controls">
       <button class="chipbtn" data-sim="charge" aria-pressed="true">耳机充电中</button>
       <button class="chipbtn" data-sim="low" aria-pressed="true">ATK 电量低</button>
-      <button class="chipbtn" data-sim="sleep" aria-pressed="true">游狼休眠</button>
+      <button class="chipbtn" data-sim="disconnected" aria-pressed="true">游狼断开</button>
       <button class="chipbtn" data-sim="busy" aria-pressed="true">罗技接收器被占用</button>
       <button class="chipbtn" data-sim="game" aria-pressed="false">进入全屏游戏</button>
       <button class="chipbtn" id="fireToast">触发低电量提醒</button>
@@ -477,8 +482,8 @@ section{margin-top:28px}
     {id:'gw', name:'G-Wolves HTX Ultra 8K', kind:'mouse', pct:64, inTray:false, lastSeen:2, badge:'verified'},
     {id:'lg', name:'Logitech 键盘', kind:'keyboard', pct:81, inTray:false, lastSeen:1, badge:'protocol'},
   ];
-  const sim = {charge:true, low:true, sleep:true, busy:true, game:false};
-  const prefs = {trayMode:'perDevice', threshold:'15%', poll:'1 分钟', silent:true, autostart:true};
+  const sim = {charge:true, low:true, disconnected:true, busy:true, game:false};
+  const prefs = {trayMode:'custom', threshold:'15%', poll:'1 分钟', silent:true, autostart:true};
   let style = 'cells';
   let offlineExpanded = false;
 
@@ -488,13 +493,13 @@ section{margin-top:28px}
     return {cls:'', text:'按协议适配'};
   }
   function isOnline(d){
-    if (d.id==='gw' && sim.sleep) return false;
+    if (d.id==='gw' && sim.disconnected) return false;
     if (d.id==='lg' && sim.busy) return false;
     return true;
   }
   function state(d){
     if (d.id==='h9' && sim.charge) return {k:'charge', c:'var(--charge)', text:'充电中', online:true};
-    if (d.id==='gw' && sim.sleep) return {k:'idle', c:'var(--idle)', text:'已断开 · 上次读数 · 8 分钟前', dim:true, online:false};
+    if (d.id==='gw' && sim.disconnected) return {k:'idle', c:'var(--idle)', text:'已断开 · 上次读数 · 8 分钟前', dim:true, online:false};
     if (d.id==='lg' && sim.busy) return {k:'idle', c:'var(--idle)', text:'接收器被占用 · 上次读数', dim:true, online:false};
     const p = pctOf(d);
     const th = parseInt(prefs.threshold, 10) || 15;
@@ -616,19 +621,17 @@ section{margin-top:28px}
     const tail = s.k==='charge' ? ' 充电中' : s.k==='low' ? ' 电量低' : s.k==='warn' ? ' 电量偏低' : '';
     return `${d.name} ${d.est?'≈':''}${p}%${tail}`;
   }
-  function summaryTip(){
-    const plan = buildMainPlan();
-    const list = [plan.hero, ...plan.onlineRows, ...plan.offlineRows].filter(Boolean);
-    return list.length ? list.map((d,i)=> i===0 ? `<b>${deviceTip(d)}</b>` : deviceTip(d)).join('<br>') : '几格 · 未找到支持的设备';
+  function summaryTip(list){
+    return list.length ? list.map((d,i)=> i===0 ? `<b>${deviceTip(d)}</b>` : deviceTip(d)).join('<br>') : '几格 · 点击打开面板';
   }
   function renderTray(){
     const box = document.getElementById('trayIcons');
-    const plan = buildMainPlan();
+    const active = devices.filter(isOnline).sort((a,b)=>pctOf(a)-pctOf(b));
     let slots = [];
     if (prefs.trayMode==='lowest'){
-      slots = [{key:'single', device:plan.hero, tipHtml:summaryTip()}];
+      slots = [{key:'single', device:active[0], tipHtml:summaryTip(active)}];
     } else {
-      const checked = devices.filter(d=>d.inTray);
+      const checked = active.filter(d=>d.inTray);
       slots = checked.length ? checked.map(d=>({key:d.id, device:d, tipHtml:deviceTip(d)}))
         : [{key:'single', device:null, tipHtml:'几格 · 点击打开面板'}];
     }
@@ -650,7 +653,6 @@ section{margin-top:28px}
       {cap:'<b>≤ 30%</b> · 琥珀', o:{text:'26', color:css('--warn')}},
       {cap:'<b>≤ 15%</b> · 红色', o:{text:'9', color:css('--low')}},
       {cap:'<b>充电中</b> · 绿色 + 底线', o:{text:'48', color:css('--charge'), mode:'charge'}},
-      {cap:'<b>已断开</b> · 变灰显示上次读数', o:{text:'64', mode:'idle'}},
       {cap:'<b>100%</b> · 换成满电图形', o:{mode:'full'}},
       {cap:'<b>未知</b> · 短横线', o:{text:'–', mode:'idle'}},
     ];
@@ -752,11 +754,14 @@ section{margin-top:28px}
   const TICK = '<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.2l2.6 2.6L11 4.4"/></svg>';
   let expanded = null;
   function fillSettings(){
-    const trayVal = prefs.trayMode==='lowest' ? '最低电量' : '每台一个图标';
+    const trayVal = prefs.trayMode==='lowest' ? '最低电量' : '自定义';
+    const trayChecks = prefs.trayMode==='custom' ? devices.map(d=>
+      `<button class="opt device-choice" data-device="${d.id}" role="checkbox" aria-checked="${d.inTray}"><span></span><span class="chk">${TICK}</span></button>`
+    ).join('') : '';
     const rows = [
       {key:'trayMode', gl:'tray', name:'托盘显示', value:trayVal, options:[
-        {v:'perDevice', t:'每台设备一个图标（默认）', on:prefs.trayMode==='perDevice'},
-        {v:'lowest', t:'只显示电量最低的设备', on:prefs.trayMode==='lowest'}
+        {v:'lowest', t:'只显示电量最低的一台', on:prefs.trayMode==='lowest'},
+        {v:'custom', t:'自定义', on:prefs.trayMode==='custom'}
       ]},
       {key:'threshold', gl:'bell', name:'低电量提醒', value:prefs.threshold, options:['10%','15%','20%','30%'].map(v=>({v, t:v==='15%'?'15%（默认）':v, on:prefs.threshold===v}))},
       {key:'silent', gl:'game', name:'游戏中不打扰', toggle:'silent'},
@@ -767,7 +772,7 @@ section{margin-top:28px}
     card.innerHTML = rows.map(r => r.toggle
       ? `<button class="crow" data-toggle="${r.toggle}"><span class="gl">${GL[r.gl]}</span><span class="nm">${r.name}</span><span class="tg" role="switch" aria-checked="${prefs[r.toggle]}"></span></button>`
       : `<button class="crow" data-key="${r.key}" aria-expanded="${expanded===r.key}"><span class="gl">${GL[r.gl]}</span><span class="nm">${r.name}</span><span class="val">${r.value}</span>${CHEV}</button>
-         <div class="opts ${expanded===r.key?'open':''}"><div>${r.options.map(o=>`<button class="opt" data-key="${r.key}" data-v="${o.v}" aria-checked="${o.on}">${o.t}${CHECK}</button>`).join('')}</div></div>`
+         <div class="opts ${expanded===r.key?'open':''}"><div>${r.options.map(o=>`<button class="opt" data-key="${r.key}" data-v="${o.v}" aria-checked="${o.on}">${o.t}${CHECK}</button>`).join('')}${r.key==='trayMode'?trayChecks:''}</div></div>`
     ).join('');
     card.querySelectorAll('.crow[data-toggle]').forEach(b=>b.onclick = e=>{ e.stopPropagation(); const k=b.dataset.toggle; prefs[k]=!prefs[k]; b.querySelector('.tg').setAttribute('aria-checked', prefs[k]); });
     card.querySelectorAll('.crow[data-key]').forEach(b=>b.onclick = e=>{
@@ -775,10 +780,16 @@ section{margin-top:28px}
       card.querySelectorAll('.crow[data-key]').forEach(x=>{ const on = x.dataset.key===expanded; x.setAttribute('aria-expanded', on); x.nextElementSibling.classList.toggle('open', on); });
       setTimeout(()=>fit('pSettings'), 260); fit('pSettings');
     });
-    card.querySelectorAll('.opt').forEach(o=>o.onclick = e=>{
+    card.querySelectorAll('.opt[data-v]').forEach(o=>o.onclick = e=>{
       e.stopPropagation(); const k=o.dataset.key, v=o.dataset.v;
       prefs[k]=v;
-      expanded = null; fillSettings(); render(); setTimeout(()=>fit('pSettings'), 260);
+      if (k!=='trayMode') expanded = null;
+      fillSettings(); render(); setTimeout(()=>fit('pSettings'), 260);
+    });
+    card.querySelectorAll('.device-choice').forEach(b=>{
+      const d = devices.find(device=>device.id===b.dataset.device);
+      b.firstElementChild.textContent = d.name;
+      b.onclick = e=>{ e.stopPropagation(); d.inTray=!d.inTray; b.setAttribute('aria-checked', d.inTray); render(); };
     });
     requestAnimationFrame(()=>fit('pSettings'));
   }
@@ -786,14 +797,14 @@ section{margin-top:28px}
   const EYE_OFF = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M2 2l12 12M6.4 3.8A6.6 6.6 0 0 1 8 3.5C12 3.5 14.5 8 14.5 8a12 12 0 0 1-1.9 2.4M10.5 10.9A5.4 5.4 0 0 1 8 12.5C4 12.5 1.5 8 1.5 8a12.6 12.6 0 0 1 2.7-3.2"/></svg>';
   function fillDevices(){
     const box = document.getElementById('devList');
-    const perMode = prefs.trayMode==='perDevice';
+    const customMode = prefs.trayMode==='custom';
     box.innerHTML = devices.map(d=>{
       const bm = badgeMeta(d.badge);
       return `<div class="drow ${d.hidden?'hid':''}" data-id="${d.id}">
         <div class="dev-ico">${ICON[d.kind]}</div>
         <div class="meta"><button class="nm" title="点击改名">${d.name}</button>
           <div class="st">2.4G · <span class="badge ${bm.cls}">${bm.text}</span></div></div>
-        <button class="ib ${d.inTray?'on':''} ${perMode?'':'muted'}" data-act="tray" title="${d.inTray?'取消托盘显示':'勾选在托盘显示'}"><span class="chk">${TICK}</span></button>
+        <button class="ib ${d.inTray?'on':''} ${customMode?'':'muted'}" data-act="tray" title="${d.inTray?'取消托盘显示':'勾选在托盘显示'}"><span class="chk">${TICK}</span></button>
         <button class="ib" data-act="eye" title="${d.hidden?'在面板中显示':'在面板中隐藏'}">${d.hidden?EYE_OFF:EYE}</button>
       </div>`;
     }).join('');

@@ -102,10 +102,11 @@ internal sealed class TrayApp : IDisposable
         configLoaded = files.TryLoadSettings(out var settings, Desktop.Log);
         welcomePending = settings.WelcomeShown == false;
         diagnostics = new(files.DiagnosticsPath);
-        model = new(settings, files.LoadState());
+        var state = files.LoadState(ref settings, Desktop.Log);
+        model = new(settings, state);
         gates = new(model.InitialBlockedReceivers);
         gates.Rejected += events.LogSafetyGateRejection;
-        poll = new(gates);
+        poll = new(gates, model.SavedLogitechSlots());
         darkTaskbar = Desktop.DarkTaskbar;
 
         Register(HostClass, &HostCallback);

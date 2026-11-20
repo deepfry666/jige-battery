@@ -23,8 +23,18 @@ public sealed class AdapterRegistry
         int sonyBaudRate = 115200,
         SafetyGateStore? gates = null,
         Func<bool>? isInzoneHubRunning = null) =>
+        CreateDefault(sonyBaudRate, gates, isInzoneHubRunning, null);
+
+    /// <summary>接收器槽位按接收器设备 ID 和槽号索引，仅用于恢复已读到过电量的设备身份。</summary>
+    public static AdapterRegistry CreateDefault(
+        IReadOnlyDictionary<string, DeviceIdentity> savedLogitechSlots, SafetyGateStore? gates) =>
+        CreateDefault(115200, gates, null, savedLogitechSlots);
+
+    private static AdapterRegistry CreateDefault(
+        int sonyBaudRate, SafetyGateStore? gates, Func<bool>? isInzoneHubRunning,
+        IReadOnlyDictionary<string, DeviceIdentity>? savedLogitechSlots) =>
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
-            new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates), new LogitechHeadsetAdapter(),
+            new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates, savedLogitechSlots), new LogitechHeadsetAdapter(),
             new RazerFeatureAdapter(), new RazerHeadsetAdapter());
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;

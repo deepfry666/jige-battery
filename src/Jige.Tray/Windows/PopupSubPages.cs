@@ -127,18 +127,10 @@ internal sealed partial class PopupScene
 
     public void ToggleSetting(SettingRow row, long time)
     {
-        var choices = Choices(row);
+        var choices = Settings!.Choices(row);
         int selected = Array.FindIndex(choices, choice => IsSelected(choice.Target));
-        Settings!.Toggle(row, time, animations, selected);
+        Settings.Toggle(row, time, animations, selected);
     }
-
-    private static SettingChoice[] Choices(SettingRow row) => row switch
-    {
-        SettingRow.TrayMode => SettingsPanel.TrayModeChoices,
-        SettingRow.Threshold => SettingsPanel.ThresholdChoices,
-        SettingRow.PollInterval => SettingsPanel.PollChoices,
-        _ => []
-    };
 
     private bool IsSelected(PopupTarget target) => target.Action switch
     {
@@ -155,7 +147,7 @@ internal sealed partial class PopupScene
         if (area.Height <= 0)
             return;
 
-        var choices = Choices(row);
+        var choices = layout.Choices(row);
         int offset = layout.Offset(row);
         int end = offset + layout.VisibleCount(row);
         canvas.PushClip(area);
@@ -170,6 +162,13 @@ internal sealed partial class PopupScene
                 {
                     subButtons.Add(new(choice.Target, hit));
                     DrawSettingBackground(canvas, new(choice.Target, rect));
+                }
+                if (choice.Target is { Action: PopupAction.TrayToggle, DeviceId: { } id })
+                {
+                    canvas.Text(choice.Label, 62, rect.Y, SettingsPanel.Right - 84, rect.Height, 13, colors.Ink,
+                        ellipsis: true);
+                    DrawCheckbox(canvas, SettingsPanel.Right - 16, rect.Y + 9, model.Settings.IsInTray(id), true, colors.Muted);
+                    continue;
                 }
                 bool selected = IsSelected(choice.Target);
                 canvas.Text(choice.Label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
@@ -415,13 +414,13 @@ internal sealed partial class PopupScene
                 align: DWRITE_TEXT_ALIGNMENT_CENTER);
         }
 
-        // B4 / B5：去掉图钉，改为托盘勾选框（在「每台设备一个图标」模式下控制该设备是否显示在托盘）。
+        // 与设置页的「自定义」共用托盘勾选状态。
         bool inTray = model.Settings.IsInTray(id);
-        bool perDeviceMode = model.Settings.TrayMode == TrayDisplayMode.PerDevice;
+        bool customMode = model.Settings.TrayMode == TrayDisplayMode.Custom;
         var trayCheck = new HitBox(new PopupTarget(PopupAction.TrayToggle, DeviceId: id), new(TrayCheckX, iconTop, 30, 30));
         subButtons.Add(trayCheck);
         ButtonBackground(canvas, trayCheck);
-        DrawCheckbox(canvas, TrayCheckX + 7, iconTop + 7, inTray, perDeviceMode, IconInk(trayCheck));
+        DrawCheckbox(canvas, TrayCheckX + 7, iconTop + 7, inTray, customMode, IconInk(trayCheck));
 
         var eye = new HitBox(new PopupTarget(PopupAction.Visibility, DeviceId: id), new(EyeX, iconTop, 30, 30));
         subButtons.Add(eye);

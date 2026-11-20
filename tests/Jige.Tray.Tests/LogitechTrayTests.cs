@@ -45,7 +45,8 @@ public sealed class LogitechTrayTests
         Assert.Contains("休眠中 · 上次 52%", Presentation.DeviceTooltip(model, asleep));
 
         model.ApplyPoll([Reading(Mouse, null, LinkState.Offline), Reading(Keyboard, 83)], false, Now.AddSeconds(40));
-        var offline = Assert.Single(model.TrayDevices(), item => item.Device == Mouse);
+        Assert.DoesNotContain(model.TrayDevices(), item => item.Device == Mouse);
+        var offline = Assert.Single(model.BuildMainPanel().OfflineRows, item => item.Device == Mouse);
         Assert.Equal(LinkState.Offline, offline.Link);
         Assert.Equal(52, offline.Percentage);
         Assert.Equal(LinkState.Online, Assert.Single(model.TrayDevices(), item => item.Device == Keyboard).Link);
@@ -84,9 +85,53 @@ public sealed class LogitechTrayTests
         Assert.Equal(63, asleep.Percentage);
 
         restarted.ApplyPoll([], false, Now.AddSeconds(6), liveTargets: new HashSet<string>());
-        var offline = Assert.Single(restarted.TrayDevices());
+        Assert.Empty(restarted.TrayDevices());
+        var offline = Assert.Single(restarted.OrderedForManagement());
         Assert.Equal(LinkState.Offline, offline.Link);
         Assert.Equal(63, offline.Percentage);
+    }
+
+    [Fact]
+    public void BoltRestartReusesMostRecentIdentityAndReadingForSilentSlot()
+    {
+        const string receiver = "logitech-hidpp:bolt";
+        var mouse = new DeviceIdentity($"{receiver}/2/unit-mouse", "MX Anywhere 3S", DeviceKind.Mouse);
+        var oldMouse = mouse with { Id = $"{receiver}/2/unit-old", Name = "旧鼠标" };
+        var keyboard = new DeviceIdentity($"{receiver}/1/unit-keyboard", "MX Keys S", DeviceKind.Keyboard);
+        var settings = new TraySettings().WithAlias(mouse.Id, "公司鼠标");
+        var before = new TrayModel(settings, new());
+        before.ApplyPoll([Reading(oldMouse, 99)], false, Now);
+        before.ApplyPoll([Reading(mouse, 58) with { ReadAt = Now.AddMinutes(1) }, Reading(keyboard, 83)], false, Now.AddMinutes(1));
+        var folder = Directory.CreateTempSubdirectory();
+        try
+        {
+            var files = new TrayFiles(folder.FullName);
+            files.SaveSettings(settings);
+            files.SaveState(before.Snapshot());
+            Assert.True(files.TryLoadSettings(out var restoredSettings));
+            var restoredState = files.LoadState(ref restoredSettings);
+            var after = new TrayModel(restoredSettings, restoredState);
+            Assert.Equal(mouse, after.SavedLogitechSlots()[$"{receiver}/2"]);
+            Assert.Equal(keyboard, after.SavedLogitechSlots()[$"{receiver}/1"]);
+
+            after.ApplyPoll([Reading(keyboard, null, LinkState.Offline)], false, Now.AddMinutes(2),
+                liveTargets: new HashSet<string> { receiver });
+            var asleep = Assert.Single(after.TrayDevices());
+            Assert.Equal(mouse, asleep.Device);
+            Assert.Equal("公司鼠标", after.Name(asleep.Device));
+            Assert.Equal(58, asleep.Percentage);
+            Assert.Equal(LinkState.Asleep, asleep.Link);
+            Assert.Equal(BatteryTone.Normal, Presentation.Tone(asleep, 15));
+            Assert.Equal(2, after.BuildMainPanel().OfflineRows.Length);
+
+            after.ApplyPoll([Reading(mouse, 57)], false, Now.AddMinutes(3), liveTargets: new HashSet<string> { receiver });
+            Assert.Equal(mouse, Assert.Single(after.TrayDevices()).Device);
+            Assert.Equal(3, after.OrderedForManagement().Length);
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
     }
 
     [Fact]

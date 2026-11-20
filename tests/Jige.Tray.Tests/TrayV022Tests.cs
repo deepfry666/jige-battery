@@ -66,40 +66,69 @@ public sealed class TrayV022Tests
     }
 
     [Fact]
-    public void B5AndB6_TrayIconPlanSupportsPerDeviceAndLowestModesWithDisconnectedTooltip()
+    public void TrayIconPlanKeepsOnlyActiveDevicesAndRestoresTheirIdsAfterReconnect()
     {
-        var model = new TrayModel(new(), new()); // 默认 PerDevice
+        var model = new TrayModel(new(), new());
         model.ApplyPoll([
             new(MouseA, 65, false, ChargingState.NotCharging, LinkState.Online, Now),
             new(Headset, 40, false, ChargingState.NotCharging, LinkState.Online, Now)
         ], false, Now);
 
-        // 默认「每台设备一个图标」：两台设备各占一个独立图标，悬停带设备名。
-        var perDevice = TrayIconPlan.Build(model, suppressTooltip: false);
-        Assert.Equal(2, perDevice.Length);
-        Assert.Contains(perDevice, slot => slot.Key == MouseA.Id && slot.Tooltip.Contains("ATK 鼠标 65%"));
-        Assert.Contains(perDevice, slot => slot.Key == Headset.Id && slot.Tooltip.Contains("INZONE H9 40%"));
+        var custom = TrayIconPlan.Build(model, suppressTooltip: false);
+        Assert.Equal(2, custom.Length);
+        var mouseSlot = Assert.Single(custom, slot => slot.Key == MouseA.Id);
+        Assert.Contains("ATK 鼠标 65%", mouseSlot.Tooltip);
+        Assert.Contains(custom, slot => slot.Key == Headset.Id && slot.Tooltip.Contains("INZONE H9 40%"));
 
         // 取消勾选 Headset 后立即减少为 1 个图标。
         model.ApplySettings(model.ToggleTrayDevice(Headset.Id), Now);
         var afterUncheck = TrayIconPlan.Build(model, suppressTooltip: false);
         Assert.Equal(MouseA.Id, Assert.Single(afterUncheck).Key);
 
-        // B6：MouseA 关机断开后，图标保留、变灰、显示上次读数，悬停写明「已断开 · 上次 65%」。
         model.ApplyPresence([new("a", null, MouseA.Id, LinkState.Offline)], Now.AddSeconds(8));
-        var offlineSlot = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
-        Assert.Equal("ATK 鼠标 · 已断开 · 上次 65%", offlineSlot.Tooltip);
-        var appearance = Presentation.Icon(offlineSlot.Device, darkTaskbar: true, threshold: 15);
-        Assert.Equal(BatteryTone.Idle, appearance.Tone);
-        Assert.Equal(65, appearance.Percentage);
-        Assert.Equal((byte)140, appearance.Ink.Alpha);
+        var fallback = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
+        Assert.Equal(TrayIconPlan.SingleKey, fallback.Key);
+        Assert.Null(fallback.Device);
+        Assert.Contains("几格", fallback.Tooltip);
+        Assert.Equal(MouseA, Assert.Single(model.BuildMainPanel().OfflineRows).Device);
+        Assert.True(model.CanRemove(MouseA.Id));
 
-        // 切换为「只显示电量最低的设备」：始终只有一个图标。
         model.ApplySettings(model.Settings with { TrayMode = TrayDisplayMode.LowestBattery }, Now);
         var lowest = TrayIconPlan.Build(model, suppressTooltip: false);
         var single = Assert.Single(lowest);
         Assert.Equal(TrayIconPlan.SingleKey, single.Key);
         Assert.Equal(Headset.Id, single.Device!.Device.Id);
+        Assert.DoesNotContain("ATK 鼠标", single.Tooltip);
+
+        model.ApplyPresence([new("h9", null, Headset.Id, LinkState.Asleep)], Now.AddSeconds(16));
+        var sleep = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
+        Assert.Contains("休眠中 · 上次 40%", sleep.Tooltip);
+        Assert.DoesNotContain("ATK 鼠标", sleep.Tooltip);
+        model.ApplyPresence([new("h9", null, Headset.Id, LinkState.Offline)], Now.AddSeconds(24));
+        Assert.Equal(fallback, Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false)));
+
+        model.ApplySettings(model.Settings with { TrayMode = TrayDisplayMode.Custom }, Now);
+        Assert.Equal(fallback, Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false)));
+        model.ApplyPoll([new(MouseA, 68, false, ChargingState.NotCharging, LinkState.Online, Now.AddSeconds(25))],
+            false, Now.AddSeconds(25));
+        var reconnected = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
+        Assert.Equal(mouseSlot.Key, reconnected.Key);
+        Assert.Equal(TrayIconPlan.StableId(mouseSlot.Key), TrayIconPlan.StableId(reconnected.Key));
+    }
+
+    [Fact]
+    public void TrayUidReservationSurvivesRemovalEvenWhenStableIdsCollide()
+    {
+        const string first = "bolt/slot/81";
+        const string second = "bolt/slot/1828";
+        Assert.Equal(TrayIconPlan.StableId(first), TrayIconPlan.StableId(second));
+        Dictionary<string, uint> reservations = new(StringComparer.OrdinalIgnoreCase);
+        uint firstId = TrayIconPlan.ReserveId(first, reservations);
+        uint secondId = TrayIconPlan.ReserveId(second, reservations);
+        Assert.NotEqual(firstId, secondId);
+        Assert.Equal(1u, TrayIconPlan.ReserveId(TrayIconPlan.SingleKey, reservations));
+        Assert.Equal(secondId, TrayIconPlan.ReserveId(second, reservations));
+        Assert.Equal(firstId, TrayIconPlan.ReserveId(first.ToUpperInvariant(), reservations));
     }
 
     [Fact]

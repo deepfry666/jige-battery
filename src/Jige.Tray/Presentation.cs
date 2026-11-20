@@ -135,16 +135,16 @@ internal static class Presentation
     public static string TrayModeShortLabel(TrayDisplayMode mode) => mode switch
     {
         TrayDisplayMode.LowestBattery => "最低电量",
-        _ => "每台一个图标"
+        _ => "自定义"
     };
 
     public static string TrayModeLabel(TrayDisplayMode mode) => mode switch
     {
-        TrayDisplayMode.LowestBattery => "只显示电量最低的设备",
-        _ => "每台设备一个图标"
+        TrayDisplayMode.LowestBattery => "只显示电量最低的一台",
+        _ => "自定义"
     };
 
-    /// <summary>单设备独立托盘图标的悬停提示（B5 / B6 / R1）：休眠写「休眠中 · 上次 xx%」，断开写「已断开 · 上次 xx%」。</summary>
+    /// <summary>单设备独立托盘图标的悬停提示。</summary>
     public static string DeviceTooltip(TrayModel model, DeviceStatus device)
     {
         const int limit = 127;
@@ -160,8 +160,10 @@ internal static class Presentation
         if (device.Link == LinkState.Asleep)
             return device.Last is not null ? $" · 休眠中 · 上次 {Value(device)}" : " · 休眠中";
         var tone = Tone(device, threshold);
-        if (tone == BatteryTone.Idle)
+        if (!device.IsActive)
             return device.Last is not null ? $" · 已断开 · 上次 {Value(device)}" : " · 已断开";
+        if (tone == BatteryTone.Idle)
+            return $" · 上次 {Value(device)}";
         string tail = tone switch
         {
             BatteryTone.Charging => device.IsFull ? " 已充满" : " 充电中",
@@ -172,12 +174,12 @@ internal static class Presentation
         return $" {Value(device)}{tail}";
     }
 
-    /// <summary>单图标模式（「只显示电量最低的设备」）的多设备悬停摘要。</summary>
+    /// <summary>单图标模式的活跃设备悬停摘要。</summary>
     public static string Tooltip(TrayModel model)
     {
         const int limit = 127; // Shell 的 128 个 UTF-16 字符含结尾的 NUL。
-        var primary = model.PrimaryDevice;
-        var devices = model.OrderedDevices().Where(device => device != primary)
+        var primary = model.LowestTrayDevice;
+        var devices = model.OrderedDevices().Where(device => device.IsActive && device != primary)
             .OrderBy(device => model.IsHidden(device.Device.Id))
             .ThenByDescending(device => device.IsOnline)
             .ThenBy(device => device.Percentage ?? int.MaxValue);
@@ -187,7 +189,7 @@ internal static class Presentation
             .ToArray();
 
         if (entries.Length == 0)
-            return "几格 · 未找到支持的设备";
+            return "几格 · 点击打开面板";
 
         static string Overflow(int count) => count > 0 ? $"\n另有 {count} 台" : "";
         var first = entries[0];

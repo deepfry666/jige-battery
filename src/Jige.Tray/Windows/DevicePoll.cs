@@ -13,10 +13,10 @@ internal sealed class DevicePoll
     private readonly WindowsReceiverTransport transport = new();
     private readonly DeviceTopologyCache topology;
 
-    public DevicePoll(SafetyGateStore gates)
+    public DevicePoll(SafetyGateStore gates, IReadOnlyDictionary<string, DeviceIdentity> savedLogitechSlots)
     {
         this.gates = gates;
-        registry = AdapterRegistry.CreateDefault(gates: gates);
+        registry = AdapterRegistry.CreateDefault(savedLogitechSlots, gates);
         topology = new(registry, token => WindowsDeviceDiscovery.ScanAsync(token,
             AdapterRegistry.IsKnownHidReceiver, includeUnknownHid: true));
     }

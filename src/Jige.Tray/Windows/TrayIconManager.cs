@@ -35,15 +35,25 @@ internal static class TrayIconPlan
         if (model.Settings.TrayMode == TrayDisplayMode.LowestBattery || devices.Length == 0)
         {
             var target = devices.Length > 0 ? devices[0] : null;
-            string tip = suppressTooltip ? "" :
-                target is null && model.OrderedDevices().Length > 0 ? "几格 · 点击打开面板" :
-                Presentation.Tooltip(model);
+            string tip = suppressTooltip ? "" : target is null ? "几格 · 点击打开面板" : Presentation.Tooltip(model);
             return [new(SingleKey, target, tip)];
         }
 
         return devices.Select(device =>
             new TrayIconSlot(device.Device.Id, device, suppressTooltip ? "" : Presentation.DeviceTooltip(model, device)))
             .ToArray();
+    }
+
+    public static uint ReserveId(string key, Dictionary<string, uint> reservations)
+    {
+        if (reservations.TryGetValue(key, out uint id))
+            return id;
+        id = StableId(key);
+        // 离线后继续保留 uID。即使两个设备的散列碰撞，重连时仍能使用原来的 uID。
+        while (reservations.ContainsValue(id))
+            id = id >= ushort.MaxValue ? 2u : id + 1;
+        reservations.Add(key, id);
+        return id;
     }
 }
 
@@ -52,6 +62,7 @@ internal static class TrayIconPlan
 internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
 {
     private readonly Dictionary<string, TrayIcon> icons = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, uint> reservedIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<uint, TrayIcon> byId = [];
     private uint? lastActiveId;
 
@@ -106,26 +117,12 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         var slots = TrayIconPlan.Build(model, suppressTooltip);
         var desiredKeys = slots.Select(slot => slot.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        // 先删除已经不在列表中的图标，避免残留。
-        foreach (string obsolete in icons.Keys.Where(key => !desiredKeys.Contains(key)).ToArray())
-        {
-            var removed = icons[obsolete];
-            icons.Remove(obsolete);
-            byId.Remove(removed.Id);
-            if (lastActiveId == removed.Id)
-                lastActiveId = null;
-            removed.Dispose();
-        }
-
         int threshold = model.Settings.LowBatteryThreshold;
         foreach (var slot in slots)
         {
             if (!icons.TryGetValue(slot.Key, out var icon))
             {
-                // 冲突时顺延，极少发生；设备集合不变时每次启动得到相同 uID。
-                uint id = TrayIconPlan.StableId(slot.Key);
-                while (byId.ContainsKey(id))
-                    id = id >= ushort.MaxValue ? 2u : id + 1;
+                uint id = TrayIconPlan.ReserveId(slot.Key, reservedIds);
                 icon = new TrayIcon(window, callback, id);
                 icons[slot.Key] = icon;
                 byId[id] = icon;
@@ -138,6 +135,17 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
             icon.Update(appearance, IconSize(bounds), slot.Tooltip);
             if (!hasLocation && icon.TryGetRect(out var registeredBounds))
                 icon.Update(appearance, IconSize(registeredBounds), slot.Tooltip);
+        }
+
+        // 先注册新图标，再移除旧图标，最后一台设备断开时面板入口仍然可用。
+        foreach (string obsolete in icons.Keys.Where(key => !desiredKeys.Contains(key)).ToArray())
+        {
+            var removed = icons[obsolete];
+            icons.Remove(obsolete);
+            byId.Remove(removed.Id);
+            if (lastActiveId == removed.Id)
+                lastActiveId = null;
+            removed.Dispose();
         }
     }
 

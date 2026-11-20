@@ -160,11 +160,11 @@ public sealed class TrayModelTests
                 """);
 
             Assert.True(files.TryLoadSettings(out var loaded));
-            Assert.Equal(TrayDisplayMode.PerDevice, loaded.TrayMode);
+            Assert.Equal(TrayDisplayMode.Custom, loaded.TrayMode);
             Assert.Empty(loaded.HiddenDeviceIds);
             Assert.Null(loaded.WelcomeShown);
             Assert.Equal(22, loaded.LowBatteryThreshold);
-            Assert.Equal(72, loaded.PollSeconds);
+            Assert.Equal(60, loaded.PollSeconds);
 
             var model = new TrayModel(loaded, new());
             model.ApplyPoll([Reading(Mouse, 72), Reading(Headset, 48)], false, Now);
@@ -190,7 +190,9 @@ public sealed class TrayModelTests
             Assert.Equal(new[] { "INZONE-H9:1" }, saved.HiddenDeviceIds);
             Assert.Equal("我的 耳机 🐱", restarted.Name(Headset));
             Assert.Equal(Mouse, Assert.Single(restarted.PanelDevices()).Device);
-            Assert.Contains("我的 耳机 🐱 · 已断开 · 上次 48%", Presentation.Tooltip(restarted));
+            Assert.Equal("几格 · 点击打开面板", Presentation.Tooltip(restarted));
+            var remembered = Assert.Single(restarted.OrderedForManagement(), item => item.Device == Headset);
+            Assert.Equal(48, remembered.Percentage);
 
             var cleared = saved.WithAlias(Headset.Id, "   ");
             restarted.ApplySettings(cleared, Now);
@@ -280,16 +282,15 @@ public sealed class TrayModelTests
     }
 
     [Fact]
-    public void TooltipKeepsLowestVisibleFirstAndCountsOmittedRows()
+    public void TooltipKeepsLowestFirstAndCountsOmittedRowsEvenWithPanelHiddenDevice()
     {
         var list = Enumerable.Range(0, 20).Select(i => new DeviceIdentity($"dev:{i:D2}",
             $"设备 {i:D2} 的名称", DeviceKind.Mouse)).ToArray();
         var model = new TrayModel(new TraySettings { HiddenDeviceIds = [list[0].Id] }, new());
         model.ApplyPoll(list.Select((device, i) => Reading(device, i + 1)).ToArray(), false, Now);
         var lines = Presentation.Tooltip(model).Split('\n');
-        Assert.StartsWith("设备 01 的名称 2%", lines[0]);
-        Assert.StartsWith("设备 02 的名称 3%", lines[1]);
-        Assert.DoesNotContain(lines, line => line.StartsWith("设备 00", StringComparison.Ordinal));
+        Assert.StartsWith("设备 00 的名称 1%", lines[0]);
+        Assert.StartsWith("设备 01 的名称 2%", lines[1]);
         Assert.Equal($"另有 {list.Length - lines.Length + 1} 台", lines[^1]);
         Assert.True(Presentation.Tooltip(model).Length <= 127);
     }

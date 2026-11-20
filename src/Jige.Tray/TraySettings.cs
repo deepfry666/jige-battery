@@ -6,11 +6,19 @@ using Jige.Core;
 namespace Jige.Tray;
 
 [JsonConverter(typeof(JsonStringEnumConverter<TrayDisplayMode>))]
-internal enum TrayDisplayMode { PerDevice, LowestBattery }
+internal enum TrayDisplayMode
+{
+    Custom,
+    LowestBattery,
+    [JsonStringEnumMemberName("PerDevice")]
+    LegacyPerDevice
+}
 
 internal sealed record TraySettings
 {
-    public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.PerDevice;
+    public static IReadOnlyList<int> PollIntervals { get; } = Array.AsReadOnly<int>([30, 60, 120]);
+
+    public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.Custom;
     public int LowBatteryThreshold { get; init; } = 15;
     public int PollSeconds { get; init; } = 60;
     public int GamePollSeconds { get; init; } = 300;
@@ -70,8 +78,9 @@ internal sealed record TraySettings
                 aliases[id] = CleanAlias(name);
         }
 
-        int normal = Math.Clamp(PollSeconds, 15, 86_400);
-        var mode = Enum.IsDefined(TrayMode) ? TrayMode : TrayDisplayMode.PerDevice;
+        // Equidistant values choose the shorter interval. Use long for older out-of-range values.
+        int normal = PollIntervals.MinBy(seconds => Math.Abs((long)seconds - PollSeconds));
+        var mode = TrayMode == TrayDisplayMode.LowestBattery ? TrayDisplayMode.LowestBattery : TrayDisplayMode.Custom;
         return this with
         {
             TrayMode = mode,
@@ -129,10 +138,13 @@ internal sealed class TrayFiles(string folder)
         preserveConfig = false;
         try
         {
-            using var stream = File.OpenRead(ConfigPath);
-            var loaded = JsonSerializer.Deserialize(stream, TrayJsonContext.Default.TraySettings)
-                ?? throw new JsonException("配置缺少根对象");
+            TraySettings loaded;
+            using (var stream = File.OpenRead(ConfigPath))
+                loaded = JsonSerializer.Deserialize(stream, TrayJsonContext.Default.TraySettings)
+                    ?? throw new JsonException("配置缺少根对象");
             settings = loaded.Normalize();
+            if (settings.PollSeconds != loaded.PollSeconds || settings.TrayMode != loaded.TrayMode)
+                SaveMigratedSettings(settings, log);
             return true;
         }
         catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
@@ -166,6 +178,65 @@ internal sealed class TrayFiles(string folder)
     }
 
     public TrayState LoadState() => Read(StatePath, TrayJsonContext.Default.TrayState) ?? new();
+
+    public TrayState LoadState(ref TraySettings settings, Action<string, Exception>? log = null)
+    {
+        var saved = LoadState();
+        var emptyIds = (saved.History ?? []).Where(pair => pair.Value is
+            { LastOnline: null } entry && !(entry.RecentReadings ?? []).Any(sample => sample is { Percentage: >= 0 and <= 100 }))
+            .Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        emptyIds.ExceptWith((saved.Readings ?? []).Where(pair => pair.Value is { Percentage: >= 0 and <= 100 })
+            .Select(pair => pair.Key));
+        if (emptyIds.Count == 0)
+            return saved;
+
+        var cleaned = settings;
+        foreach (string id in emptyIds)
+        {
+            if (cleaned.DeviceAliases.ContainsKey(id) || cleaned.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase) ||
+                !cleaned.IsInTray(id))
+                cleaned = cleaned.WithoutDevice(id);
+        }
+        if (cleaned != settings)
+        {
+            settings = cleaned;
+            // 保留旧历史到下次启动，以便在配置文件恢复可写后重试。
+            if (!SaveMigratedSettings(cleaned, log))
+                return saved;
+        }
+
+        var migrated = saved with
+        {
+            Readings = WithoutEmpty(saved.Readings),
+            Reminders = WithoutEmpty(saved.Reminders),
+            History = WithoutEmpty(saved.History),
+            RemovedOfflineDevices = (saved.RemovedOfflineDevices ?? []).Where(id => !emptyIds.Contains(id)).ToArray()
+        };
+        try { SaveState(migrated); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            log?.Invoke("迁移电量记录失败", error);
+        }
+        return migrated;
+
+        Dictionary<string, T> WithoutEmpty<T>(Dictionary<string, T>? entries) =>
+            (entries ?? []).Where(pair => !emptyIds.Contains(pair.Key))
+                .ToDictionary(pair => pair.Key, pair => pair.Value);
+    }
+
+    private bool SaveMigratedSettings(TraySettings settings, Action<string, Exception>? log)
+    {
+        try
+        {
+            SaveSettings(settings);
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            log?.Invoke("迁移设置失败", error);
+            return false;
+        }
+    }
 
     public void SaveSettings(TraySettings settings)
     {

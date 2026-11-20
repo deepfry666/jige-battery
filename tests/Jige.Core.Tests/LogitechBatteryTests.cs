@@ -39,14 +39,8 @@ public sealed class LogitechBatteryTests
                 Assert.Equal(DeviceKind.Keyboard, keyboard.Device.Kind);
                 Assert.Equal(45, keyboard.Percentage);
                 Assert.Equal(ChargingState.Charging, keyboard.Charging);
-            },
-            offline =>
-            {
-                Assert.Equal(LinkState.Offline, offline.Link);
-                Assert.Equal(ReadIssue.None, offline.Issue);
-                Assert.Null(offline.Percentage);
             });
-        Assert.Equal(3, first.Select(item => item.Device.Id).Distinct().Count());
+        Assert.Equal(2, first.Select(item => item.Device.Id).Distinct().Count());
         Assert.Equal(first.Select(item => item.Device.Id), second.Select(item => item.Device.Id));
         Assert.Equal(94, second[0].Percentage);
         Assert.Empty(registry.Detect(new([], [], [])));
@@ -117,13 +111,72 @@ public sealed class LogitechBatteryTests
         var registry = AdapterRegistry.CreateDefault();
         var target = Assert.Single(registry.Detect(new([longHid, shortHid], [], [])));
         var timer = Stopwatch.StartNew();
-        var reading = Assert.Single(await registry.ReadDevicesAsync(target, new BatteryTransportStub(hid =>
+        Assert.Empty(await registry.ReadDevicesAsync(target, new BatteryTransportStub(hid =>
             hid.Path == shortHid.Path ? shortSession : longSession), null, CancellationToken.None));
-
-        Assert.Equal(LinkState.Offline, reading.Link);
         Assert.Equal(6, longSession.Writes.Count);
         Assert.Empty(shortSession.Writes);
         Assert.True(timer.Elapsed < TimeSpan.FromMilliseconds(750), $"空槽检查耗时 {timer.Elapsed}");
+    }
+
+    [Fact]
+    public async Task BoltColdStartDistinguishesKnownSleepingSlotFromUnreachableAndEmptySlots()
+    {
+        var bolt = Receiver with { ProductId = 0xC548 };
+        const string prefix = "logitech-hidpp:logi-1";
+        var keyboard = new DeviceIdentity($"{prefix}/1/unit-keyboard", "MX Keys S", DeviceKind.Keyboard);
+        var mouse = new DeviceIdentity($"{prefix}/2/unit-mouse", "MX Anywhere 3S", DeviceKind.Mouse);
+        var registry = AdapterRegistry.CreateDefault(new Dictionary<string, DeviceIdentity>
+        {
+            [$"{prefix}/1"] = keyboard,
+            [$"{prefix}/2"] = mouse
+        }, gates: null);
+        var detected = Assert.Single(registry.Detect(new([bolt], [], [])));
+        var session = new BatteryHidStub(request =>
+        {
+            Assert.True(IsPing(request));
+            return request[1] switch
+            {
+                1 or 3 => [Frame($"10{request[1]:X2}8F001A09", 7)],
+                2 => [],
+                _ => [Frame($"10{request[1]:X2}8F001A08", 7)]
+            };
+        });
+        var readings = await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => session), null, default);
+
+        Assert.Collection(readings,
+            offline =>
+            {
+                Assert.Equal(keyboard, offline.Device);
+                Assert.Equal(LinkState.Offline, offline.Link);
+                Assert.Null(offline.Percentage);
+            },
+            asleep =>
+            {
+                Assert.Equal(mouse, asleep.Device);
+                Assert.Equal(LinkState.Asleep, asleep.Link);
+                Assert.Null(asleep.Percentage);
+            });
+        Assert.Equal(6, session.Writes.Count);
+    }
+
+    [Fact]
+    public async Task ReceiverSlotWithoutBatteryNeverBecomesAKnownDevice()
+    {
+        var registry = AdapterRegistry.CreateDefault();
+        var detected = Assert.Single(registry.Detect(new([Receiver], [], [])));
+        var repliesWithoutBattery = new BatteryHidStub(request => request[1] switch
+        {
+            2 when IsPing(request) => [Frame($"1102001A0201{request[6]:X2}", 20)],
+            2 => [Frame($"110200{request[3]:X2}00", 20)],
+            _ => [Frame($"10{request[1]:X2}8F001A08", 7)]
+        });
+        var online = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => repliesWithoutBattery), null, default));
+        Assert.Equal(LinkState.Online, online.Link);
+        Assert.Null(online.Percentage);
+
+        var unreachable = new BatteryHidStub(request =>
+            [Frame($"10{request[1]:X2}8F001A{(request[1] == 2 ? 9 : 8):X2}", 7)]);
+        Assert.Empty(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => unreachable), null, default));
     }
 
     [Fact]

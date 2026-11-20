@@ -109,9 +109,9 @@ public sealed class PanelPagesTests
 
     [Theory]
     [InlineData((int)SettingRow.TrayMode, (int)PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery, 15, 60, (int)TrayDisplayMode.LowestBattery)]
-    [InlineData((int)SettingRow.Threshold, (int)PopupAction.Threshold, 30, 30, 60, (int)TrayDisplayMode.PerDevice)]
-    [InlineData((int)SettingRow.PollInterval, (int)PopupAction.PollInterval, 120, 15, 120, (int)TrayDisplayMode.PerDevice)]
-    public void SelectingAnOptionSavesItAndClosesTheList(int row, int action, int value, int threshold, int poll, int expectedMode)
+    [InlineData((int)SettingRow.Threshold, (int)PopupAction.Threshold, 30, 30, 60, (int)TrayDisplayMode.Custom)]
+    [InlineData((int)SettingRow.PollInterval, (int)PopupAction.PollInterval, 120, 15, 120, (int)TrayDisplayMode.Custom)]
+    public void SelectingAnOptionSavesIt(int row, int action, int value, int threshold, int poll, int expectedMode)
     {
         var panel = new SettingsPanel(700);
         var time = DateTimeOffset.UnixEpoch;
@@ -126,8 +126,9 @@ public sealed class PanelPagesTests
 
             panel.Toggle((SettingRow)row, 0, animate: false, selectedIndex: 0);
             Assert.True(panel.Select(target, model, 1, animate: false, Save));
-            Assert.Null(panel.Expanded);
-            Assert.Equal(367, panel.Height);
+            bool isTrayMode = (SettingRow)row == SettingRow.TrayMode;
+            Assert.Equal(isTrayMode ? SettingRow.TrayMode : (SettingRow?)null, panel.Expanded);
+            Assert.Equal(isTrayMode ? 435 : 367, panel.Height);
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);
@@ -142,6 +143,66 @@ public sealed class PanelPagesTests
         finally
         {
             directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CustomTrayCheckboxesUseTheSameSavedSelectionAsDeviceManagement()
+    {
+        var time = DateTimeOffset.UnixEpoch;
+        var mouse = new DeviceIdentity("mouse", "MX Anywhere 3S", DeviceKind.Mouse);
+        var keyboard = new DeviceIdentity("keyboard", "MX Keys S", DeviceKind.Keyboard);
+        var model = new TrayModel(new() { TrayMode = TrayDisplayMode.LowestBattery }, new());
+        model.ApplyPoll([
+            new(mouse, 52, false, ChargingState.NotCharging, LinkState.Online, time),
+            new(keyboard, 83, false, ChargingState.NotCharging, LinkState.Online, time)
+        ], false, time);
+        model.ApplyPresence([new("", null, keyboard.Id, LinkState.Offline)], time);
+        var panel = new SettingsPanel(470);
+        panel.UpdateTrayChoices(model, model.OrderedForManagement());
+        panel.Toggle(SettingRow.TrayMode, 0, animate: false, selectedIndex: 0);
+        Assert.Equal(2, panel.Choices(SettingRow.TrayMode).Length);
+
+        var folder = Directory.CreateTempSubdirectory();
+        try
+        {
+            var files = new TrayFiles(folder.FullName);
+            Assert.True(panel.Select(new(PopupAction.TrayMode, (int)TrayDisplayMode.Custom), model, 1, false, Save));
+            Assert.Equal(SettingRow.TrayMode, panel.Expanded);
+            var choices = panel.Choices(SettingRow.TrayMode);
+            Assert.Equal(4, choices.Length);
+            Assert.Equal(new PopupTarget(PopupAction.TrayToggle, DeviceId: keyboard.Id), choices[3].Target);
+            Assert.Equal("MX Keys S", choices[3].Label);
+            Assert.Equal(0, panel.OptionHitRect(SettingRow.TrayMode, 3).Height);
+            Assert.True(panel.Scroll(1));
+            Assert.Equal(SettingsPanel.OptionHeight, panel.OptionHitRect(SettingRow.TrayMode, 3).Height);
+
+            var fromSettings = choices[2].Target;
+            Assert.Equal(new PopupTarget(PopupAction.TrayToggle, DeviceId: mouse.Id), fromSettings);
+            Save(model.ToggleTrayDevice(fromSettings.DeviceId!));
+            Assert.False(model.Settings.IsInTray(mouse.Id));
+            Assert.Empty(model.TrayDevices());
+            Assert.True(files.TryLoadSettings(out var reloaded));
+            Assert.Equal(TrayDisplayMode.Custom, reloaded.TrayMode);
+            Assert.False(reloaded.IsInTray(mouse.Id));
+
+            var fromDevices = new PopupTarget(PopupAction.TrayToggle, DeviceId: mouse.Id);
+            Save(model.ToggleTrayDevice(fromDevices.DeviceId!));
+            Assert.True(model.Settings.IsInTray(fromSettings.DeviceId!));
+            Assert.Equal(mouse, Assert.Single(model.TrayDevices()).Device);
+            Assert.True(files.TryLoadSettings(out reloaded));
+            Assert.True(reloaded.IsInTray(mouse.Id));
+
+            void Save(TraySettings settings)
+            {
+                files.SaveSettings(settings);
+                model.ApplySettings(settings, time);
+                panel.UpdateTrayChoices(model, model.OrderedForManagement());
+            }
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
         }
     }
 

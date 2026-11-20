@@ -16,8 +16,8 @@ internal sealed class SettingsPanel(int availableHeight)
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
-        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.PerDevice), "每台设备一个图标（默认）"),
-        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery), "只显示电量最低的设备")
+        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery), "只显示电量最低的一台"),
+        new(new(PopupAction.TrayMode, (int)TrayDisplayMode.Custom), "自定义")
     ];
 
     public static readonly SettingChoice[] ThresholdChoices =
@@ -28,17 +28,15 @@ internal sealed class SettingsPanel(int availableHeight)
         new(new(PopupAction.Threshold, 30), "30%")
     ];
 
-    public static readonly SettingChoice[] PollChoices =
-    [
-        new(new(PopupAction.PollInterval, 30), "30 秒"),
-        new(new(PopupAction.PollInterval, 60), "1 分钟（默认）"),
-        new(new(PopupAction.PollInterval, 120), "2 分钟")
-    ];
+    public static readonly SettingChoice[] PollChoices = TraySettings.PollIntervals.Select(seconds =>
+        new SettingChoice(new(PopupAction.PollInterval, seconds),
+            Presentation.Interval(seconds) + (seconds == 60 ? "（默认）" : ""))).ToArray();
 
     private readonly float[] progress = new float[Rows.Length];
     private readonly float[] from = new float[Rows.Length];
     private readonly float[] renderedProgress = new float[Rows.Length];
     private readonly int[] offsets = new int[Rows.Length];
+    private SettingChoice[] trayChoices = TrayModeChoices;
     private float renderedHeight = -1;
     private long started;
 
@@ -50,13 +48,24 @@ internal sealed class SettingsPanel(int availableHeight)
         VisibleHeight(SettingRow.PollInterval);
     public float Height => PanelLayout.SettingsHeight + ExtraHeight;
 
-    private static int Count(SettingRow row) => row switch
+    public void UpdateTrayChoices(TrayModel model, IReadOnlyList<DeviceStatus> devices)
     {
-        SettingRow.TrayMode => TrayModeChoices.Length,
-        SettingRow.Threshold => ThresholdChoices.Length,
-        SettingRow.PollInterval => PollChoices.Length,
-        _ => 0
+        trayChoices = model.Settings.TrayMode == TrayDisplayMode.Custom ?
+            [.. TrayModeChoices, .. devices.Select(device =>
+                new SettingChoice(new(PopupAction.TrayToggle, DeviceId: device.Device.Id), model.Name(device.Device)))] :
+            TrayModeChoices;
+        offsets[(int)SettingRow.TrayMode] = Math.Min(Offset(SettingRow.TrayMode), MaxOffset(SettingRow.TrayMode));
+    }
+
+    public SettingChoice[] Choices(SettingRow row) => row switch
+    {
+        SettingRow.TrayMode => trayChoices,
+        SettingRow.Threshold => ThresholdChoices,
+        SettingRow.PollInterval => PollChoices,
+        _ => []
     };
+
+    private int Count(SettingRow row) => Choices(row).Length;
 
     public int VisibleCount(SettingRow row) => Math.Min(Count(row), Capacity);
     public int Offset(SettingRow row) => offsets[(int)row];
@@ -186,7 +195,8 @@ internal sealed class SettingsPanel(int availableHeight)
         };
         if (next is null)
             return false;
-        Collapse(time, animate);
+        if (target.Action != PopupAction.TrayMode)
+            Collapse(time, animate);
         save(next);
         return true;
     }

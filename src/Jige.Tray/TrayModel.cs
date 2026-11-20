@@ -39,7 +39,7 @@ internal sealed class TrayModel
     /// <summary>
     /// R2：连续休眠超过 10 分钟仍无任何回复才转为离线显示。
     /// Compx 等无线鼠标静止数秒后接收器即停止应答查询（见 docs/protocols.md），短时无回复属于正常省电休眠；
-    /// 10 分钟足够覆盖日常看文档、看视频等短暂停顿而不误判离线，同时在设备真正关机或带离后能及时转为离线变灰。
+    /// 10 分钟足够覆盖日常看文档、看视频等短暂停顿而不误判离线，同时在设备真正关机或带离后能及时隐藏托盘图标。
     /// </summary>
     public static readonly TimeSpan SleepToOfflineTimeout = TimeSpan.FromMinutes(10);
 
@@ -93,6 +93,24 @@ internal sealed class TrayModel
     public bool ScanFailed { get; private set; }
     public int UnknownReceivers { get; private set; }
     public IReadOnlyDictionary<string, string> InitialBlockedReceivers => blockedReceivers;
+    public IReadOnlyDictionary<string, DeviceIdentity> SavedLogitechSlots() =>
+        LatestLogitechSlots().ToDictionary(pair => pair.Key, pair => pair.Value.Device, StringComparer.OrdinalIgnoreCase);
+
+    private Dictionary<string, DeviceStatus> LatestLogitechSlots() => devices.Values
+        .Where(item => LogitechReceiverSlot(item.Device.Id) is not null && item.Last is not null)
+        .OrderByDescending(item => item.Last!.ReadAt)
+        .ThenByDescending(item => history.GetValueOrDefault(item.Device.Id)?.LastOnline)
+        .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
+        .DistinctBy(item => LogitechReceiverSlot(item.Device.Id), StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(item => LogitechReceiverSlot(item.Device.Id)!, StringComparer.OrdinalIgnoreCase);
+
+    private static string? LogitechReceiverSlot(string id)
+    {
+        if (!id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase))
+            return null;
+        int end = id.LastIndexOf('/');
+        return end > 0 && id.IndexOf('/') < end ? id[..end] : null;
+    }
 
     public bool ExpireReadings(DateTimeOffset now)
     {
@@ -239,12 +257,14 @@ internal sealed class TrayModel
     /// <summary>当前最需要关注的设备（最低电量在线设备，无在线时为最近一台离线设备）。</summary>
     public DeviceStatus? PrimaryDevice => BuildMainPanel().Hero;
 
-    /// <summary>根据托盘模式返回应当显示在系统托盘中的设备列表（B5/B6）。</summary>
+    public DeviceStatus? LowestTrayDevice => OrderedDevices().FirstOrDefault(item => item.IsActive);
+
+    /// <summary>根据托盘模式返回在线和休眠中应显示图标的设备。</summary>
     public DeviceStatus[] TrayDevices()
     {
         if (Settings.TrayMode == TrayDisplayMode.LowestBattery)
-            return PrimaryDevice is { } top ? [top] : [];
-        return OrderedForManagement().Where(item => Settings.IsInTray(item.Device.Id)).ToArray();
+            return LowestTrayDevice is { } top ? [top] : [];
+        return OrderedForManagement().Where(item => item.IsActive && Settings.IsInTray(item.Device.Id)).ToArray();
     }
 
     public TraySettings ToggleVisibility(string id)
@@ -347,6 +367,13 @@ internal sealed class TrayModel
                 else if (reading.Percentage is null)
                     continue;
             }
+            var previous = devices.GetValueOrDefault(device.Id);
+            if (previous is null && (reading.Percentage is null || reading.Link != LinkState.Online))
+            {
+                if (removedOffline.Contains(device.Id))
+                    seen.Add(device.Id);
+                continue;
+            }
             seen.Add(device.Id);
             if (removedOffline.Contains(device.Id))
             {
@@ -354,7 +381,6 @@ internal sealed class TrayModel
                     continue;
                 removedChanged |= removedOffline.Remove(device.Id);
             }
-            var previous = devices.GetValueOrDefault(device.Id);
             var resolvedLink = ResolveLinkForSleep(device.Id, previous?.Link, reading.Link, now);
             var last = previous?.Last;
             bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null;
@@ -381,7 +407,11 @@ internal sealed class TrayModel
                 meaningfulChange = true;
         }
 
-        foreach (var id in completePoll ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [])
+        var missing = completePoll ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [];
+        var latestSlots = liveTargets is not null && missing.Length > 0 ? LatestLogitechSlots() : null;
+        var seenSlots = latestSlots is { Count: > 0 } ?
+            seen.Select(LogitechReceiverSlot).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+        foreach (var id in missing)
         {
             var previous = devices[id];
             if (!IsShown(previous.Device))
@@ -389,6 +419,8 @@ internal sealed class TrayModel
             // R1：接收器被拔出（非枚举失败且不在设备列表中）→ 立即离线。
             bool receiverStillPresent = id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
                 liveTargets?.Contains(id.Split('/', 2)[0]) == true;
+            if (receiverStillPresent && LogitechReceiverSlot(id) is { } slot)
+                receiverStillPresent = seenSlots?.Contains(slot) == false && latestSlots?.GetValueOrDefault(slot) == previous;
             var missingLink = previous.Device.Connection == DeviceConnection.Bluetooth ? LinkState.Asleep :
                 scanFailed ? LinkState.Unknown : receiverStillPresent ? LinkState.Asleep : LinkState.Offline;
             var nextLink = ResolveLinkForSleep(id, previous.Link, missingLink, now);
@@ -586,8 +618,9 @@ internal sealed class TrayModel
 
         if (update.Slot is byte slot)
         {
-            string prefix = $"logitech-hidpp:{update.ReceiverId}/{slot}/";
-            return devices.Keys.Where(id => id.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+            string key = $"logitech-hidpp:{update.ReceiverId}/{slot}";
+            if (LatestLogitechSlots().TryGetValue(key, out var latest))
+                return [latest.Device.Id];
         }
         return [];
     }

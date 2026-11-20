@@ -190,18 +190,10 @@ public sealed class DiagnosticTests
         Assert.DoesNotContain("414C494345", report);
         Assert.DoesNotContain("Private Receiver Name", report);
         Assert.DoesNotContain("private-receiver", report);
-        Assert.Collection(await Replay(report),
-            online =>
-            {
-                Assert.Equal(94, online.Percentage);
-                Assert.Equal(DeviceKind.Mouse, online.Device.Kind);
-                Assert.Equal(ChargingState.Charging, online.Charging);
-            },
-            offline =>
-            {
-                Assert.Equal(LinkState.Offline, offline.Link);
-                Assert.EndsWith("/2/unknown", offline.Device.Id);
-            });
+        var online = Assert.Single(await Replay(report));
+        Assert.Equal(94, online.Percentage);
+        Assert.Equal(DeviceKind.Mouse, online.Device.Kind);
+        Assert.Equal(ChargingState.Charging, online.Charging);
     }
 
     [Fact]
@@ -213,12 +205,17 @@ public sealed class DiagnosticTests
         {
             (1, 0, 0x1A) => [Frame($"1101001A0201{request[6]:X2}", 20)],
             (_, 0, 0x1A) => [Frame($"10{request[1]:X2}8F001A08", 7)],
+            (1, 0, 0x0A) => [Frame("1101000A06", 20)],
             (1, 0, _) => [Frame($"110100{request[3]:X2}00", 20)],
+            (1, 6, 0x0A) => [Frame("1101060A0F03", 20)],
+            (1, 6, 0x1A) => [Frame("1101061A5E080100", 20)],
             _ => throw new InvalidOperationException("意外发包")
         });
         string report = await DiagnosticReport.GenerateAsync(new([hid], [], []), new BatteryTransportStub(_ => session));
         Assert.DoesNotContain("私有名称", report);
-        Assert.Equal(LinkState.Online, Assert.Single(await Replay(report)).Link);
+        var reading = Assert.Single(await Replay(report));
+        Assert.Equal(LinkState.Online, reading.Link);
+        Assert.Equal(94, reading.Percentage);
     }
 
     [Fact]
