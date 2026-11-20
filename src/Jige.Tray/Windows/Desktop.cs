@@ -53,10 +53,22 @@ internal static unsafe class Desktop
         return Palette.Create(dark, rgb);
     }
 
+    public static string? ReadInstalledDirectory()
+    {
+        if (GetRegistry(InstallPaths.UninstallRegistryKey, "InstallLocation") is string location &&
+            !string.IsNullOrWhiteSpace(location))
+            return location;
+        if (GetRegistry(InstallPaths.UninstallRegistryKey, "Inno Setup: App Path") is string appPath &&
+            !string.IsNullOrWhiteSpace(appPath))
+            return appPath;
+        return null;
+    }
+
     public static void SetAutostart(bool enabled)
     {
-        string installed = InstallPaths.InstalledExecutable(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+        string installed = InstallPaths.ResolveInstalledExecutable(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            ReadInstalledDirectory());
         string exe = File.Exists(installed) ? installed :
             Environment.ProcessPath ?? throw new InvalidOperationException("找不到当前程序路径");
         string? desired = InstallPaths.AutostartCommand(enabled, exe);

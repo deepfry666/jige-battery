@@ -429,6 +429,21 @@ public sealed class UpdateTests : IDisposable
         Assert.False(InstallPaths.ShouldRepairAutostart(null, null));
     }
 
+    [Fact]
+    public void RecognizesCustomRegisteredInstallDirectory()
+    {
+        const string local = @"C:\Users\Some Name\AppData\Local";
+        const string customDir = @"D:\Apps\Jige\";
+
+        string resolved = InstallPaths.ResolveInstalledExecutable(local, customDir);
+        Assert.Equal(Path.Combine(@"D:\Apps\Jige", InstallPaths.Executable), resolved);
+        Assert.True(InstallPaths.IsInstalledExecutable(@"d:\apps\jige\jige.exe", local, customDir));
+        Assert.True(InstallPaths.IsInstalledExecutable(@"D:\Apps\Jige\Jige.exe", local, @"D:\Apps\Jige"));
+        Assert.False(InstallPaths.IsInstalledExecutable(InstallPaths.InstalledExecutable(local), local, customDir));
+        Assert.False(InstallPaths.IsInstalledExecutable(@"C:\Downloads\Jige.exe", local, customDir));
+        Assert.True(InstallPaths.IsInstalledExecutable(InstallPaths.InstalledExecutable(local), local, "   "));
+    }
+
     private static string Json(string root = ReleaseRoot) => $$"""
         {"tag_name":"v0.10.0","body":" 更新内容 ","draft":false,"prerelease":false,"assets":[
             {"name":"Source.zip","size":999,"browser_download_url":"{{root}}Source.zip"},

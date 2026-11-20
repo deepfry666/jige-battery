@@ -1649,7 +1649,8 @@ internal sealed class TrayApp : IDisposable
         bool isPrerelease = ReleaseVersion.IsPrerelease;
         string label = isPrerelease ? display : $"v{display}";
         string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        bool installed = InstallPaths.IsInstalledExecutable(Environment.ProcessPath, local);
+        bool installed = InstallPaths.IsInstalledExecutable(
+            Environment.ProcessPath, local, Desktop.ReadInstalledDirectory());
         return UpdateViewState.Idle(label, installed);
     }
 

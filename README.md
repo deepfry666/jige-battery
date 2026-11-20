@@ -42,7 +42,7 @@ Windows 实机截图待补，预留托盘、主面板和管理设备页的位置
 
 1. 从 [最新正式 Release](https://github.com/deepfry666/jige-battery/releases/latest) 下载 `Jige-Setup-<版本>-x64.exe` 和同版 `SHA256SUMS.txt`（无代理环境可通过国内镜像 [`download.imfourj.cn`](https://download.imfourj.cn/jige-battery/latest.json) 获取同版直链；如需提前试用主分支改动，可从滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build) 或国内镜像 [测试版安装包](https://download.imfourj.cn/jige-battery/prerelease/Jige-Setup-prerelease-x64.exe) 与 [`SHA256SUMS.txt`](https://download.imfourj.cn/jige-battery/prerelease/SHA256SUMS.txt) 获取，详见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
 2. 在 PowerShell 运行 `Get-FileHash .\Jige-Setup-0.2.6-x64.exe -Algorithm SHA256`，将文件名替换为下载的版本，并和清单里的散列核对。
-3. 运行安装器，从开始菜单打开「几格」。首次安装默认勾选「开机时启动几格」。几格安装到当前用户的 `%LOCALAPPDATA%\Programs\Jige`，无需管理员权限。在 Windows 的「已安装的应用」（或「应用和功能」）可查看版本和卸载。
+3. 运行安装器，按提示选择安装位置（默认 `%LOCALAPPDATA%\Programs\Jige`，无需管理员权限），可按需勾选「创建桌面快捷方式」与首次安装的「开机时启动几格」，安装完成后从桌面或开始菜单打开「几格」。在 Windows 的「已安装的应用」（或「应用和功能」）可查看版本和卸载。
 
 首次运行时，几格会在托盘上方提示如何把图标从上箭头拖到时钟旁。托盘图标用鼠标、键盘、耳机或通用设备图形区分设备，底部电量条显示剩余电量。充电中或已充满时电量条为绿色，暂无读数时只显示底槽。托盘默认采用「自定义」，每台已勾选的活跃设备各占一个图标。也可设为「只显示电量最低的一台」，图标会随当前电量最低的设备切换。把鼠标移到托盘图标上可在几格自绘的 Windows 11 风格悬停卡片中查看电量百分比（替换系统默认文字提示，同时保留读屏软件提示）：「自定义」模式下展示该设备的名称、连接方式与来源、大号百分比（`≈` 表示估算）、10 格电量条和读取时间；「只显示电量最低的一台」模式下按电量从低到高列出所有在用设备（最多 6 行，超出显示「还有 N 台」），两种模式都不显示已断开的设备，读数更新时内容实时刷新。卡片不抢焦点、点击穿透，主面板打开或全屏独占游戏期间不显示。设备休眠时保留上次读数且图标不变灰，悬停卡片写明「休眠中」。连续休眠超过 10 分钟仍无回复、设备明确断开或接收器拔出后，设备图标会从托盘移除，重连时恢复原位置。托盘没有可显示的设备时，保留一个可打开面板的「几格」图标。动一下键鼠即可唤醒并补查休眠中的设备（使用 `GetLastInputInfo`，不装钩子、不记录任何输入，最多每 2 秒一次）。
 
