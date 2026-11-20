@@ -66,7 +66,7 @@ public static class DiagnosticReport
 
     [SupportedOSPlatform("windows")]
     public static async Task<string> GenerateWindowsAsync(
-        CancellationToken cancellationToken = default, DiagnosticContext? context = null)
+        CancellationToken cancellationToken = default, DiagnosticContext? context = null, AdapterRegistry? liveRegistry = null)
     {
         DeviceInventory inventory;
         try
@@ -80,16 +80,17 @@ public static class DiagnosticReport
             AppendContextSections(timeoutReport, context);
             return timeoutReport.ToString();
         }
-        return await GenerateAsync(inventory, new WindowsReceiverTransport(), cancellationToken, 115200, context)
+        return await GenerateAsync(inventory, new WindowsReceiverTransport(), cancellationToken, 115200, context, liveRegistry)
             .ConfigureAwait(false);
     }
 
     public static async Task<string> GenerateAsync(DeviceInventory inventory, IReceiverTransport transport,
-        CancellationToken cancellationToken = default, int sonyBaudRate = 115200, DiagnosticContext? context = null)
+        CancellationToken cancellationToken = default, int sonyBaudRate = 115200, DiagnosticContext? context = null,
+        AdapterRegistry? liveRegistry = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var gates = context?.Gates;
-        var registry = AdapterRegistry.CreateDefault(sonyBaudRate, gates);
+        var registry = AdapterRegistry.CreateForDiagnostics(sonyBaudRate, gates, liveRegistry);
         var report = CreateHeader(sonyBaudRate);
         var ids = new Dictionary<ReceiverEndpoint, string>();
         var receivers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -181,6 +182,12 @@ public static class DiagnosticReport
                 }
                 else
                     report.AppendLine($"匹配 {label}{genericTag} {id}{verificationTag}");
+
+                if (adapter is PassiveMouseAdapter listener)
+                {
+                    foreach (var frame in listener.RecentFrames(endpoint.Path))
+                        report.AppendLine($"被动帧|{id}|{(frame.Valid ? "电量上报" : "未识别")}|{frame.Hex}");
+                }
 
                 var capture = new DiagnosticTransport(transport, adapter);
                 long started = Stopwatch.GetTimestamp();
@@ -421,12 +428,14 @@ public static class DiagnosticReport
 
     // 罗技 G535 使用 Consumer 集合；雷蛇 90B 在 Windows 上也可能直接挂在标准鼠标/键盘页的 91 字节特征集合上。
     private static bool IsRelevantHid(HidInterface hid) =>
-        hid.UsagePage is >= 0xFF00 || LogitechHidppAdapter.IsHeadset(hid) || RazerFeatureAdapter.IsFeatureCollection(hid);
+        hid.UsagePage is >= 0xFF00 || DomesticMouseStatus.Match(hid) is not null ||
+        LogitechHidppAdapter.IsHeadset(hid) || RazerFeatureAdapter.IsFeatureCollection(hid);
 
     private static ReceiverEndpoint NormalizeEndpoint(ReceiverEndpoint endpoint) =>
         endpoint is HidInterface hid ? hid with
         {
             FeatureOnly = false,
+            InputOnly = false,
             RequiredInputReportId = null,
             RequiredOutputReportId = null,
             RequiredFeatureReportId = null
@@ -475,6 +484,8 @@ public static class DiagnosticReport
         RazerHeadsetAdapter => "Razer 耳机",
         AsusHidAdapter => "ASUS ROG 键盘",
         MchoseKbAdapter => "MCHOSE 键盘",
+        PassiveMouseAdapter => "国产鼠标被动上报",
+        RapooVt9Adapter => "雷柏 VT9 Pro",
         _ => adapter.GetType().Name
     };
 

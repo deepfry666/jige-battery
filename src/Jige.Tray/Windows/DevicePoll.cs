@@ -22,6 +22,7 @@ internal sealed class DevicePoll
     }
 
     public SafetyGateStore Gates => gates;
+    public AdapterRegistry Registry => registry;
     public void InvalidateTopology() => topology.Invalidate();
 
     public async Task<(PollResult Result, DetectedDevice[] PushTargets)> RunAsync(bool forceRescan, bool showBluetooth, CancellationToken token)
@@ -156,7 +157,7 @@ internal sealed class DevicePoll
         }
     }
 
-    /// <summary>罗技接收器被动连接/断开推送监听（B2）：仅只读等待输入事件。</summary>
+    /// <summary>被动等待设备上报连接状态或电量。</summary>
     public Task ListenPushAsync(DetectedDevice device, Action<PresenceUpdate> onUpdate, CancellationToken token) =>
         registry.ListenPushAsync(device, transport, onUpdate, token);
 }

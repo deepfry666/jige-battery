@@ -154,6 +154,29 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         return ids.Count == 0 ? "00(raw)" : string.Join(',', ids);
     }
 
+    internal static bool DeclaresReportId(SafeFileHandle handle, int reportType, byte reportId, ushort length)
+    {
+        if (Native.GetPreparsedData(handle, out var data) == 0)
+            return false;
+        try
+        {
+            return DeclaresReportId(data, reportType, reportId, length);
+        }
+        finally
+        {
+            Native.FreePreparsedData(data);
+        }
+    }
+
+    private static unsafe bool DeclaresReportId(nint data, int reportType, byte reportId, ushort length)
+    {
+        if (length == 0)
+            return false;
+        var buffer = new byte[length];
+        fixed (byte* report = buffer)
+            return Native.InitializeReportForId(reportType, reportId, data, report, length) == 0x00110000;
+    }
+
     private static unsafe void VerifyReportId(nint data, int reportType, byte? id, ushort length)
     {
         if (id is not byte reportId)

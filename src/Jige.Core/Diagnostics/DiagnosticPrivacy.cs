@@ -92,6 +92,9 @@ public static partial class DiagnosticPrivacy
                     raw[10..13].CopyTo(result.AsSpan(10));
                 }
                 return result;
+            case PassiveMouseAdapter or RapooVt9Adapter:
+                DomesticMouseStatus.Match(hid)?.CopyDiagnosticFields(raw, result);
+                return result;
             case MchoseKbAdapter:
                 CopyMchoseKb(raw, result);
                 return result;
@@ -326,6 +329,8 @@ public static partial class DiagnosticPrivacy
     internal static string SummarizeUnrecognizedHidReply(
         IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request)
     {
+        if (adapter is PassiveMouseAdapter or RapooVt9Adapter)
+            return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2} 未识别");
         if (raw.Length < 8)
             return FormattableString.Invariant($"len={raw.Length} short");
 

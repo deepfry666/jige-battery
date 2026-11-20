@@ -52,6 +52,15 @@ public static partial class WindowsDeviceDiscovery
                 BluetoothHidPath.UsbVendorId(path) ?? BluetoothHidPath.UsbVendorId(nodeId);
             var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4) ??
                 BluetoothHidPath.ProductId(path) ?? BluetoothHidPath.ProductId(nodeId);
+            // 三个 VID 都有无关设备，日常轮询时避免为未收录 PID 打开 HID 元数据句柄；
+            // 导出诊断（includeUnknownHid）时照常列出，便于用户反馈尚未支持的设备。
+            if (!includeUnknownHid && DomesticMouseStatus.IsFamily(vid))
+            {
+                var route = DomesticMouseStatus.Find(vid, pid);
+                var mi = ReadHexTag(path, "MI_", 2) ?? ReadHexTag(nodeId, "MI_", 2);
+                if (route is null || route.InterfaceNumber is byte required && mi != required)
+                    return;
+            }
             bool known = inspectHid is null || inspectHid(vid, pid);
             if ((known || includeUnknownHid) &&
                 InspectHid(set, node, path, nodeId, vid, pid, known, includeReportIds, token) is { } endpoint)
@@ -169,16 +178,31 @@ public static partial class WindowsDeviceDiscovery
             var attributes = WindowsReceiverTransport.ReadAttributes(handle);
             vid = attributes.VendorId;
             pid = attributes.ProductId;
+            (string? inputIds, string? outputIds, string? featureIds) = (null, null, null);
+            if (DomesticMouseStatus.Find(vid, pid) is { } route)
+            {
+                if (!route.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
+                    return null;
+                int type = route.Feature ? 2 : 0;
+                ushort length = route.Feature ? caps.FeatureLength : caps.InputLength;
+                if (!WindowsReceiverTransport.DeclaresReportId(handle, type, route.ReportId, length))
+                    return null;
+                if (route.Feature)
+                    featureIds = $"{route.ReportId:X2}";
+                else
+                    inputIds = $"{route.ReportId:X2}";
+            }
+            else if (includeReportIds &&
+                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength))
+            {
+                (inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps);
+            }
             if (readProduct && (caps.UsagePage >= 0xFF00 || vid == 0x046D && pid == 0x0AC4))
             {
                 char* chars = stackalloc char[126];
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
                     product = new string(chars);
             }
-            (string? inputIds, string? outputIds, string? featureIds) = includeReportIds &&
-                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength)
-                ? WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps)
-                : (null, null, null);
             token.ThrowIfCancellationRequested();
             var receiver = ReadReceiverId(set, node, nodeId, path);
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,

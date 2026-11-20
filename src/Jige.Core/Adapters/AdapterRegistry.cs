@@ -32,11 +32,15 @@ public sealed class AdapterRegistry
 
     private static AdapterRegistry CreateDefault(
         int sonyBaudRate, SafetyGateStore? gates, Func<bool>? isInzoneHubRunning,
-        IReadOnlyDictionary<string, DeviceIdentity>? savedLogitechSlots) =>
+        IReadOnlyDictionary<string, DeviceIdentity>? savedLogitechSlots, PassiveMouseAdapter? passiveMouse = null) =>
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
             new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates, savedLogitechSlots), new LogitechHeadsetAdapter(),
             new RazerFeatureAdapter(), new RazerHeadsetAdapter(gates: gates),
-            new AsusHidAdapter(gates), new MchoseKbAdapter(gates), new MchoseMouseAdapter(gates));
+            new AsusHidAdapter(gates), new MchoseKbAdapter(gates), new MchoseMouseAdapter(gates),
+            passiveMouse ?? new PassiveMouseAdapter(), new RapooVt9Adapter());
+
+    internal static AdapterRegistry CreateForDiagnostics(int sonyBaudRate, SafetyGateStore? gates, AdapterRegistry? liveRegistry) =>
+        CreateDefault(sonyBaudRate, gates, null, null, liveRegistry?.adapters.OfType<PassiveMouseAdapter>().FirstOrDefault());
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
@@ -47,7 +51,7 @@ public sealed class AdapterRegistry
             pid is 0x0565 or 0x057A or 0x0577 or RazerHeadsetProtocol.BlackShark2020Pid) ||
         vid == AsusHidProtocol.VendorId && AsusHidProtocol.FindKeyboard(pid) is not null ||
         vid == MchoseKbProtocol.VendorId && pid == MchoseKbProtocol.K87ReceiverPid ||
-        MchoseMouseAdapter.Find(vid, pid) is not null;
+        MchoseMouseAdapter.Find(vid, pid) is not null || DomesticMouseStatus.Find(vid, pid) is not null;
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory)

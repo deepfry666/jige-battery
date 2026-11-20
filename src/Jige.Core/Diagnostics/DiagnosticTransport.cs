@@ -89,7 +89,9 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, IDeviceAdapt
             if (issue == ReadIssue.None && data.Length > 0 &&
                 transfer.Endpoint is HidInterface replyHid &&
                 transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature) &&
-                safe.AsSpan().IndexOfAnyExcept((byte)0) < 0)
+                ((adapter is PassiveMouseAdapter or RapooVt9Adapter
+                    && DomesticMouseStatus.Match(replyHid)?.Decode(data) is null) ||
+                    safe.AsSpan().IndexOfAnyExcept((byte)0) < 0))
                 replySummary = DiagnosticPrivacy.SummarizeUnrecognizedHidReply(adapter, replyHid, data, request);
             if (issue == ReadIssue.None && transfer.Operation is DiagnosticOperation.HidOutput or DiagnosticOperation.SetFeature)
                 request = safe;

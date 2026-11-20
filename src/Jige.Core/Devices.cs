@@ -25,6 +25,7 @@ public sealed record DeviceIdentity(
     VerificationTier Verification = VerificationTier.DocsOnly,
     DeviceConnection Connection = DeviceConnection.Receiver)
 {
+    public bool UsesPassiveBatteryReports { get; init; }
     public bool NameFromHidpp { get; init; }
     public string? BluetoothContainerKey { get; init; }
     public string? SourceLabel { get; init; }

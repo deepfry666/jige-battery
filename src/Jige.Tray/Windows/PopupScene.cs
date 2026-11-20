@@ -551,7 +551,7 @@ internal sealed partial class PopupScene : IDisposable
     private void DrawNumber(Canvas canvas, DeviceStatus device, float x, float y, float width, float height,
         float numberSize, float percentSize, float approxSize, Color ink, bool rightAlign)
     {
-        string value = device.Percentage?.ToString() ?? "–";
+        string value = device.Percentage?.ToString() ?? Presentation.EmptyValue(device);
         string prefix = device.Last?.IsEstimated == true ? "≈" : "";
         string suffix = device.Percentage is null ? "" : "%";
         float prefixWidth = prefix.Length == 0 ? 0 : canvas.Measure(prefix, approxSize, 500) + 2;

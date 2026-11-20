@@ -5,7 +5,7 @@
 几格在 Windows 任务栏上显示无线鼠标、键盘和耳机的电量：不用打开厂商驱动，看一眼就知道「还剩几格电」。电量低时提醒你充电，打游戏时不打扰。
 
 - 官网：**https://jige.imfourj.cn**（国内直接访问，下载按钮自动指向最新版）
-- 最新正式版：**v0.2.15**（[更新记录](CHANGELOG.md)）
+- 最新正式版：**v0.2.16**（[更新记录](CHANGELOG.md)）
 - 系统要求：Windows 10 22H2 或 Windows 11，64 位
 - 只读：只查询电量和状态，不改任何设备设置
 - 开源：[MIT 许可证](LICENSE)
@@ -14,7 +14,7 @@
 
 | 渠道 | 安装包 | 校验文件 |
 | --- | --- | --- |
-| **国内镜像**（无需代理） | [Jige-Setup-0.2.15-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.15/Jige-Setup-0.2.15-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.15/SHA256SUMS.txt) |
+| **国内镜像**（无需代理） | [Jige-Setup-0.2.16-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.16/Jige-Setup-0.2.16-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.16/SHA256SUMS.txt) |
 | GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) | 同页附带 |
 
 国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，在几格里点「检查更新」即可升级，不用再来这里下载。
@@ -22,7 +22,7 @@
 下载后可以在 PowerShell 核对散列，结果应与 `SHA256SUMS.txt` 里的一致：
 
 ```powershell
-Get-FileHash .\Jige-Setup-0.2.15-x64.exe -Algorithm SHA256
+Get-FileHash .\Jige-Setup-0.2.16-x64.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -106,6 +106,12 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | WLmouse Beast X 系列 | `36A7:A880`、`36A7:A868`、`36A7:A883`、`36A7:A887`、`36A7:A882`，XVI-NEW | WL MOUSE HUB / HaloBattery | 仅按资料 |
 | MCHOSE A5 Pro Max 初代 | `2023:F013`（1K）、`2023:F015`（4K），XVI-NEW | HaloBattery / mchose-macos | 仅按资料 |
 | MCHOSE M7 Ultra / L7 Pro、A7 V2 Ultra | `5253:1020`（共享）、`3837:100B`（候选），反码 Feature | mchose-linux / HaloBattery | 仅按资料 |
+| ATTACK SHARK / Delux 鼠标 | `1D57:FA60`，1D57 Input 03 | HaloBattery / mouse-battery-tray / OpenMouse | 仅按资料 |
+| Inphic IN9 Pro | `1D57:FA65`，1D57 Input 03 | HaloBattery | 仅按资料 |
+| Incott 8K 鼠标 | `093A:522C`，Incott Input 09 | OpenMouse | 仅按资料 |
+| Rapoo VT7 | `24AE:1413`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
+| Rapoo VT9 Pro V2 | `24AE:14A9`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
+| Rapoo VT9 Pro | `24AE:1205`，Rapoo Feature 2A | OpenMouse | 仅按资料 |
 | [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
 | [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |

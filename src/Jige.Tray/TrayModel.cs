@@ -7,7 +7,7 @@ internal sealed record DeviceStatus(DeviceIdentity Device, LinkState Link, ReadI
     ChargingState Charging, SavedBattery? Last, bool Fresh, bool PendingRefresh = false)
 {
     public int? Percentage => Last?.Percentage;
-    public bool IsCharging => Fresh && Charging == ChargingState.Charging;
+    public bool IsCharging => (Fresh || Device.UsesPassiveBatteryReports && IsOnline) && Charging == ChargingState.Charging;
     public bool IsFull => Fresh && (Charging == ChargingState.Full || Percentage == 100);
     public bool IsOnline => Link == LinkState.Online;
     /// <summary>在线或短时休眠（未超时转离线）均视为活跃设备，避免鼠标静止数秒即跳入「离线设备」闪烁（R1）。</summary>
@@ -120,7 +120,9 @@ internal sealed class TrayModel
         {
             if (device is { Fresh: true, Last: { } last } && IsExpired(last, now))
             {
-                devices[id] = device with { Fresh = false };
+                devices[id] = device.Device.UsesPassiveBatteryReports
+                    ? device with { Fresh = false, Link = LinkState.Asleep, Charging = ChargingState.Unknown }
+                    : device with { Fresh = false };
                 changed = true;
             }
         }
@@ -146,7 +148,7 @@ internal sealed class TrayModel
         DateTimeOffset? earliest = null;
         foreach (var (id, device) in devices)
         {
-            if (device.Link != LinkState.Asleep)
+            if (device.Link != LinkState.Asleep || device.Device.UsesPassiveBatteryReports)
                 continue;
             if (!asleepSince.TryGetValue(id, out var since) || now < since)
                 since = now;
@@ -166,7 +168,7 @@ internal sealed class TrayModel
         foreach (var id in devices.Keys.ToArray())
         {
             var device = devices[id];
-            if (device.Link != LinkState.Asleep)
+            if (device.Link != LinkState.Asleep || device.Device.UsesPassiveBatteryReports)
             {
                 asleepSince.Remove(id);
                 continue;
@@ -373,7 +375,10 @@ internal sealed class TrayModel
                     continue;
             }
             var previous = devices.GetValueOrDefault(device.Id);
-            if (previous is null && (reading.Percentage is null || reading.Link != LinkState.Online))
+            if (device.UsesPassiveBatteryReports && previous is not null && reading.Link != LinkState.Online)
+                device = previous.Device;
+            if (previous is null && (reading.Percentage is null || reading.Link != LinkState.Online) &&
+                !(device.UsesPassiveBatteryReports && reading.Link is LinkState.Online or LinkState.Asleep))
             {
                 if (removedOffline.Contains(device.Id))
                     seen.Add(device.Id);
@@ -386,7 +391,7 @@ internal sealed class TrayModel
                     continue;
                 removedChanged |= removedOffline.Remove(device.Id);
             }
-            var resolvedLink = ResolveLinkForSleep(device.Id, previous?.Link, reading.Link, now);
+            var resolvedLink = ResolveLinkForSleep(device, previous?.Link, reading.Link, now);
             var last = previous?.Last;
             bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null;
             if (fresh)
@@ -402,7 +407,8 @@ internal sealed class TrayModel
                     meaningfulChange = true;
                 last = nextLast;
             }
-            else if (previous is null || previous.Link != resolvedLink || previous.Device != device)
+            else if (previous is null || previous.Link != resolvedLink || previous.Device != device ||
+                previous.Charging != reading.Charging && device.UsesPassiveBatteryReports)
             {
                 meaningfulChange = true;
             }
@@ -431,7 +437,7 @@ internal sealed class TrayModel
                 receiverStillPresent = seenSlots?.Contains(slot) == false && latestSlots?.GetValueOrDefault(slot) == previous;
             var missingLink = previous.Device.Connection == DeviceConnection.Bluetooth ? LinkState.Asleep :
                 scanFailed ? LinkState.Unknown : receiverStillPresent ? LinkState.Asleep : LinkState.Offline;
-            var nextLink = ResolveLinkForSleep(id, previous.Link, missingLink, now);
+            var nextLink = ResolveLinkForSleep(previous.Device, previous.Link, missingLink, now);
             if (previous.Link != nextLink || previous.Fresh)
                 meaningfulChange = true;
             devices[id] = previous with
@@ -586,7 +592,7 @@ internal sealed class TrayModel
             HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Name), obj.Kind);
     }
 
-    /// <summary>应用心跳或罗技接收器推送的在线状态变化（B1 / B2 / R1 / R2）。</summary>
+    /// <summary>应用心跳或设备推送的在线状态及电量变化（B1 / B2 / R1 / R2）。</summary>
     public (bool UiChanged, bool NeedsBatteryRefresh) ApplyPresence(
         IReadOnlyList<PresenceUpdate> updates,
         DateTimeOffset now,
@@ -609,7 +615,7 @@ internal sealed class TrayModel
                     if (known.Device.Connection != battery.Device.Connection || !IsShown(known.Device) ||
                         known.Last is { } last && last.ReadAt > battery.ReadAt)
                         continue;
-                    if (battery.Device.Connection != DeviceConnection.Bluetooth)
+                    if (battery.Device.Connection != DeviceConnection.Bluetooth && !battery.Device.UsesPassiveBatteryReports)
                         battery = battery with { Device = known.Device };
                 }
                 uiChanged |= ApplyReadings([battery], ScanFailed, now, UnknownReceivers, onLinkChanged, null, completePoll: false);
@@ -630,7 +636,7 @@ internal sealed class TrayModel
                     update.Slot is not null && previous.Device.Connection == DeviceConnection.UsbCable ||
                     update.Connection is { } conn && conn != previous.Device.Connection)
                     continue;
-                var resolvedLink = ResolveLinkForSleep(id, previous.Link, update.Link, now);
+                var resolvedLink = ResolveLinkForSleep(previous.Device, previous.Link, update.Link, now);
                 if (previous.Link == resolvedLink && previous.Issue == update.Issue)
                     continue;
 
@@ -664,8 +670,11 @@ internal sealed class TrayModel
     /// 1) 已处于 Offline 的设备不会因超时/休眠回复退回 Asleep，必须收到明确 Online 才恢复；
     /// 2) 连续休眠达到 10 分钟仍无回复则转为 Offline。
     /// </summary>
-    private LinkState ResolveLinkForSleep(string id, LinkState? previousLink, LinkState incoming, DateTimeOffset now)
+    private LinkState ResolveLinkForSleep(DeviceIdentity device, LinkState? previousLink, LinkState incoming, DateTimeOffset now)
     {
+        string id = device.Id;
+        if (device.UsesPassiveBatteryReports)
+            return incoming;
         if (incoming == LinkState.Online)
         {
             asleepSince.Remove(id);
