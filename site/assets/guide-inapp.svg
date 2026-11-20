@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="220" viewBox="0 0 760 220" role="img" aria-label="微信或 QQ 内置浏览器切换到系统默认浏览器的操作示意图：点右上角三个点，选择在默认浏览器中打开">
+  <rect x="0.5" y="0.5" width="759" height="219" rx="12" fill="#0b0c0e" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 左图：微信/QQ内置浏览器 -->
+  <text x="24" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">① 在微信 / QQ 内置页面点右上角「···」</text>
+
+  <rect x="20" y="46" width="344" height="156" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <!-- 顶部栏 -->
+  <path d="M35 61l8 8m0-8-8 8" fill="none" stroke="#7d828a" stroke-width="1.4" stroke-linecap="round"/>
+  <text x="176" y="70" text-anchor="middle" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">下载与安装指南 · 几格</text>
+  <line x1="20" y1="84" x2="364" y2="84" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 高亮 ··· -->
+  <rect x="318" y="53" width="32" height="24" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <circle cx="328" cy="65" r="1.5" fill="#f7f8f8"/>
+  <circle cx="334" cy="65" r="1.5" fill="#f7f8f8"/>
+  <circle cx="340" cy="65" r="1.5" fill="#f7f8f8"/>
+  <circle cx="350" cy="53" r="9" fill="#5ec4ff"/>
+  <text x="350" y="57" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">1</text>
+
+  <!-- 弹出菜单 -->
+  <rect x="172" y="92" width="178" height="98" rx="8" fill="#1d2025" stroke="#ffffff" stroke-opacity="0.18"/>
+  <text x="186" y="114" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">转发给朋友</text>
+  <rect x="178" y="124" width="166" height="28" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="190" y="142" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">在默认浏览器中打开</text>
+  <circle cx="344" cy="124" r="9" fill="#5ec4ff"/>
+  <text x="344" y="128" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">2</text>
+  <text x="186" y="175" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">复制链接</text>
+
+  <!-- 中间箭头 -->
+  <path d="M372 124h14m0 0-4-4m4 4-4 4" fill="none" stroke="#7d828a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 右图：系统默认浏览器 -->
+  <text x="400" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">② 切到 Edge / Chrome 后直接下载</text>
+
+  <rect x="396" y="46" width="344" height="156" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <rect x="412" y="58" width="312" height="26" rx="6" fill="#1c1e22" stroke="#ffffff" stroke-opacity="0.08"/>
+  <text x="424" y="75" fill="#a1a6ae" font-family="Segoe UI, sans-serif" font-size="11.5">jige.imfourj.cn/download.html</text>
+
+  <text x="414" y="114" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="14" font-weight="600">下载并安装几格</text>
+  <rect x="414" y="126" width="158" height="32" rx="7" fill="#f7f8f8"/>
+  <text x="493" y="146" text-anchor="middle" fill="#08090a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">下载 Windows 安装包</text>
+  <text x="414" y="182" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11">如浏览器提示保留，按前两个标签页操作即可</text>
+</svg>

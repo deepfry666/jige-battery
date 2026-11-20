@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="272" viewBox="0 0 760 272" role="img" aria-label="Windows SmartScreen 弹窗两步放行示意图：先点击Windows已保护你的电脑中的更多信息，再点击展开后出现的仍要运行">
+  <rect x="0.5" y="0.5" width="759" height="271" rx="12" fill="#0b0c0e" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 左图：点击更多信息 -->
+  <text x="24" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">① 首次双击弹窗：点「更多信息」</text>
+
+  <rect x="20" y="46" width="344" height="208" rx="10" fill="#101a24" stroke="#5ec4ff" stroke-opacity="0.24"/>
+  <text x="36" y="67" fill="#8fa3b8" font-family="Segoe UI, sans-serif" font-size="11">Windows Defender SmartScreen</text>
+  <path d="M342 60l7 7m0-7-7 7" fill="none" stroke="#6c7d8f" stroke-width="1.3" stroke-linecap="round"/>
+  <line x1="20" y1="78" x2="364" y2="78" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <text x="38" y="106" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="15.5" font-weight="600">Windows 已保护你的电脑</text>
+  <text x="38" y="129" fill="#b8c4d0" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">Microsoft Defender SmartScreen 阻止了无法识别</text>
+  <text x="38" y="146" fill="#b8c4d0" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">的应用启动。运行此应用可能会导致你的电脑</text>
+  <text x="38" y="163" fill="#b8c4d0" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">存在风险。</text>
+
+  <!-- 高亮：更多信息 -->
+  <rect x="34" y="177" width="76" height="26" rx="6" fill="#142d42" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="72" y="194" text-anchor="middle" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600" text-decoration="underline">更多信息</text>
+  <circle cx="110" cy="177" r="9" fill="#5ec4ff"/>
+  <text x="110" y="181" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">1</text>
+
+  <!-- 弱化：不运行 -->
+  <rect x="264" y="212" width="82" height="28" rx="6" fill="#1a2633" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="305" y="230" text-anchor="middle" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">不运行</text>
+
+  <!-- 中间箭头 -->
+  <path d="M372 150h14m0 0-4-4m4 4-4 4" fill="none" stroke="#7d828a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 右图：点击仍要运行 -->
+  <text x="400" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">② 展开后点「仍要运行」</text>
+
+  <rect x="396" y="46" width="344" height="208" rx="10" fill="#101a24" stroke="#5ec4ff" stroke-opacity="0.24"/>
+  <text x="412" y="67" fill="#8fa3b8" font-family="Segoe UI, sans-serif" font-size="11">Windows Defender SmartScreen</text>
+  <path d="M718 60l7 7m0-7-7 7" fill="none" stroke="#6c7d8f" stroke-width="1.3" stroke-linecap="round"/>
+  <line x1="396" y1="78" x2="740" y2="78" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <text x="414" y="106" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="15.5" font-weight="600">Windows 已保护你的电脑</text>
+  <text x="414" y="128" fill="#9fb0c2" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">SmartScreen 阻止了无法识别的应用启动。</text>
+
+  <!-- 展开信息框 -->
+  <rect x="414" y="142" width="308" height="52" rx="6" fill="#0b131b" stroke="#ffffff" stroke-opacity="0.08"/>
+  <text x="426" y="163" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">应用：Jige-Setup-x64.exe</text>
+  <text x="426" y="182" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">发布者：未知发布者</text>
+
+  <!-- 高亮：仍要运行 -->
+  <rect x="536" y="212" width="96" height="28" rx="6" fill="#142d42" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="584" y="230" text-anchor="middle" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12.5" font-weight="600">仍要运行</text>
+  <circle cx="632" cy="212" r="9" fill="#5ec4ff"/>
+  <text x="632" y="216" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">2</text>
+
+  <!-- 弱化：不运行 -->
+  <rect x="642" y="212" width="80" height="28" rx="6" fill="#1a2633" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="682" y="230" text-anchor="middle" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">不运行</text>
+</svg>
