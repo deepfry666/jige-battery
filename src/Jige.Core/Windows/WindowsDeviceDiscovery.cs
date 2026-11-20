@@ -52,8 +52,9 @@ public static partial class WindowsDeviceDiscovery
                 BluetoothHidPath.UsbVendorId(path) ?? BluetoothHidPath.UsbVendorId(nodeId);
             var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4) ??
                 BluetoothHidPath.ProductId(path) ?? BluetoothHidPath.ProductId(nodeId);
-            // 三个 VID 都有无关设备，避免为未收录 PID 打开 HID 元数据句柄。
-            if (DomesticMouseStatus.IsFamily(vid))
+            // 三个 VID 都有无关设备，日常轮询时避免为未收录 PID 打开 HID 元数据句柄；
+            // 导出诊断（includeUnknownHid）时照常列出，便于用户反馈尚未支持的设备。
+            if (!includeUnknownHid && DomesticMouseStatus.IsFamily(vid))
             {
                 var route = DomesticMouseStatus.Find(vid, pid);
                 var mi = ReadHexTag(path, "MI_", 2) ?? ReadHexTag(nodeId, "MI_", 2);
