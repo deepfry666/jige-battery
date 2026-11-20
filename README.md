@@ -5,7 +5,7 @@
 几格在 Windows 任务栏上显示无线鼠标、键盘和耳机的电量：不用打开厂商驱动，看一眼就知道「还剩几格电」。电量低时提醒你充电，打游戏时不打扰。
 
 - 官网：**https://jige.imfourj.cn**（国内直接访问，下载按钮自动指向最新版）
-- 最新正式版：**v0.2.12**（[更新记录](CHANGELOG.md)）
+- 最新正式版：**v0.2.13**（[更新记录](CHANGELOG.md)）
 - 系统要求：Windows 10 22H2 或 Windows 11，64 位
 - 只读：只查询电量和状态，不改任何设备设置
 - 开源：[MIT 许可证](LICENSE)
@@ -14,7 +14,7 @@
 
 | 渠道 | 安装包 | 校验文件 |
 | --- | --- | --- |
-| **国内镜像**（无需代理） | [Jige-Setup-0.2.12-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.12/Jige-Setup-0.2.12-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.12/SHA256SUMS.txt) |
+| **国内镜像**（无需代理） | [Jige-Setup-0.2.13-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.13/Jige-Setup-0.2.13-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.13/SHA256SUMS.txt) |
 | GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) | 同页附带 |
 
 国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，在几格里点「检查更新」即可升级，不用再来这里下载。
@@ -22,7 +22,7 @@
 下载后可以在 PowerShell 核对散列，结果应与 `SHA256SUMS.txt` 里的一致：
 
 ```powershell
-Get-FileHash .\Jige-Setup-0.2.12-x64.exe -Algorithm SHA256
+Get-FileHash .\Jige-Setup-0.2.13-x64.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -93,6 +93,7 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | Sony INZONE H9 一代 | PC 档接收器 `054C:0E53` 的 `MI_06` USB 串口（INZONE Hub 运行时自动退让） | 多方开源实现一致 | **已实机验证**（Windows 11，2026-11-19） |
 | 游狼 HTX Ultra 8K（XVI-NEW） | `33E4:5617`，`MI_02 / FFFF:0000` | 依据官方网页驱动型号表 | **已实机验证**（Windows 11，2026-11-19） |
 | Razer BlackShark V3 Pro | `1532:0577`，`MI_05 / FF14:0001`（纯只读 `21/2A`） | 社区实机记录 | **已实机验证**（Windows 11，2026-11-20） |
+| ASUS ROG 无线键盘 | `0B05:1934`，`MI_01 / FF00:0001`（纯只读 `12 01`） | G-Helper | **已实机验证**（Windows 11，2026-11-20） |
 | 游狼 XVI-NEW 同家族 | Fenrir Pro 8K `33E4:3617`、HTM Plus `33E4:3817`、HSK Pro 2.0 8K `33E4:6817`，`MI_02 / FFFF:0000` | 与已验证型号同协议家族、同官方型号表 | **同家族推定**（未在实机验证） |
 | Finalmouse UltralightX（ULX） | 2.4 GHz 接收器 `361D:0100`，以及同家族 `361D` + `FF00:0001`（64/64）通用识别 | 单一来源 / 通用适配 | 仅按资料 |
 | ATK Compx-OUT | `373B:1031`（F1 Ultimate）、共用接收器 `373B:101A/11D9/1278`（默认「ATK 鼠标」，协议返回 CID/MID 时显示具体型号），以及同家族 `373B` + `FF02:0002`（17/17）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
@@ -105,7 +106,7 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |
 | [Razer 90B](docs/protocols.md#razer-90b-feature) | 72 个鼠标 PID、15 个键盘 PID（对齐 OpenRazer，含无线接收器、HyperPolling 接收器与 USB-C 有线充电模式；协议忙或被其他软件临时占用时自动重试最多 3 次） | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [Razer BlackShark 纯只读耳机](docs/protocols.md#razer-pa-与-blackshark-64b) | BlackShark V2 Pro (2020) `1532:0528`（`FF00:0001` 64B Feature）、BlackShark V2 HyperSpeed `1532:0565`（MI_03）、BlackShark V3 `1532:057A`（MI_05） | 多方开源实现一致 / 单一来源 | 仅按资料 |
-| ASUS ROG 无线键盘 | `0B05:1934`、Falchion、Claymore II、Azoth 系列、Strix Scope II 96 等（`MI_01 / FF00:0001` 65B 只读命令 `12 01`） | G-Helper / HaloBattery（MIT） | 仅按资料 |
+| ASUS ROG 无线键盘（其他型号） | Falchion、Claymore II、Azoth 系列、Strix Scope II 96 等（`MI_01 / FF00:0001` 65B 只读命令 `12 01`） | G-Helper / HaloBattery（MIT） | 仅按资料 |
 | MCHOSE 迈从键盘 | MCHOSE K87 2.4G 接收器 `41E4:2001`（`FF02:0002` 20B 只读命令 `13 4A`） | HaloBattery（MIT） | 仅按资料 |
 | 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
 

@@ -1352,7 +1352,8 @@ internal sealed partial class TrayApp : IDisposable
         }
         try
         {
-            active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, updateState, reset);
+            active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, updateState,
+                DisplayLocationFallbackReason, reset);
             textDue = active.IsNotice ? null : now.AddMinutes(1);
         }
         catch (Exception error)

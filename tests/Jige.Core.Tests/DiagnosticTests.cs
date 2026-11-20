@@ -108,6 +108,20 @@ public sealed class DiagnosticTests
     }
 
     [Fact]
+    public async Task RealAsusRogKeyboard1934ReportReplays()
+    {
+        // 2026-11-20 Windows 11（10.0.26200）实机导出的 ASUS ROG 无线键盘（0B05:1934）诊断报告。
+        string filename = Path.Combine(AppContext.BaseDirectory, "fixtures", "asus-rog-kb-1934-real-2026-11-20.txt");
+        var report = await File.ReadAllTextAsync(filename, CancellationToken.None);
+        var readings = await Replay(report.Replace("\n", "\r\n", StringComparison.Ordinal));
+        var keyboard = Assert.Single(readings);
+        Assert.Equal("ASUS ROG 无线键盘", keyboard.Device.Name);
+        Assert.Equal(100, keyboard.Percentage);
+        Assert.Equal(ChargingState.Charging, keyboard.Charging);
+        Assert.Equal(LinkState.Online, keyboard.Link);
+    }
+
+    [Fact]
     public async Task SplinteredSonyStreamCanReplayWithoutExposingModelSerialOrGarbage()
     {
         const string secret = "SERIAL-PRIVATE";

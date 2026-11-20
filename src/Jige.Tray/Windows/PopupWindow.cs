@@ -35,6 +35,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private DateTimeOffset now;
     private bool running;
     private string? error;
+    private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
     private UpdateViewState updateState = UpdateViewState.Idle("", false);
@@ -64,7 +65,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     }
 
     public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics,
-        bool previewPending, UpdateViewState update, bool reset = false)
+        bool previewPending, UpdateViewState update, string? displayLocationFallback = null, bool reset = false)
     {
         if (Closing)
             return;
@@ -72,6 +73,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         now = time;
         running = pollRunning;
         error = settingsError;
+        this.displayLocationFallback = displayLocationFallback;
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
         updateState = update;
@@ -84,7 +86,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         work = new(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         screenBounds = new(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         iconBounds = new(anchor.left, anchor.top, anchor.right, anchor.bottom);
-        int minimumHeight = IsNotice ? PanelLayout.NoticeHeight : PanelLayout.SettingsHeight + SettingsPanel.OptionHeight;
+        int minimumHeight = IsNotice ? PanelLayout.NoticeHeight
+            : PanelLayout.SettingsHeight + PanelLayout.DiagnosticFooterExtraHeight + SettingsPanel.OptionHeight;
         float newScale = Math.Min(Desktop.Dpi(screen) / 96f,
             Math.Min((work.Width - 16f) / PanelLayout.Width, work.Height / (minimumHeight + 24f)));
         if (newScale <= 0)
@@ -105,8 +108,9 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             backdrop = new(composition, composition.Root, 0, 0, 0, 0);
         }
 
+        bool diagnosticFooter = HasDiagnosticFooter(page);
         var size = SizeOf(page);
-        if (scene?.Page != page || scene.Size != size)
+        if (scene?.Page != page || scene.Size != size || scene.HasDiagnosticFooter != diagnosticFooter)
             ReplaceScene(size);
         else
             DrawScene();
@@ -114,6 +118,9 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
         composition.Commit();
     }
+
+    private bool HasDiagnosticFooter(PanelPage target) =>
+        target is PanelPage.Settings or PanelPage.Devices && DiagnosticExport.HasReportStatus(diagnosticStatus);
 
     private PanelSize SizeOf(PanelPage target)
     {
@@ -124,7 +131,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             PanelPage.Updates => updateState.Phase == UpdatePhase.Available ? 1 : 0,
             _ => 0
         };
-        return PanelLayout.Size(target, count, AvailableHeight);
+        return PanelLayout.Size(target, count, AvailableHeight, HasDiagnosticFooter(target));
     }
 
     private int MainCount()
@@ -170,10 +177,12 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             oldTransition.IncomingStart.Towards(Transition.Resting, progress);
         bool animate = shown && animations && previous is not null && !IsNotice &&
             (previous.Page != page || displayedHeight != size.Height);
-        bool reversing = animate && page != PanelPage.Settings && oldOutgoing?.Page == page && oldOutgoing.Size == size;
+        bool diagnosticFooter = HasDiagnosticFooter(page);
+        bool reversing = animate && page != PanelPage.Settings && oldOutgoing?.Page == page &&
+            oldOutgoing.Size == size && oldOutgoing.HasDiagnosticFooter == diagnosticFooter;
 
         int offset = page == PanelPage.Main ? mainOffset : page == PanelPage.Devices ? deviceOffset : 0;
-        scene = reversing ? oldOutgoing! : new(composition!, colors, animations, model, page, NoticeId, size, offset, AvailableHeight);
+        scene = reversing ? oldOutgoing! : new(composition!, colors, animations, model, page, NoticeId, size, offset, AvailableHeight, diagnosticFooter);
         if (!reversing)
             oldOutgoing?.Dispose();
         outgoing = previous;
@@ -354,7 +363,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState, displayLocationFallback);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)

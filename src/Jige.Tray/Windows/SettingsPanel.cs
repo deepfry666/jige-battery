@@ -4,7 +4,7 @@ internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autost
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
-internal sealed class SettingsPanel(int availableHeight)
+internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false)
 {
     public const int CardX = 9, CardY = 51, CardWidth = PanelLayout.Width - 18;
     public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
@@ -34,8 +34,17 @@ internal sealed class SettingsPanel(int availableHeight)
         new(new(PopupAction.Theme, (int)ThemeMode.Dark), "深色模式")
     ];
 
-    public static string DisplayLocationLabel(TrayDisplayLocation location) =>
-        DisplayLocationChoices[location == TrayDisplayLocation.TrayIcons ? 1 : 0].Label;
+    public static string DisplayLocationLabel(TrayDisplayLocation location, string? fallbackReason = null) =>
+        location == TrayDisplayLocation.TrayIcons ? DisplayLocationChoices[1].Label
+        : string.IsNullOrEmpty(fallbackReason) ? DisplayLocationChoices[0].Label
+        : "已回退托盘";
+
+    public static string DisplayLocationOptionLabel(SettingChoice choice, string? fallbackReason) =>
+        choice.Target.Action == PopupAction.DisplayLocation &&
+        choice.Target.Value == (int)TrayDisplayLocation.Taskbar &&
+        !string.IsNullOrEmpty(fallbackReason)
+            ? $"任务栏（回退：{fallbackReason}）"
+            : choice.Label;
 
     public static readonly SettingChoice[] ThresholdChoices =
     [
@@ -59,12 +68,15 @@ internal sealed class SettingsPanel(int availableHeight)
 
     public SettingRow? Expanded { get; private set; }
     public bool Animating { get; private set; }
-    private int Capacity => Math.Clamp((availableHeight - PanelLayout.SettingsHeight) / OptionHeight, 1, MaxVisibleOptions);
-    public int SurfaceHeight => PanelLayout.SettingsHeight + Capacity * OptionHeight;
+    public bool HasDiagnosticFooter => hasDiagnosticFooter;
+    private int BaseHeight => PanelLayout.SettingsHeight + (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
+    public int FooterHeight => hasDiagnosticFooter ? PanelLayout.DiagnosticFooterHeight : PanelLayout.FooterHeight;
+    private int Capacity => Math.Clamp((availableHeight - BaseHeight) / OptionHeight, 1, MaxVisibleOptions);
+    public int SurfaceHeight => BaseHeight + Capacity * OptionHeight;
     public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
         VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation) +
         VisibleHeight(SettingRow.Theme);
-    public float Height => PanelLayout.SettingsHeight + ExtraHeight;
+    public float Height => BaseHeight + ExtraHeight;
 
     public void UpdateTrayChoices(TrayModel model, IReadOnlyList<DeviceStatus> devices)
     {

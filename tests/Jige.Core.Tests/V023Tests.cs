@@ -199,7 +199,7 @@ public sealed class V023Tests
     public void B1_DeviceCatalogClassifiesHardwareVerifiedFamilyInferredAndDocsOnly()
     {
         var verified = DeviceCatalog.HardwareVerified.Select(entry => entry.VidPid).Order().ToArray();
-        Assert.Equal(["054C:0E53", "1532:0577", "33E4:5617"], verified);
+        Assert.Equal(["054C:0E53", "0B05:1934", "1532:0577", "33E4:5617"], verified);
 
         var inferred = DeviceCatalog.Entries
             .Where(entry => entry.Verification == VerificationTier.FamilyInferred)

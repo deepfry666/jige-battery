@@ -123,6 +123,9 @@ internal readonly record struct TaskbarStripPlacement(TaskbarStripReason Reason,
 internal readonly record struct TaskbarStripDisplay(TaskbarStripReason Reason, Bounds Bounds)
 {
     public bool ShowStrip => Reason == TaskbarStripReason.Ready;
+    public bool IsFallback => Reason is TaskbarStripReason.MissingTaskbar or TaskbarStripReason.MissingNotificationArea or
+        TaskbarStripReason.UnknownButtonBounds or TaskbarStripReason.UnsupportedEdge or
+        TaskbarStripReason.NoRoom or TaskbarStripReason.WindowUnavailable;
     // 随任务栏临时隐藏，或进入全屏时，保留默认入口及相同的托盘槽位。
     public bool DefaultIconOnly => Reason is TaskbarStripReason.Ready or TaskbarStripReason.NoDevices or
         TaskbarStripReason.HiddenTaskbar or TaskbarStripReason.Fullscreen;
@@ -178,7 +181,7 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
         if (notification is not { } trayBounds)
             return default;
 
-        bool sawStart = false, sawTaskList = false;
+        bool sawStart = false, sawTaskList = false, sawFrame = false;
         int taskbarFrameRight = bar.Left;
         int right = bar.Left;
         foreach (var control in controls)
@@ -186,22 +189,30 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             var bounds = control.Bounds;
             if (!InsideBar(bounds))
                 continue;
-            bool start = control.Id == "StartButton";
-            bool frame = control.Id == "TaskbarFrame" || control.ClassName == "TaskbarFrame";
+            bool start = control.Id == "StartButton" || control.ClassName == "Start";
+            bool frame = control.Id == "TaskbarFrame" ||
+                control.ClassName is "TaskbarFrame" or "Taskbar.TaskbarFrame" or "Taskbar.TaskbarFrameAutomationPeer";
+            sawFrame |= frame;
             if (frame && bounds.Right <= trayBounds.Left)
                 taskbarFrameRight = Math.Max(taskbarFrameRight, bounds.Right);
             sawStart |= start;
             // The modern taskbar frame can span the entire HWND. Its button bounds,
             // including Start, Search, Widgets and overflow, are what consume space.
-            bool taskListButton = control.ClassName is "TaskListButton" or "Taskbar.TaskListButton" ||
-                control.Id == "TaskListButton";
+            bool taskListButton = control.ClassName is "TaskListButton" or "Taskbar.TaskListButton" or
+                "Taskbar.TaskListButtonAutomationPeer" or "Taskbar.TaskListLabeledButtonPanel" ||
+                control.Id == "TaskListButton" ||
+                control.Id.StartsWith("Appid:", StringComparison.OrdinalIgnoreCase);
+            bool shellButton = control.Id is "SearchButton" or "TaskViewButton" or "WidgetsButton" or "OverflowButton";
             bool legacyList = control.ClassName == "MSTaskListWClass";
             sawTaskList |= taskListButton || legacyList;
-            if (start || taskListButton || legacyList || control.Button && bounds.Left < trayBounds.Left)
+            if (start || taskListButton || legacyList || (shellButton || control.Button) && bounds.Left < trayBounds.Left)
                 right = Math.Max(right, bounds.Right);
         }
 
-        int? occupied = sawTaskList ? right : taskbarFrameRight > bar.Left ? Math.Max(right, taskbarFrameRight) : null;
+        int? occupied = sawTaskList ? right
+            : taskbarFrameRight > bar.Left ? Math.Max(right, taskbarFrameRight)
+            : sawFrame ? right
+            : null;
         return new(notification, sawStart ? occupied : null);
 
         bool InsideBar(Bounds rect) => rect.Width > 0 && rect.Height > 0 &&
