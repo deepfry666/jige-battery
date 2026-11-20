@@ -392,7 +392,10 @@ internal sealed class TrayModel
             if (fresh)
             {
                 anyFresh = true;
-                var nextLast = new SavedBattery(device, reading.Percentage!.Value, reading.IsEstimated, reading.ReadAt);
+                var nextLast = new SavedBattery(device, reading.Percentage!.Value, reading.IsEstimated, reading.ReadAt)
+                {
+                    WasChargingOrFull = reading.Charging is ChargingState.Charging or ChargingState.Full
+                };
                 if (last is null || last.Percentage != nextLast.Percentage || last.IsEstimated != nextLast.IsEstimated ||
                     previous?.Charging != reading.Charging || previous?.Device != device || previous?.Link != resolvedLink ||
                     previous?.Fresh != true)

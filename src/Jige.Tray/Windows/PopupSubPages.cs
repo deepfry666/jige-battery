@@ -21,6 +21,7 @@ internal sealed partial class PopupScene
             SettingRow? optionRow = focused.Action switch
             {
                 PopupAction.TrayMode => SettingRow.TrayMode,
+                PopupAction.DisplayLocation => SettingRow.DisplayLocation,
                 PopupAction.Threshold => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
                 _ => null
@@ -70,7 +71,7 @@ internal sealed partial class PopupScene
             };
             var button = new HitBox(target, rect);
             subButtons.Add(button);
-            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.Bluetooth);
+            DrawSettingBackground(canvas, button, row is SettingRow.TrayMode or SettingRow.DisplayLocation);
             if (row != SettingRow.TrayMode)
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
@@ -78,6 +79,7 @@ internal sealed partial class PopupScene
             string name = row switch
             {
                 SettingRow.TrayMode => "托盘显示",
+                SettingRow.DisplayLocation => "显示位置",
                 SettingRow.Threshold => "低电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
@@ -100,6 +102,7 @@ internal sealed partial class PopupScene
             string value = row switch
             {
                 SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
+                SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
                 _ => Presentation.Interval(settings.PollSeconds)
             };
@@ -143,6 +146,7 @@ internal sealed partial class PopupScene
     private bool IsSelected(PopupTarget target) => target.Action switch
     {
         PopupAction.TrayMode => target.Value == (int)model.Settings.TrayMode,
+        PopupAction.DisplayLocation => target.Value == (int)model.Settings.DisplayLocation,
         PopupAction.Threshold => target.Value == model.Settings.LowBatteryThreshold,
         PopupAction.PollInterval => target.Value == model.Settings.PollSeconds,
         _ => false
@@ -253,6 +257,11 @@ internal sealed partial class PopupScene
             case SettingRow.TrayMode:
                 canvas.Stroke(x + 1.5f, y + 9.5f, 13, 5, 1.2f, ink, 1.3f);
                 Line(10.5f, 12, 12.5f, 12);
+                break;
+            case SettingRow.DisplayLocation:
+                canvas.Stroke(x + 1, y + 2.5f, 14, 11, 1.4f, ink, 1.3f);
+                Line(1, 10, 15, 10);
+                Line(10.5f, 11.8f, 12.5f, 11.8f);
                 break;
             case SettingRow.Threshold:
                 canvas.Arc(x + 8, y + 7, 4, MathF.PI, 2 * MathF.PI, ink, 1.3f);

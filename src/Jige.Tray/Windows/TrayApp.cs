@@ -22,7 +22,7 @@ using static Windows.Win32.UI.WindowsAndMessaging.WINDOW_STYLE;
 namespace Jige.Tray.Windows;
 
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed class TrayApp : IDisposable
+internal sealed partial class TrayApp : IDisposable
 {
     private const string HostClass = "Jige.Tray.Host";
     private const string PopupClass = "Jige.Tray.Popup";
@@ -131,6 +131,7 @@ internal sealed class TrayApp : IDisposable
         Register(PopupClass, &PopupCallback);
         Register(HoverCardClass, &HoverCardCallback);
         Register(MenuClass, &MenuCallback);
+        Register(StripClass, &StripCallback);
         host = MakeWindow(HostClass, 0, WS_POPUP);
         icons = new(host, TrayMessage);
         RegisterDeviceNotifications();
@@ -183,6 +184,7 @@ internal sealed class TrayApp : IDisposable
         foregroundHook = InstallHook(ForegroundEvent);
         SetForegroundTracking();
         ReadGameMode();
+        RefreshStripGeometry();
         RefreshIcon();
         ArmTimer(GameSettleTimer, 750);
         ProcessWork();
@@ -232,13 +234,13 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private unsafe HWND MakeWindow(string name, WINDOW_EX_STYLE extras, WINDOW_STYLE style)
+    private unsafe HWND MakeWindow(string name, WINDOW_EX_STYLE extras, WINDOW_STYLE style, HWND owner = default)
     {
         fixed (char* className = name)
         fixed (char* title = "几格")
         {
             var window = PInvoke.CreateWindowEx(extras, new PCWSTR(className), new PCWSTR(title), style,
-                0, 0, 0, 0, default, default, instance, null);
+                0, 0, 0, 0, owner, default, instance, null);
             return !window.IsNull ? window : throw new Win32Exception(Marshal.GetLastPInvokeError());
         }
     }
@@ -396,6 +398,7 @@ internal sealed class TrayApp : IDisposable
             DestroyHoverCard();
             icons.Recover();
             StopIconRetry();
+            RecoverStrip();
             RefreshDesktop();
             ProcessWork();
             return true;
@@ -403,6 +406,12 @@ internal sealed class TrayApp : IDisposable
 
         switch (message)
         {
+            case StripGeometryMessage:
+                CompleteStripGeometry();
+                return true;
+            case StripAppBarMessage:
+                HandleStripAppBar(wParam.Value);
+                return true;
             case TrayMessage:
                 HandleTray(wParam, lParam);
                 return true;
@@ -424,13 +433,14 @@ internal sealed class TrayApp : IDisposable
             case ForegroundMessage:
                 foregroundPosted = false;
                 SetForegroundTracking();
+                RefreshStripGeometry();
                 // 再验证一次，给 Explorer 和 DWM 留出更新全屏状态的时间。
                 ArmTimer(GameSettleTimer, 750);
                 ProcessWork();
                 return true;
             case MoveMessage:
                 locationPosted = false;
-                if (popup?.IsNotice == true)
+                if (popup?.IsNotice == true || model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar)
                     ReadGameMode();
                 ArmTimer(GameSettleTimer, 350);
                 return true;
@@ -444,6 +454,7 @@ internal sealed class TrayApp : IDisposable
                     Desktop.Log("系统从睡眠恢复，立即重新枚举并查询");
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
+                    RefreshStripGeometry();
                     ProcessWork();
                 }
                 return true;
@@ -488,15 +499,20 @@ internal sealed class TrayApp : IDisposable
                 ProcessWork();
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
+                RefreshStripGeometry();
                 ScheduleDesktopRefresh(resetPopup: false);
                 return true;
             case 0x001A: // WM_SETTINGCHANGE（D3：仅响应与界面外观/工作区相关的系统设置，并加防抖合并重建）
                 string? area = lParam.Value == 0 ? null : Marshal.PtrToStringUni(lParam.Value);
                 if (DesktopRefreshDebouncer.IsRelevantSettingChange(wParam.Value, area))
+                {
+                    RefreshTaskbarTheme();
                     ScheduleDesktopRefresh(resetPopup: true);
+                }
                 return true;
             case 0x031A or 0x031E or 0x0320:
                 // 主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
+                RefreshTaskbarTheme();
                 ScheduleDesktopRefresh(resetPopup: true);
                 return true;
             case 0x001E: // WM_TIMECHANGE：调度使用单调时钟，仅刷新展示时间与提醒检查。
@@ -537,6 +553,7 @@ internal sealed class TrayApp : IDisposable
     {
         ReadGameMode();
         darkTaskbar = Desktop.DarkTaskbar;
+        RefreshStripGeometry();
         RefreshIcon();
         if (popup is { } active)
         {
@@ -565,15 +582,22 @@ internal sealed class TrayApp : IDisposable
         ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
     }
 
-    private RECT Anchor(Point? preferred) =>
-        icons.TryGetRect(clickedIconId, out var bounds) ? bounds : Desktop.TaskbarAnchor(preferred);
+    private RECT Anchor(Point? preferred)
+    {
+        if (openedFromStrip && stripWindow?.VisibleBounds is { } strip)
+            return ToRect(strip);
+        if (openedFromStrip && preferred is not null)
+            return Desktop.TaskbarAnchor(preferred);
+        return icons.TryGetRect(clickedIconId, out var bounds) ? bounds : Desktop.TaskbarAnchor(preferred);
+    }
 
     private void RefreshIcon()
     {
+        RefreshStrip();
         if (iconRetryArmed && !icons.AnyRegistered)
             return;
         // H1：不设 NIF_SHOWTIP，szTip 始终保留供读屏软件使用。
-        icons.Sync(model, darkTaskbar, suppressTooltip: false);
+        icons.Sync(model, darkTaskbar, suppressTooltip: false, defaultOnly: stripDisplay.DefaultIconOnly);
         if (hoverIconId is uint hovered && !icons.TryGetSlotKey(hovered, out _))
             DestroyHoverCard();
         if (icons.AllRegistered)
@@ -599,7 +623,8 @@ internal sealed class TrayApp : IDisposable
 
     private void ReadGameMode()
     {
-        var next = Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings);
+        HWND currentForeground = PInvoke.GetForegroundWindow();
+        var next = Desktop.GameMode(currentForeground, model.Settings);
         bool changed = next.BlockPopups != game.BlockPopups;
         bool enteredGame = next.Game && !game.Game;
         game = next;
@@ -618,8 +643,13 @@ internal sealed class TrayApp : IDisposable
                 DestroyPopup();
             }
         }
-        if (changed)
+        bool hideStrip = model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
+            (game.Game || !model.Settings.GameSilent && Desktop.IsFullscreen(currentForeground));
+        if (changed || stripFullscreen != hideStrip)
+        {
+            stripFullscreen = hideStrip;
             RefreshIcon();
+        }
     }
 
     private void ProcessWork()
@@ -1012,11 +1042,14 @@ internal sealed class TrayApp : IDisposable
 
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
+        bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
         if (remove is not null)
             model.RemoveOffline(remove);
         if (gameSettingChanged)
             SetForegroundTracking();
+        if (displayLocationChanged)
+            RefreshStripGeometry();
         if (bluetoothChanged)
         {
             if (cancellation is { } activePoll)
@@ -1052,6 +1085,7 @@ internal sealed class TrayApp : IDisposable
         if (!icons.TryGetById(iconId, out _))
             return;
         clickedIconId = iconId;
+        openedFromStrip = false;
         switch (kind)
         {
             // NOTIFYICON_VERSION_4 下一次左键单击会先后收到 WM_LBUTTONUP 和 NIN_SELECT。
@@ -1075,18 +1109,25 @@ internal sealed class TrayApp : IDisposable
     {
         if (!icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
             return;
+        var anchor = icons.TryGetRect(iconId, out var rect)
+            ? rect
+            : point is { X: -1, Y: -1 } ? Desktop.TaskbarAnchor() : RECT.FromXYWH(point.X, point.Y, 1, 1);
+        ShowHoverCard(iconId, slotKey, anchor);
+    }
+
+    private void ShowHoverCard(uint? iconId, string? slotKey, RECT anchor)
+    {
         ReadGameMode();
-        if (!HoverCardPolicy.CanShow(game, popup is not null, MenuOpen))
+        bool fromStrip = iconId is null;
+        if ((fromStrip && stripWindow?.VisibleBounds is null) ||
+            !HoverCardPolicy.CanShow(game, popup is not null, MenuOpen))
         {
             DestroyHoverCard();
             return;
         }
 
-        var anchor = icons.TryGetRect(iconId, out var rect)
-            ? rect
-            : point is { X: -1, Y: -1 } ? Desktop.TaskbarAnchor() : RECT.FromXYWH(point.X, point.Y, 1, 1);
         var now = DateTimeOffset.UtcNow;
-        var content = HoverCardBuilder.Build(model, slotKey, now);
+        var content = HoverCardBuilder.Build(model, slotKey, now, forceList: fromStrip);
         try
         {
             PInvoke.KillTimer(host, HoverCloseTimer);
@@ -1113,19 +1154,23 @@ internal sealed class TrayApp : IDisposable
 
     private void RenderHoverCard(bool reset = false)
     {
-        if (hoverCard is not { Closing: false } active || hoverIconId is not uint iconId)
+        if (hoverCard is not { Closing: false } active)
             return;
+        string? slotKey = null;
+        bool fromStrip = hoverIconId is null;
+        var strip = stripWindow?.VisibleBounds;
         if (!HoverCardPolicy.CanShow(game, popup is not null, MenuOpen) ||
-            !icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
+            (fromStrip ? strip is null : !icons.TryGetSlotKey(hoverIconId!.Value, out slotKey) || slotKey is null))
         {
             DestroyHoverCard();
             return;
         }
 
-        var anchor = icons.TryGetRect(iconId, out var rect) ? rect : hoverAnchor;
+        var anchor = strip is { } bounds && fromStrip ? ToRect(bounds)
+            : icons.TryGetRect(hoverIconId, out var rect) ? rect : hoverAnchor;
         hoverAnchor = anchor;
         var now = DateTimeOffset.UtcNow;
-        var content = HoverCardBuilder.Build(model, slotKey, now);
+        var content = HoverCardBuilder.Build(model, slotKey, now, forceList: fromStrip);
         try
         {
             active.Update(content, anchor, reset);
@@ -1138,7 +1183,7 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
-    private void CloseHoverCard(uint iconId)
+    private void CloseHoverCard(uint? iconId)
     {
         if (hoverCard is not { } active || hoverIconId != iconId)
             return;
@@ -1288,7 +1333,7 @@ internal sealed class TrayApp : IDisposable
                     return true;
                 }
                 Desktop.Log($"面板失焦关闭（msg=0x{message:X4}，前台 {category}）");
-                if (PInvoke.GetCursorPos(out var cursor) && icons.ContainsCursor(cursor))
+                if (PInvoke.GetCursorPos(out var cursor) && (icons.ContainsCursor(cursor) || stripWindow?.Contains(cursor) == true))
                     lostFocusByTray = Environment.TickCount64;
                 ClosePopup();
                 return true;
@@ -1385,7 +1430,7 @@ internal sealed class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval:
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation:
                 active.SelectSetting(target, ChangeSettings);
                 break;
             case PopupAction.GameSilent:
@@ -1551,7 +1596,7 @@ internal sealed class TrayApp : IDisposable
                 var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
                 if (kind == ForegroundKind.System && active.TryReclaimFocus())
                     return true;
-                if (PInvoke.GetCursorPos(out var cursor) && icons.ContainsCursor(cursor))
+                if (PInvoke.GetCursorPos(out var cursor) && (icons.ContainsCursor(cursor) || stripWindow?.Contains(cursor) == true))
                     lostFocusByTray = Environment.TickCount64;
                 CloseMenu();
                 return true;
@@ -1970,7 +2015,11 @@ internal sealed class TrayApp : IDisposable
             settings.GameProcessNames.Length,
             settings.StartWithWindows,
             gates.BlockedCount,
-            settings.ShowBluetoothDevices);
+            settings.ShowBluetoothDevices)
+        {
+            ActualDisplayLocation = stripDisplay.Actual,
+            DisplayLocationReason = stripDisplay.Description
+        };
         return new(
             DeviceHistories: model.DiagnosticHistories(),
             ProcessMetrics: Desktop.CollectProcessMetrics(startedAt),
@@ -2095,6 +2144,7 @@ internal sealed class TrayApp : IDisposable
         DestroyMenu();
         DestroyHoverCard();
         DestroyPopup();
+        DisposeStrip();
         icons.Dispose();
         var window = host;
         host = default;

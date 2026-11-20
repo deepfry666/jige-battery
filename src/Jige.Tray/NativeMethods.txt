@@ -24,6 +24,7 @@ GetCursorPos
 GetDesktopWindow
 GetDpiForMonitor
 GetDpiForSystem
+GetDpiForWindow
 GetForegroundWindow
 GetKeyState
 GetMessageW
@@ -42,6 +43,7 @@ IWICImagingFactory
 IsWindowVisible
 KillTimer
 LoadCursorW
+MonitorFromPoint
 MonitorFromRect
 MonitorFromWindow
 GetWindowLongW
@@ -92,3 +94,9 @@ GlobalAlloc
 GlobalLock
 GlobalUnlock
 GlobalFree
+FindWindowExW
+IsWindow
+SHAppBarMessage
+IUIAutomation2
+IUIAutomationElementArray
+IUIAutomationCacheRequest

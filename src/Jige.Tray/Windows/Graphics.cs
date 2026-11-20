@@ -250,7 +250,15 @@ internal sealed unsafe class Canvas : IDisposable
         }
     }
 
-    public void BrandIcon(float x, float y, float size)
+    public void BrandIcon(float x, float y, float size) =>
+        Bitmap(Brand.Pixels, Brand.Size, Brand.Size, x, y, size, size, D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+
+    public void PixelBitmap(ReadOnlySpan<uint> pixels, int width, int height) =>
+        Bitmap(MemoryMarshal.AsBytes(pixels), (uint)width, (uint)height, 0, 0, width, height,
+            D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+
+    private void Bitmap(ReadOnlySpan<byte> source, uint width, uint height,
+        float x, float y, float w, float h, D2D1_BITMAP_INTERPOLATION_MODE interpolation)
     {
         ID2D1Bitmap* bitmap = null;
         var format = new D2D1_BITMAP_PROPERTIES
@@ -263,14 +271,12 @@ internal sealed unsafe class Canvas : IDisposable
             dpiX = 96,
             dpiY = 96
         };
-        fixed (byte* pixels = Brand.Pixels)
-            target->CreateBitmap(new() { width = Brand.Size, height = Brand.Size },
-                pixels, Brand.Size * 4, in format, &bitmap);
+        fixed (byte* pixels = source)
+            target->CreateBitmap(new() { width = width, height = height }, pixels, width * 4, in format, &bitmap);
         try
         {
-            var bounds = Graphics.Rect(x, y, size, size);
-            target->DrawBitmap(bitmap, &bounds, 1,
-                D2D1_BITMAP_INTERPOLATION_MODE.D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, null);
+            var bounds = Graphics.Rect(x, y, w, h);
+            target->DrawBitmap(bitmap, &bounds, 1, interpolation, null);
         }
         finally
         {

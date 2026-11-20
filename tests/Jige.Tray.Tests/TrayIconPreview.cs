@@ -68,18 +68,62 @@ internal static class TrayIconPreview
         const int padding = 12;
         int step = size + padding;
         int width = icons[0].Length * step + padding, height = icons.Length * step + padding;
-        byte[] scanlines = new byte[height * (width * 3 + 1)];
-        for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++)
-            WritePixel(x, y, 0);
-
+        var sheet = new uint[width * height];
         for (int row = 0; row < icons.Length; row++)
         for (int col = 0; col < icons[row].Length; col++)
         {
             var pixels = Render(size, icons[row][col], samplesPerAxis: 8);
             for (int y = 0; y < size; y++)
-            for (int x = 0; x < size; x++)
-                WritePixel(padding + col * step + x, padding + row * step + y, pixels[y * size + x]);
+                pixels.AsSpan(y * size, size).CopyTo(sheet.AsSpan(
+                    (padding + row * step + y) * width + padding + col * step, size));
+        }
+
+        SaveRgb(path, width, height, background, sheet);
+    }
+
+    public static void SaveTaskbarStrip(string path, TaskbarStripDevice[] devices, bool dark, uint dpi)
+    {
+        int scale = TaskbarStripLayout.PixelScale(dpi);
+        var layout = TaskbarStripLayout.Build(devices);
+        int stripWidth = layout.Width * scale, stripHeight = TaskbarStripLayout.Height * scale;
+        int width = (12 + layout.Width + 32) * scale, height = 48 * scale;
+        var taskbar = new uint[width * height];
+        var strip = TaskbarStripPixels.Render(layout, dark, scale);
+        for (int y = 0; y < stripHeight; y++)
+            strip.AsSpan(y * stripWidth, stripWidth).CopyTo(taskbar.AsSpan(
+                ((height - stripHeight) / 2 + y) * width + 12 * scale, stripWidth));
+
+        // Simulated notification chevron for size and placement reference.
+        string[] arrow = ["...XX...", "..X..X..", ".X....X.", "X......X"];
+        uint ink = dark ? 0xfff3f3f3 : 0xff1b1b1b;
+        int x0 = width - 22 * scale, y0 = (height - arrow.Length * scale) / 2;
+        for (int y = 0; y < arrow.Length; y++)
+        for (int x = 0; x < arrow[y].Length; x++)
+        {
+            if (arrow[y][x] != 'X')
+                continue;
+            for (int row = 0; row < scale; row++)
+                taskbar.AsSpan((y0 + y * scale + row) * width + x0 + x * scale, scale).Fill(ink);
+        }
+        SaveRgb(path, width, height, dark ? 0x1c1f28u : 0xeeeeeeu, taskbar);
+    }
+
+    private static void SaveRgb(string path, int width, int height, uint background, uint[] pixels)
+    {
+        byte[] scanlines = new byte[height * (width * 3 + 1)];
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+        {
+            uint pixel = pixels[y * width + x];
+            int offset = y * (width * 3 + 1) + 1 + x * 3;
+            uint transparency = 255 - (pixel >> 24);
+            for (int channel = 0; channel < 3; channel++)
+            {
+                int shift = 16 - channel * 8;
+                uint foreground = (pixel >> shift) & 255;
+                uint backdrop = ((background >> shift) & 255) * transparency;
+                scanlines[offset + channel] = (byte)(foreground + (backdrop + 127) / 255);
+            }
         }
 
         using var png = File.Create(path);
@@ -95,19 +139,6 @@ internal static class TrayIconPreview
             zlib.Write(scanlines);
         WriteChunk(png, "IDAT"u8, compressed.ToArray());
         WriteChunk(png, "IEND"u8, []);
-
-        void WritePixel(int x, int y, uint pixel)
-        {
-            int offset = y * (width * 3 + 1) + 1 + x * 3;
-            uint transparency = 255 - (pixel >> 24);
-            for (int channel = 0; channel < 3; channel++)
-            {
-                int shift = 16 - channel * 8;
-                uint foreground = (pixel >> shift) & 255;
-                uint backdrop = ((background >> shift) & 255) * transparency;
-                scanlines[offset + channel] = (byte)(foreground + (backdrop + 127) / 255);
-            }
-        }
     }
 
     private static void WriteChunk(Stream png, ReadOnlySpan<byte> type, ReadOnlySpan<byte> data)

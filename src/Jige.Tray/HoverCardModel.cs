@@ -128,10 +128,10 @@ internal static class HoverCardPlacement
 /// <summary>生成两种模式下的悬停卡片视图模型（H5 / H6）。两种模式都不包含已断开的设备。</summary>
 internal static class HoverCardBuilder
 {
-    public static HoverCardContent Build(TrayModel model, string? slotKey, DateTimeOffset now)
+    public static HoverCardContent Build(TrayModel model, string? slotKey, DateTimeOffset now, bool forceList = false)
     {
         int threshold = model.Settings.LowBatteryThreshold;
-        bool isSingleDeviceSlot = model.Settings.TrayMode == TrayDisplayMode.Custom &&
+        bool isSingleDeviceSlot = !forceList && model.Settings.TrayMode == TrayDisplayMode.Custom &&
             !string.IsNullOrEmpty(slotKey) &&
             !StringComparer.OrdinalIgnoreCase.Equals(slotKey, TrayIconPlan.SingleKey);
 
@@ -144,7 +144,7 @@ internal static class HoverCardBuilder
             return BuildSingle(model, device, threshold, now);
         }
 
-        if (model.Settings.TrayMode == TrayDisplayMode.LowestBattery)
+        if (forceList || model.Settings.TrayMode == TrayDisplayMode.LowestBattery)
         {
             var active = model.OrderedDevices()
                 .Where(item => item.IsActive)
