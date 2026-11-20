@@ -77,7 +77,7 @@ public static partial class DiagnosticPrivacy
                 CopyRazerFeature(hid.ProductId, raw, request, result);
                 return result;
             case RazerHeadsetAdapter:
-                CopyRazerHeadset(raw, request, result);
+                CopyRazerHeadset(hid.ProductId, raw, request, result);
                 return result;
         }
         if (FinalmouseAdapter.IsReceiver(hid))
@@ -233,8 +233,14 @@ public static partial class DiagnosticPrivacy
         result[89] = RazerFeatureProtocol.Checksum(result);
     }
 
-    private static void CopyRazerHeadset(ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
+    private static void CopyRazerHeadset(ushort? pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
     {
+        if (pid == RazerHeadsetProtocol.BlackShark2020Pid)
+        {
+            if (RazerHeadsetProtocol.TryDecodeBlackShark2020(raw, out _, out _, out _, out _))
+                raw[..15].CopyTo(result);
+            return;
+        }
         if (!RazerHeadsetProtocol.TryMediaTek(raw, request, 0x0565, out _))
             return;
         raw[..3].CopyTo(result);

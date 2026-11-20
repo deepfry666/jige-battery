@@ -4,8 +4,9 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
     : IDeviceAdapter, IPresenceAdapter
 {
     // D4（#19）：雷蛇协议状态 0x01 表示无线事务正忙（不是被其他程序占用句柄），短暂等待后最多重试 3 次。
+    // 若回复的是合法雷蛇 90B 帧但属于其他命令（如 Synapse / 灯效软件的 0F:03），同样短暂等待后重发，最多重试 3 次。
     internal const int MaxBusyRetries = 3;
-    private readonly TimeSpan settle = settleDelay ?? TimeSpan.FromMilliseconds(60);
+    private readonly TimeSpan? settleOverride = settleDelay;
     private readonly TimeSpan retryWait = busyRetryDelay ?? TimeSpan.FromMilliseconds(80);
 
     public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
@@ -17,8 +18,10 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             Match(endpoint) is not { } model)
             return null;
         using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0 }, token);
-        var (status, _) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
+        var (status, _, foreign) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
             .ConfigureAwait(false);
+        if (foreign)
+            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Busy, ReadIssue.Busy);
         return status switch
         {
             2 => new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Online),
@@ -47,9 +50,9 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             var model = Match(endpoint)!;
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"razer-90b:{endpoint.ReceiverId}", $"Razer {model.Name}", model.Kind,
-                AdaptationSource.Catalog, tier)
+                AdaptationSource.Catalog, tier, model.Connection)
             {
-                SourceLabel = "雷蛇无线接收器"
+                SourceLabel = model.Connection == DeviceConnection.UsbCable ? "雷蛇 USB 直连" : "雷蛇无线接收器"
             }, endpoint, "0");
         }
     }
@@ -67,6 +70,9 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
         using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0 }, token);
         var battery = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, trace, token)
             .ConfigureAwait(false);
+        if (battery.Foreign)
+            return AdapterRegistry.Failure(target, ReadIssue.Busy,
+                "雷蛇 90B 通道正被其他程序（如 Synapse 或灯效软件）高频占用，回复属于其他命令");
         if (battery.Status == 4)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
                 Detail: "接收器报告无线设备未响应（07:80 状态 04）");
@@ -88,9 +94,16 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             {
                 var power = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Charging, trace, token)
                     .ConfigureAwait(false);
-                charging = power switch { (2, 0) => ChargingState.NotCharging, (2, 1) => ChargingState.Charging, _ => ChargingState.Unknown };
+                charging = power switch
+                {
+                    { Foreign: false, Status: 2, Value: 0 } => ChargingState.NotCharging,
+                    { Foreign: false, Status: 2, Value: 1 } => ChargingState.Charging,
+                    _ => ChargingState.Unknown
+                };
                 if (charging == ChargingState.Unknown)
-                    chargingDetail = $"雷蛇 07:84 未确认充电状态（状态 {power.Status:X2}，值 {power.Value:X2}）";
+                    chargingDetail = power.Foreign
+                        ? "雷蛇 07:84 通道被其他程序占用，未确认充电状态"
+                        : $"雷蛇 07:84 未确认充电状态（状态 {power.Status:X2}，值 {power.Value:X2}）";
             }
             catch (TransportException error) when (error.Issue is not ReadIssue.Disconnected)
             {
@@ -101,11 +114,13 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             LinkState.Online, DateTimeOffset.UtcNow, Detail: chargingDetail);
     }
 
-    private async ValueTask<(byte Status, byte Value)> QueryWithBusyRetryAsync(
+    private async ValueTask<(byte Status, byte Value, bool Foreign)> QueryWithBusyRetryAsync(
         IHidSession session, RazerFeatureModel model, RazerFeatureQuery query, FrameTrace? trace, CancellationToken token)
     {
         var request = RazerFeatureProtocol.Encode(model.Pid, query);
         var response = new byte[RazerFeatureProtocol.ReportLength];
+        var settle = settleOverride ?? TimeSpan.FromMilliseconds(model.SettleMs);
+        bool lastForeign = false;
         for (int attempt = 0; attempt <= MaxBusyRetries; attempt++)
         {
             if (attempt > 0 && retryWait > TimeSpan.Zero)
@@ -117,11 +132,20 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             Array.Clear(response);
             await session.ReadFeatureAsync(response, token).ConfigureAwait(false);
             trace?.Invoke(FrameDirection.Received, response);
-            if (!RazerFeatureProtocol.TryDecode(response, model, query, out byte status, out byte value))
-                return (0, 0);
-            if (status != 1)
-                return (status, value);
+            if (RazerFeatureProtocol.TryDecode(response, model, query, out byte status, out byte value))
+            {
+                lastForeign = false;
+                if (status != 1)
+                    return (status, value, false);
+                continue;
+            }
+            if (RazerFeatureProtocol.IsForeignReply(response, model, query))
+            {
+                lastForeign = true;
+                continue;
+            }
+            return (0, 0, false);
         }
-        return (1, 0);
+        return lastForeign ? ((byte)0, (byte)0, true) : ((byte)1, (byte)0, false);
     }
 }

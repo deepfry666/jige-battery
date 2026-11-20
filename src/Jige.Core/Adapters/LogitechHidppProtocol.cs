@@ -156,6 +156,7 @@ internal static class LogitechHidppProtocol
     {
         0 or 2 => DeviceKind.Keyboard,
         3 or 5 => DeviceKind.Mouse,
+        8 => DeviceKind.Headset,
         _ => DeviceKind.Other
     };
 

@@ -24,6 +24,7 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     };
 
     private static bool Matches(HidInterface hid) =>
+        !DeviceCatalog.IsDisabledPath(hid, out _) &&
         hid is { VendorId: 0x046D, InputLength: 64, OutputLength: 64, MetadataIssue: ReadIssue.None } &&
         Model(hid.ProductId) is not null && (hid.ProductId switch
         {
@@ -34,11 +35,15 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
-            yield return new(new($"logitech-headset:{endpoint.ReceiverId}", Model(endpoint.ProductId)!, DeviceKind.Headset)
+        {
+            var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
+            yield return new(new($"logitech-headset:{endpoint.ReceiverId}", Model(endpoint.ProductId)!,
+                DeviceKind.Headset, AdaptationSource.Catalog, tier)
             {
                 SourceLabel = endpoint.ProductId == 0x0B1C ? "ASTRO 底座" : "罗技无线接收器"
             },
                 endpoint, "0");
+        }
     }
 
     public async ValueTask<BatteryReading> ReadAsync(DeviceTarget target, IReceiverTransport transport,

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+
 namespace Jige.Core.Adapters;
 
 internal enum RazerHeadsetQuery : byte { Link = 0x20, Battery = 0x21, Charging = 0x2A }
@@ -5,6 +7,66 @@ internal enum RazerHeadsetQuery : byte { Link = 0x20, Battery = 0x21, Charging =
 internal static class RazerHeadsetProtocol
 {
     public const int ReportLength = 64;
+    public const ushort BlackShark2020Pid = 0x0528;
+    public const byte BlackShark2020ReportId = 0xFF;
+
+    private static ReadOnlySpan<byte> BlackShark2020RequestHeader => [0xFF, 0x0A, 0x00, 0xFD, 0x04, 0x12, 0xF1, 0x02, 0x05];
+    private static ReadOnlySpan<byte> BlackShark2020ReplyPrefix => [0xFF, 0x0F, 0x05, 0xFE, 0x12, 0x04, 0x1F, 0x08, 0x05];
+    private static ReadOnlySpan<byte> BlackShark2020StalePrefix => [0xFF, 0x01, 0x00, 0xFE, 0x12, 0x04, 0x1F, 0x08, 0x05];
+
+    /// <summary>BlackShark V2 Pro (2020) 0528 纯只读 64B Feature 查询（Report ID 0xFF）。</summary>
+    public static byte[] EncodeBlackShark2020()
+    {
+        var frame = new byte[ReportLength];
+        BlackShark2020RequestHeader.CopyTo(frame);
+        return frame;
+    }
+
+    /// <summary>
+    /// 解析 BlackShark V2 Pro (2020) 0528 64B Feature 回复：
+    /// 仅接受新鲜回复头（FF 0F 05 FE 12 04 1F 08 05）或明确无新回复的离线头（FF 01 00 FE 12 04 1F 08 05，拒绝使用过期电量）。
+    /// 来源：OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT）Windows 实机抓包。
+    /// </summary>
+    public static bool TryDecodeBlackShark2020(ReadOnlySpan<byte> frame,
+        out bool offline, out int? percentage, out ChargingState charging, out ushort millivolts)
+    {
+        offline = false;
+        percentage = null;
+        charging = ChargingState.Unknown;
+        millivolts = 0;
+        if (frame.Length != ReportLength)
+            return false;
+        if (frame.StartsWith(BlackShark2020StalePrefix))
+        {
+            offline = true;
+            return true;
+        }
+        if (!frame.StartsWith(BlackShark2020ReplyPrefix))
+            return false;
+
+        millivolts = BinaryPrimitives.ReadUInt16BigEndian(frame.Slice(12, 2));
+        if (millivolts == 0)
+        {
+            offline = true;
+            return true;
+        }
+
+        byte state = frame[11];
+        byte rawLevel = frame[14];
+        if (rawLevel > 100)
+            return false;
+
+        charging = state switch
+        {
+            0x09 => ChargingState.Charging,
+            0x06 => ChargingState.Full,
+            0x01 or 0x02 or 0x03 => ChargingState.NotCharging,
+            _ => ChargingState.Unknown
+        };
+        // 实机记录显示充电中（0x09）固件上报的百分比字节不可靠（10% 插线会立刻跳到 80%），充满（0x06）或放电时恢复正常。
+        percentage = charging == ChargingState.Charging ? null : rawLevel;
+        return true;
+    }
 
     public static byte[] EncodeMediaTek(ushort pid, RazerHeadsetQuery query, byte sequence)
     {
