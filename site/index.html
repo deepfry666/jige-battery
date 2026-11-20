@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>几格 · Windows 外设电量显示</title>
+  <meta name="description" content="几格（Jige Battery）是一款免费开源的 Windows 托盘与任务栏工具，直接显示无线鼠标、键盘和耳机电量。无需常驻厂商驱动，低电量提醒，打游戏时不打扰。">
+  <link rel="icon" type="image/svg+xml" href="assets/fourj-mark.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">跳到正文</a>
+
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="几格首页">
+        <img class="brand-mark" src="assets/fourj-mark.svg" alt="" width="28" height="24" aria-hidden="true">
+        <span class="brand-name">几格</span>
+        <span class="brand-en">Jige Battery</span>
+      </a>
+      <nav class="site-nav" aria-label="页面导航">
+        <a href="#ui">界面</a>
+        <a href="#features">功能</a>
+        <a href="#devices">支持设备</a>
+        <a href="#changelog">最新更新</a>
+        <a href="#faq">常见问题</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="hero-eyebrow" aria-hidden="true">
+            <span class="pixel-cells">
+              <span class="cell on"></span>
+              <span class="cell on"></span>
+              <span class="cell on"></span>
+              <span class="cell on"></span>
+              <span class="cell"></span>
+            </span>
+            <span>Windows 托盘与任务栏电量工具</span>
+          </div>
+
+          <h1 class="hero-title" id="hero-title">几格</h1>
+          <p class="hero-tagline">还剩几格电，一眼就知道</p>
+          <p class="hero-lead">
+            在 Windows 任务栏直接查看无线鼠标、键盘和耳机的剩余电量。不用一直开着厂商驱动，电量低时提醒充电，打游戏时不打扰。
+          </p>
+
+          <div class="download-box">
+            <div class="download-primary">
+              <a
+                id="download-btn"
+                class="btn-download"
+                href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/Jige-Setup-0.2.10-x64.exe"
+              >
+                <svg class="btn-icon" viewBox="0 0 16 16" width="18" height="18" aria-hidden="true">
+                  <path fill="currentColor" d="M7 2h2v6h2.5L8 12 4.5 8H7V2ZM2 13h12v1.5H2V13Z"/>
+                </svg>
+                <span class="btn-label">下载几格</span>
+                <span class="btn-version" id="download-btn-meta">v0.2.10 · 5.0 MB</span>
+              </a>
+            </div>
+
+            <p class="download-meta">
+              <span id="meta-version">v0.2.10</span>
+              <span class="meta-sep" aria-hidden="true">·</span>
+              <span id="meta-size">5.0 MB</span>
+              <span class="meta-sep" aria-hidden="true">·</span>
+              <span>Windows 10 22H2 / Windows 11，64 位</span>
+            </p>
+
+            <div class="download-links">
+              <a
+                id="sha256-link"
+                class="text-link"
+                href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/SHA256SUMS.txt"
+                rel="noopener noreferrer"
+              >校验文件 SHA256SUMS.txt</a>
+              <a
+                id="github-fallback-link"
+                class="text-link link-fallback"
+                href="https://github.com/deepfry666/jige-battery/releases/latest"
+                target="_blank"
+                rel="noopener noreferrer"
+                hidden
+              >从 GitHub 下载</a>
+              <span class="link-divider" aria-hidden="true"></span>
+              <a
+                class="text-link"
+                href="https://github.com/deepfry666/jige-battery"
+                target="_blank"
+                rel="noopener noreferrer"
+              >GitHub 仓库</a>
+              <a
+                class="text-link"
+                href="https://github.com/deepfry666/jige-battery/releases"
+                target="_blank"
+                rel="noopener noreferrer"
+              >全部版本</a>
+            </div>
+          </div>
+        </div>
+
+        <aside class="hero-specimen hero-panel" aria-label="几格主面板">
+          <img
+            class="ui-img"
+            src="assets/ui-panel.png"
+            width="363"
+            height="601"
+            alt="几格主面板：顶部大卡片显示电量最低的 ATK 鼠标 12%，下面按电量从低到高列出 MX Anywhere 3S、INZONE H9、Finalmouse ULX、MX Keys S 等设备，底部是任务栏托盘图标"
+          >
+          <p class="ui-caption">单击托盘图标打开的主面板。电量最低的设备排在最上面。</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section" id="ui" aria-labelledby="ui-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title" id="ui-title">
+            <span class="title-mark" aria-hidden="true"></span>
+            界面
+          </h2>
+          <p class="section-desc">
+            以下来自几格的界面原型，应用按它绘制。设备名和电量是演示数据。
+          </p>
+        </div>
+
+        <figure class="ui-figure">
+          <img
+            class="ui-img"
+            src="assets/ui-hover-cards.png"
+            width="794"
+            height="340"
+            alt="三种悬停卡片：单台设备卡片显示 MX Anywhere 3S 20% 和 10 格电量条；列表卡片按电量从低到高列出 6 台设备；设备超过 6 台时底部显示「还有 3 台」"
+          >
+          <figcaption class="ui-caption">悬停卡片：鼠标停在托盘图标上弹出。左边是单台设备，中间和右边是按电量排序的设备列表。</figcaption>
+        </figure>
+
+        <figure class="ui-figure">
+          <img
+            class="ui-img"
+            src="assets/ui-tray-icons.png"
+            width="1103"
+            height="256"
+            alt="托盘图标的各种状态：鼠标电量偏低为黄色、键盘正常为白色、耳机充电中为绿色、电量过低为红色、已充满为绿色、等待读取为灰色，以及没有设备时的几格默认图标"
+          >
+          <figcaption class="ui-caption">托盘图标：颜色从底部往上填，填得越高电量越多。黄色偏低、红色过低、绿色充电中，灰色表示还没读到电量。</figcaption>
+        </figure>
+
+        <figure class="ui-figure ui-figure-real">
+          <div class="real-shot-stage">
+            <img
+              class="real-shot-img"
+              src="assets/real-tray-win10.png"
+              width="288"
+              height="156"
+              alt="Windows 10 任务栏右下角的几格托盘图标实机截图：键盘图标基本填满白色，鼠标图标底部一小段为黄色"
+            >
+          </div>
+          <figcaption class="ui-caption">实机截图（Windows 10，100% 缩放，按原始像素放大 4 倍）：键盘电量充足，鼠标偏低显示为黄色。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title" id="features-title">
+            <span class="title-mark" aria-hidden="true"></span>
+            主要功能
+          </h2>
+          <p class="section-desc">
+            日常只管看电量，其他时候安静待在角落。
+          </p>
+        </div>
+
+        <div class="feature-grid">
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <rect x="2" y="6" width="16" height="8" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <rect x="4.5" y="8.5" width="3" height="3" fill="currentColor"/>
+                <rect x="9" y="8.5" width="2" height="3" fill="currentColor"/>
+                <rect x="12.5" y="8.5" width="3" height="3" fill="currentColor"/>
+              </svg>
+            </div>
+            <h3>任务栏直读条（Windows 11）</h3>
+            <p>在通知区左侧直接横排显示设备图标和电量百分比，字高与时钟一致。低电量变红，充电时变绿带闪电；全屏或任务栏自动隐藏时跟着收起。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <rect x="6" y="3" width="8" height="14" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <rect x="7.5" y="10" width="5" height="5.5" rx="1.5" fill="currentColor"/>
+                <rect x="9.3" y="5" width="1.4" height="3" fill="currentColor"/>
+              </svg>
+            </div>
+            <h3>托盘水位图标</h3>
+            <p>在 Windows 10 上、任务栏空间不够，或你在设置里手动切换时，改用设备剪影显示电量。剩余电量越多，颜色从底部填得越高，未填部分为灰色。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <rect x="3" y="3" width="14" height="10" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <rect x="5.5" y="6" width="5" height="1.6" fill="currentColor"/>
+                <rect x="5.5" y="9" width="9" height="1.6" fill="currentColor"/>
+                <rect x="7" y="15.5" width="6" height="1.6" fill="currentColor"/>
+              </svg>
+            </div>
+            <h3>悬停卡片与面板</h3>
+            <p>鼠标移到图标上弹出悬停卡片，显示设备名称、连接方式和读取时间。点一下打开主面板，电量最低的设备排在最上面，改名、筛选和设置都在里面完成。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <path fill="none" stroke="currentColor" stroke-width="1.6" d="M10 3.5a4.5 4.5 0 0 1 4.5 4.5v3.5L16 14H4l1.5-2.5V8A4.5 4.5 0 0 1 10 3.5Z"/>
+                <rect x="8.5" y="15.5" width="3" height="1.6" fill="currentColor"/>
+              </svg>
+            </div>
+            <h3>低电量提醒</h3>
+            <p>设备在线、未充电且连续两次查询不高于提醒阈值（10%～30%）时提醒充电。可以点「知道了」或「1 小时后提醒」，只在桌面出现。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <rect x="2.5" y="5.5" width="15" height="9" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+                <path fill="currentColor" d="M6.5 8h1.5v1.5H9.5V11H8v1.5H6.5V11H5V9.5h1.5V8Zm6 1h1.6v1.6h-1.6V9Zm2 1.6h1.6v1.6h-1.6v-1.6Z"/>
+              </svg>
+            </div>
+            <h3>不打扰游戏</h3>
+            <p>全屏或演示模式下查询间隔延长到 5 分钟并推迟提醒；开启「游戏中不打扰」后，无边框全屏和指定游戏进程也同样静默。你主动操作时照常响应。</p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <path fill="none" stroke="currentColor" stroke-width="1.6" d="M10 2.8 16 5.2v4.6c0 3.7-2.5 6.3-6 7.4-3.5-1.1-6-3.7-6-7.4V5.2l6-2.4Z"/>
+                <path fill="none" stroke="currentColor" stroke-width="1.6" d="m7.3 10.2 1.9 1.9 3.6-3.8"/>
+              </svg>
+            </div>
+            <h3>只读与隐私</h3>
+            <p>只发白名单里的电量与状态查询，不修改设备参数，也不记录键鼠输入。诊断报告只在你主动导出时生成并留在本地，先用记事本打开给你核对。</p>
+          </article>
+
+          <article class="feature-card feature-card-wide">
+            <div class="feature-icon" aria-hidden="true">
+              <svg viewBox="0 0 20 20" width="20" height="20">
+                <path fill="none" stroke="currentColor" stroke-width="1.6" d="M15.5 9.5a5.5 5.5 0 1 1-1.6-3.9L16 7.5"/>
+                <path fill="none" stroke="currentColor" stroke-width="1.6" d="M16 3.5v4h-4"/>
+              </svg>
+            </div>
+            <div>
+              <h3>手动检查更新（国内镜像优先）</h3>
+              <p>平时不在后台联网，也不会弹窗催更。只有你点「检查更新」时才会查新版本：默认优先走国内镜像，失败自动改用 GitHub，核对大小和 SHA-256 后原地升级并保留设置。</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="devices" aria-labelledby="devices-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title" id="devices-title">
+            <span class="title-mark" aria-hidden="true"></span>
+            支持的设备
+          </h2>
+          <p class="section-desc">
+            多数设备经 2.4 GHz USB 接收器读取，也支持 Windows 蓝牙电量。「已实机验证」表示已在真机确认；「仅按资料」表示按公开协议实现，欢迎反馈。
+          </p>
+        </div>
+
+        <div class="device-grid">
+          <article class="device-card is-verified">
+            <div class="device-head">
+              <h3>Sony INZONE H9</h3>
+              <span class="badge badge-verified">已实机验证</span>
+            </div>
+            <p class="device-highlight">INZONE H9 一代（Windows 11 实机确认）</p>
+            <p class="device-detail">使用 PC 档 USB 接收器读取；检测到 INZONE Hub 运行时会自动退让，不抢占设备。</p>
+          </article>
+
+          <article class="device-card is-verified">
+            <div class="device-head">
+              <h3>游狼 G-Wolves</h3>
+              <span class="badge badge-verified">已实机验证</span>
+            </div>
+            <p class="device-highlight">HTX Ultra 8K（Windows 11 实机确认）</p>
+            <p class="device-detail">按官方型号表同步覆盖同家族（Fenrir Pro 8K、HTM Plus、HSK Pro 2.0 8K，同家族推定）及 21 款旧协议型号。</p>
+          </article>
+
+          <article class="device-card">
+            <div class="device-head">
+              <h3>Finalmouse ULX</h3>
+              <span class="badge badge-spec">仅按资料</span>
+            </div>
+            <p class="device-detail">支持 UltralightX（ULX）2.4 GHz 接收器，以及同家族接收器通用识别。</p>
+          </article>
+
+          <article class="device-card">
+            <div class="device-head">
+              <h3>ATK</h3>
+              <span class="badge badge-spec">仅按资料</span>
+            </div>
+            <p class="device-detail">支持 F1 Ultimate、ATK ZERO 及多款共用接收器，也支持同家族未收录接收器通用识别。</p>
+          </article>
+
+          <article class="device-card">
+            <div class="device-head">
+              <h3>罗技 Logitech</h3>
+              <span class="badge badge-spec">仅按资料</span>
+            </div>
+            <p class="device-detail">支持 Bolt、Unifying、Nano、LIGHTSPEED 接收器与部分 USB / 蓝牙鼠键，以及 G533、G535、G733、G935、G PRO X Wireless / 2、ASTRO A50 Gen 5 等耳机。MX Keys S、MX Anywhere 3S 已通过 Bolt 在 Windows 10 日常使用。</p>
+          </article>
+
+          <article class="device-card">
+            <div class="device-head">
+              <h3>雷蛇 Razer</h3>
+              <span class="badge badge-spec">仅按资料</span>
+            </div>
+            <p class="device-detail">覆盖 72 款鼠标与 15 款键盘（含普通接收器、HyperPolling 接收器与 USB-C 充电模式），以及 BlackShark V2 Pro (2020) 与 V2 HyperSpeed 耳机。</p>
+          </article>
+
+          <article class="device-card device-card-wide">
+            <div class="device-head">
+              <h3>蓝牙设备</h3>
+              <span class="badge badge-spec">仅按资料</span>
+            </div>
+            <p class="device-detail">直接读取 Windows 提供电量的各品牌蓝牙鼠标、键盘和耳机。可在设置里关闭显示，同一台罗技蓝牙设备会自动合并，不会重复出现。</p>
+          </article>
+        </div>
+
+        <div class="section-footer">
+          <a
+            class="link-pill"
+            href="https://github.com/deepfry666/jige-battery/blob/main/docs/devices.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            查看完整设备清单
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="changelog" aria-labelledby="changelog-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title" id="changelog-title">
+            <span class="title-mark" aria-hidden="true"></span>
+            最新更新
+            <span class="version-chip" id="changelog-version">v0.2.10</span>
+          </h2>
+          <p class="section-desc" id="changelog-note">
+            当前正式版更新内容。
+          </p>
+        </div>
+
+        <div class="changelog-card">
+          <ul class="changelog-list" id="changelog-list">
+            <li>新增任务栏直读条，默认在通知区左侧直接显示设备图标和电量百分比。电量过低时图标和数字变红，充电时数字变绿并显示闪电。空间不足时自动使用托盘图标，也可在「设置 → 显示位置」随时切换。</li>
+            <li>修复：0.2.9 的托盘图标在任务栏上，没填色的部分几乎看不见，鼠标、键盘的轮廓和剩余电量都难以分辨。现在未填部分会清楚显示为灰色。0.2.6 起电量条底槽偏淡也是同一原因，一并修好。</li>
+            <li>修复：鼠标在多个设备的托盘图标之间移动时，悬停卡片会先变灰变淡再重新出现，切换也有明显停顿。现在卡片原地切换到新设备的内容，不再闪烁，也不会每次重新创建窗口。</li>
+          </ul>
+        </div>
+
+        <div class="section-footer">
+          <a
+            class="link-pill"
+            href="https://github.com/deepfry666/jige-battery/blob/main/CHANGELOG.md"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            查看完整更新记录
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="container">
+        <div class="section-head">
+          <h2 class="section-title" id="faq-title">
+            <span class="title-mark" aria-hidden="true"></span>
+            常见问题
+          </h2>
+        </div>
+
+        <div class="faq-list">
+          <details class="faq-item" open>
+            <summary>Windows 提示「Windows 已保护你的电脑」怎么办？</summary>
+            <div class="faq-body">
+              <p>安装包暂未做代码签名，首次运行时系统可能会拦截提示。点弹窗里的「更多信息」，再点「仍要运行」即可继续安装。</p>
+              <p>如果不放心，可以先下载页首的 <code>SHA256SUMS.txt</code>，在 PowerShell 里核对安装包散列值是否一致。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>为什么 Windows 10 上没有任务栏直读条？</summary>
+            <div class="faq-body">
+              <p>Windows 10 的任务栏结构与 Windows 11 不同，几格在 Windows 10 上会自动改用托盘水位图标显示电量，悬停卡片、主面板和低电量提醒都可以正常使用。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>要不要开着厂商驱动？</summary>
+            <div class="faq-body">
+              <p>不用。几格适合在厂商软件里把设备调好以后、平时关闭官方驱动的用户。官方软件运行时可能会抢占接收器；遇到占用时，几格会自动退让并保留上次读数。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>会不会上传数据？</summary>
+            <div class="faq-body">
+              <p>不会。几格平时不联网，只在你主动点「检查更新」时获取新版本信息。诊断报告也只在你主动导出时生成，保存在本机并先用记事本打开给你检查，不含序列号、电脑名、用户名或键鼠输入。</p>
+            </div>
+          </details>
+
+          <details class="faq-item">
+            <summary>之后有新版本怎么升级？</summary>
+            <div class="faq-body">
+              <p>装好之后不用再回官网手动下载。在几格里点「检查更新」，程序会自动核对文件大小和 SHA-256 校验值，通过后静默升级并重启，设置和设备记录都会保留。</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img class="footer-mark" src="assets/fourj-mark.svg" alt="FourJ 标志" width="28" height="24">
+        <div>
+          <p class="footer-title">几格 / Jige Battery</p>
+          <p class="footer-disclaimer">几格与各设备厂商无关联，也未获厂商授权。</p>
+        </div>
+      </div>
+
+      <nav class="footer-links" aria-label="页脚链接">
+        <a href="https://github.com/deepfry666/jige-battery/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT 许可证</a>
+        <a href="https://github.com/deepfry666/jige-battery" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">隐私说明</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
