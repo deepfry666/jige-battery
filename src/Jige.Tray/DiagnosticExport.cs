@@ -11,8 +11,10 @@ internal sealed class DiagnosticExport(string path)
     private Task<bool>? work;
     public DiagnosticStatus Status { get; private set; }
     public bool PreviewPending { get; private set; }
-    public bool HasReport => Status is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed
-        or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
+    public static bool HasReportStatus(DiagnosticStatus status) => status is DiagnosticStatus.Ready
+        or DiagnosticStatus.EditorFailed or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
+
+    public bool HasReport => HasReportStatus(Status);
 
     public bool Start(Func<Task<bool>> generate)
     {

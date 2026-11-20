@@ -14,6 +14,9 @@ internal static class PanelLayout
     public const int Width = 344;
     public const int NoticeHeight = 144;
     public const int MainRowHeight = 48;
+    public const int FooterHeight = 42;
+    public const int DiagnosticFooterHeight = 68;
+    public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
     public const int SettingsHeight = 411;
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
@@ -26,12 +29,13 @@ internal static class PanelLayout
     public const double EaseX1 = .1, EaseY1 = .9, EaseX2 = .2, EaseY2 = 1;
     public static readonly PanelRect Back = new(9, 11, 32, 32);
 
-    public static PanelSize Size(PanelPage page, int count, int availableHeight)
+    public static PanelSize Size(PanelPage page, int count, int availableHeight, bool diagnosticFooter = false)
     {
+        int footerExtra = diagnosticFooter ? DiagnosticFooterExtraHeight : 0;
         switch (page)
         {
             case PanelPage.Notice or PanelPage.Welcome: return new(NoticeHeight, 0);
-            case PanelPage.Settings: return new(SettingsHeight, 0);
+            case PanelPage.Settings: return new(SettingsHeight + footerExtra, 0);
             case PanelPage.Updates:
                 int target = count > 0 ? UpdatesAvailableHeight : UpdatesCompactHeight;
                 return new(Math.Min(Math.Max(UpdatesCompactHeight, availableHeight), target), 0);
@@ -40,8 +44,9 @@ internal static class PanelLayout
                 int mainRows = Math.Min(count - 1, Math.Max(0, (availableHeight - 247) / MainRowHeight));
                 return new(247 + mainRows * MainRowHeight, mainRows);
             default:
-                int deviceRows = Math.Min(count, Math.Max(0, (int)((availableHeight - DeviceBaseHeight) / DeviceRowHeight)));
-                return new((int)Math.Ceiling(DeviceBaseHeight + deviceRows * DeviceRowHeight), deviceRows);
+                int baseHeight = DeviceBaseHeight + footerExtra;
+                int deviceRows = Math.Min(count, Math.Max(0, (int)((availableHeight - baseHeight) / DeviceRowHeight)));
+                return new((int)Math.Ceiling(baseHeight + deviceRows * DeviceRowHeight), deviceRows);
         }
     }
 

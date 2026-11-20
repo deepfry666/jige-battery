@@ -4,7 +4,7 @@ namespace Jige.Tray.Windows;
 
 internal sealed partial class PopupScene
 {
-    private int DevicesFooter => height - 42;
+    private int DevicesFooter => height - (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterHeight : PanelLayout.FooterHeight);
     private const float TrayCheckX = 261, EyeX = 301;
 
     private readonly record struct ThumbMotion(float From, float To, long Started)
@@ -114,25 +114,26 @@ internal sealed partial class PopupScene
         canvas.Stroke(SettingsPanel.CardX + .5f, SettingsPanel.CardY + .5f,
             SettingsPanel.CardWidth - 1, cardHeight - 1, 6.5f, colors.LayerStroke);
 
-        float footer = layout.Height - 42;
+        float footer = layout.Height - layout.FooterHeight;
         if (HasDiagnosticReport)
         {
-            canvas.Line(1, footer + .5f, Width - 1, footer + .5f, colors.Border);
-            canvas.Text(DiagnosticExport.Label(diagnosticStatus) ?? $"几格 {ReleaseVersion.Display}",
-                17, footer + 3, 186, 17, 11.5f,
-                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed or DiagnosticStatus.FeedbackFailed
-                    ? colors.Low : colors.Muted, ellipsis: true);
-            DrawLink(canvas, new(PopupAction.CopyAndFeedback, 211, footer + 2, 116, 18), "复制报告并去反馈");
-            canvas.Text($"几格 {ReleaseVersion.Display}", 17, footer + 21, 140, 17, 11.5f, colors.Muted, ellipsis: true);
-            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 165, footer + 21, 48, 18), "查看报告");
-            DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 21, 48, 18), "诊断信息");
-            DrawLink(canvas, new(PopupAction.Updates, 279, footer + 21, 48, 18), "检查更新");
+            DrawDiagnosticReportFooter(canvas, footer,
+                DiagnosticExport.Label(diagnosticStatus) ?? "诊断已导出",
+                $"几格 {ReleaseVersion.Display}",
+                (PopupAction.Diagnostics, "诊断信息"),
+                (PopupAction.Updates, "检查更新"));
         }
         else
         {
-            DrawAbout(canvas, footer, DiagnosticExport.Label(diagnosticStatus) ?? error ?? $"几格 {ReleaseVersion.Display}");
-            DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 10, 48, 20), "诊断信息");
-            DrawLink(canvas, new(PopupAction.Updates, 279, footer + 10, 48, 20), "检查更新");
+            canvas.Line(1, footer + .5f, Width - 1, footer + .5f, colors.Border);
+            float linksLeft = DrawLinksRight(canvas, Width - 17, footer + 11, 20, 14,
+                (PopupAction.Diagnostics, "诊断信息"),
+                (PopupAction.Updates, "检查更新"));
+            string about = DiagnosticExport.Label(diagnosticStatus) ?? error ?? $"几格 {ReleaseVersion.Display}";
+            bool isError = diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed
+                or DiagnosticStatus.FeedbackFailed || error is not null;
+            canvas.Text(about, 17, footer + 11, MathF.Max(40, linksLeft - 29), 20, 12,
+                isError ? colors.Low : colors.Muted, ellipsis: true);
         }
     }
 
@@ -362,32 +363,32 @@ internal sealed partial class PopupScene
         string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
         if (HasDiagnosticReport)
         {
-            canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
-            canvas.Text(feedback ?? "诊断已导出", 17, DevicesFooter + 3, 186, 17, 11.5f,
-                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed or DiagnosticStatus.FeedbackFailed
-                    ? colors.Low : colors.Muted, ellipsis: true);
-            DrawLink(canvas, new(PopupAction.CopyAndFeedback, 211, DevicesFooter + 2, 116, 18), "复制报告并去反馈");
-            canvas.Text(unidentified, 17, DevicesFooter + 21, 120, 17, 11.5f, colors.Muted, ellipsis: true);
-            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 143, DevicesFooter + 21, 48, 18), "查看报告");
-            DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 21, 48, 18), "重新检测");
-            DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 21, 72, 18), "导出诊断信息");
+            DrawDiagnosticReportFooter(canvas, DevicesFooter,
+                feedback ?? "诊断已导出",
+                unidentified,
+                (PopupAction.Redetect, "重新检测"),
+                (PopupAction.Diagnostics, "导出诊断信息"));
         }
         else
         {
-            const float footerWidth = 172;
+            canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
+            float linksLeft = DrawLinksRight(canvas, Width - 17, DevicesFooter + 11, 20, 14,
+                (PopupAction.Redetect, "重新检测"),
+                (PopupAction.Diagnostics, "导出诊断信息"));
+            float labelWidth = MathF.Max(40, linksLeft - 29);
             if (model.UnknownReceivers > 0 && feedback is not null)
             {
-                canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
-                canvas.Text(unidentified, 17, DevicesFooter + 3, footerWidth, 18, 12, colors.Muted, ellipsis: true);
-                canvas.Text(feedback, 17, DevicesFooter + 21, footerWidth, 17, 11,
+                canvas.Text(unidentified, 17, DevicesFooter + 3, labelWidth, 18, 12, colors.Muted, ellipsis: true);
+                canvas.Text(feedback, 17, DevicesFooter + 21, labelWidth, 17, 11,
                     diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed ? colors.Low : colors.Muted,
                     ellipsis: true);
             }
             else
-                DrawAbout(canvas, DevicesFooter, feedback ?? unidentified, footerWidth);
-
-            DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 9, 48, 20), "重新检测");
-            DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 9, 72, 20), "导出诊断信息");
+            {
+                bool isError = diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed || error is not null;
+                canvas.Text(feedback ?? unidentified, 17, DevicesFooter + 11, labelWidth, 20, 12,
+                    isError ? colors.Low : colors.Muted, ellipsis: true);
+            }
         }
     }
 
@@ -475,10 +476,49 @@ internal sealed partial class PopupScene
             canvas.Ring(x, y, 2, ink, 1.3f);
     }
 
-    private void DrawAbout(Canvas canvas, float y, string label, float width = 190)
+    private void DrawDiagnosticReportFooter(Canvas canvas, float footer, string reportLabel, string bottomLabel,
+        params ReadOnlySpan<(PopupAction Action, string Label)> bottomLinks)
     {
-        canvas.Line(1, y + .5f, Width - 1, y + .5f, colors.Border);
-        canvas.Text(label, 17, y + 10, width, 18, 12, error is null ? colors.Muted : colors.Low, ellipsis: true);
+        const float right = Width - 17;
+        const float rowHeight = 20;
+        canvas.Line(1, footer + .5f, Width - 1, footer + .5f, colors.Border);
+
+        float row1Y = footer + 10;
+        float row1LinksLeft = DrawLinksRight(canvas, right, row1Y, rowHeight, 12,
+            (PopupAction.OpenDiagnostics, "查看报告"),
+            (PopupAction.CopyAndFeedback, "复制报告并去反馈"));
+        bool reportError = diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed
+            or DiagnosticStatus.FeedbackFailed;
+        canvas.Text(reportLabel, 17, row1Y, MathF.Max(40, row1LinksLeft - 25), rowHeight, 11.5f,
+            reportError ? colors.Low : colors.Muted, ellipsis: true);
+
+        float row2Y = footer + 38;
+        float row2LinksLeft = DrawLinksRight(canvas, right, row2Y, rowHeight, 14, bottomLinks);
+        canvas.Text(bottomLabel, 17, row2Y, MathF.Max(40, row2LinksLeft - 29), rowHeight, 12,
+            colors.Muted, ellipsis: true);
+    }
+
+    private float DrawLinksRight(Canvas canvas, float right, float y, float rowHeight, float gap,
+        params ReadOnlySpan<(PopupAction Action, string Label)> links)
+    {
+        Span<float> widths = stackalloc float[links.Length];
+        float total = 0;
+        for (int i = 0; i < links.Length; i++)
+        {
+            widths[i] = MathF.Ceiling(canvas.Measure(links[i].Label, 12)) + 2;
+            total += widths[i];
+        }
+        if (links.Length > 1)
+            total += gap * (links.Length - 1);
+
+        float start = right - total;
+        float x = start;
+        for (int i = 0; i < links.Length; i++)
+        {
+            DrawLink(canvas, new(links[i].Action, x, y, widths[i], rowHeight), links[i].Label);
+            x += widths[i] + gap;
+        }
+        return start;
     }
 
     private void DrawLink(Canvas canvas, HitBox box, string label)
@@ -488,7 +528,7 @@ internal sealed partial class PopupScene
             ButtonBackground(canvas, box);
         canvas.Text(label, box.X, box.Y, box.Width, box.Height, 12, colors.Accent);
         if (hover == box.Target)
-            canvas.Line(box.X, box.Y + 17, box.X + box.Width, box.Y + 17, colors.Accent);
+            canvas.Line(box.X, box.Y + box.Height - 2.5f, box.X + box.Width, box.Y + box.Height - 2.5f, colors.Accent);
     }
 
     private void DrawUpdatesPage(Canvas canvas)
