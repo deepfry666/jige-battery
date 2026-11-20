@@ -119,7 +119,7 @@ public sealed class DomesticMouseTests
             new(DiagnosticOperation.SetFeature, request),
             new(DiagnosticOperation.GetFeature, reply, Argument: id)
         ]));
-        var registry = AdapterRegistry.CreateDefault();
+        var registry = new AdapterRegistry(new MchoseMouseAdapter(null, TimeSpan.Zero));
         var device = Detect(registry, hid, hid with { Path = "sibling", UsagePage = 0xFF0B, Usage = 0x0104 });
         Assert.IsType<MchoseMouseAdapter>(device.Adapter);
         if (pid == 0x1020)
@@ -252,7 +252,7 @@ public sealed class DomesticMouseTests
                 new(DiagnosticOperation.GetFeature, request, Argument: 0x11)
             })
         ]));
-        var registry = AdapterRegistry.CreateDefault();
+        var registry = new AdapterRegistry(new MchoseMouseAdapter(null, TimeSpan.Zero));
         var reading = await registry.ReadAsync(Detect(registry, hid), transport, null, CancellationToken.None);
         Assert.Equal(LinkState.Asleep, reading.Link);
         Assert.Null(reading.Percentage);
