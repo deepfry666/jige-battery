@@ -78,7 +78,10 @@ internal static class LogitechHidppProtocol
     public static byte? Error(byte[]? report) =>
         report is { Length: >= 7 } && report[2] is 0x8F or 0xFF ? report[5] : null;
 
-    public static bool IsUnreachable(byte[]? report) => Error(report) is 0x04 or 0x09;
+    public static byte? LegacyError(byte[]? report) =>
+        report is { Length: >= 7 } && report[2] == 0x8F ? report[5] : null;
+
+    public static bool IsUnreachable(byte[]? report) => LegacyError(report) is 0x04 or 0x09;
 
     public static bool IsPing(ReadOnlySpan<byte> request) => request[2] == 0 && request[3] == 0x1A;
 
@@ -105,8 +108,8 @@ internal static class LogitechHidppProtocol
         if (register != 0x07)
             return false;
         percentage = reply[4] switch { 7 => 100, 5 => 50, 3 => 20, 1 => 5, _ => -1 };
-        charging = (reply[5] & 0x22) == 0x22 ? ChargingState.Full :
-            (reply[5] & 0x21) == 0x21 ? ChargingState.Charging :
+        charging = (reply[5] & 0x21) == 0x21 ? ChargingState.Charging :
+            (reply[5] & 0x22) == 0x22 ? ChargingState.Full :
             reply[5] == 0 ? ChargingState.NotCharging : ChargingState.Unknown;
         return percentage >= 0;
     }

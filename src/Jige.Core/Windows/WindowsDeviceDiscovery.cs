@@ -48,9 +48,9 @@ public static partial class WindowsDeviceDiscovery
         {
             var nodeId = ReadInstanceId(node.DevInst);
             var vid = ReadHexTag(path, "VID_", 4) ?? ReadHexTag(nodeId, "VID_", 4) ??
-                ReadHexTag(path, "VID&0002", 4) ?? ReadHexTag(nodeId, "VID&0002", 4);
+                BluetoothHidPath.UsbVendorId(path) ?? BluetoothHidPath.UsbVendorId(nodeId);
             var pid = ReadHexTag(path, "PID_", 4) ?? ReadHexTag(nodeId, "PID_", 4) ??
-                ReadHexTag(path, "PID&", 4) ?? ReadHexTag(nodeId, "PID&", 4);
+                BluetoothHidPath.ProductId(path) ?? BluetoothHidPath.ProductId(nodeId);
             bool known = inspectHid is null || inspectHid(vid, pid);
             if ((known || includeUnknownHid) &&
                 InspectHid(set, node, path, nodeId, vid, pid, known, token) is { } endpoint)
@@ -179,8 +179,9 @@ public static partial class WindowsDeviceDiscovery
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,
                 caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber)
             {
-                BluetoothAddress = vid == 0x046D && (path.Contains("VID&0002046D", StringComparison.OrdinalIgnoreCase) ||
-                    caps is { UsagePage: 0xFF43, Usage: 0x0202 }) ? FindBluetoothAddress(node.DevInst) : null
+                BluetoothHid = BluetoothHidPath.UsbVendorId(path).HasValue || BluetoothHidPath.UsbVendorId(nodeId).HasValue,
+                BluetoothAddress = vid == 0x046D && caps is { UsagePage: 0xFF43, Usage: 0x0202 }
+                    ? FindBluetoothAddress(node.DevInst) : null
             };
         }
         catch (TransportException error)

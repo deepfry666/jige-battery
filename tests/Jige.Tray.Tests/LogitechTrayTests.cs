@@ -90,6 +90,51 @@ public sealed class LogitechTrayTests
     }
 
     [Fact]
+    public void BluetoothPropertyFallbackAndHidPushReuseTheSavedIdentity()
+    {
+        var hid = Mouse with
+        {
+            Id = "bluetooth:container",
+            BluetoothContainerKey = "bluetooth:container",
+            NameFromHidpp = true
+        };
+        var merged = hid with { Id = "bluetooth:address" };
+        var first = new TrayModel(new(), new());
+        first.ApplyPoll([Reading(merged, 50), Reading(Keyboard, 83)], false, Now);
+
+        var temp = Directory.CreateTempSubdirectory();
+        try
+        {
+            var files = new TrayFiles(temp.FullName);
+            Assert.True(files.SaveState(first.Snapshot()));
+            var model = new TrayModel(new(), files.LoadState());
+            var property = merged with { Name = "Windows alias", Kind = DeviceKind.Other, NameFromHidpp = false };
+            model.ApplyPoll([Reading(property, 51), Reading(Keyboard, 83)], false, Now.AddSeconds(1));
+            var fallback = Assert.Single(model.TrayDevices(), item => item.Device.Id == merged.Id);
+            Assert.Equal(hid.Name, fallback.Device.Name);
+            Assert.Equal(DeviceKind.Mouse, fallback.Device.Kind);
+            Assert.Equal(51, fallback.Percentage);
+
+            var at = Now.AddSeconds(2);
+            var push = new PresenceUpdate("container", null, hid.Id, LinkState.Online)
+            {
+                Battery = Reading(hid, 62) with { ReadAt = at }
+            };
+            Assert.Equal((true, false), model.ApplyPresence([push], at));
+            Assert.Equal(2, model.TrayDevices().Length);
+            var mouse = Assert.Single(model.TrayDevices(), item => item.Device.Id == merged.Id);
+            Assert.Equal(hid.Name, mouse.Device.Name);
+            Assert.Equal(DeviceKind.Mouse, mouse.Device.Kind);
+            Assert.Equal(62, mouse.Percentage);
+            Assert.Equal(83, Assert.Single(model.TrayDevices(), item => item.Device == Keyboard).Percentage);
+        }
+        finally
+        {
+            temp.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void BatteryPushRefreshesOnlyTheTargetAndDoesNotRequestAnotherPoll()
     {
         var model = new TrayModel(new(), new());

@@ -4,7 +4,7 @@
 
 | 项目 | 结果与依据 |
 | --- | --- |
-| G1 构建与测试 | 在 macOS ARM64 使用 .NET 10 构建。 `dotnet build Jige.slnx -p:EnableWindowsTargeting=true` 零警告、零错误。 `dotnet test Jige.slnx` 通过 260 项，核心和托盘各 130 项。 |
+| G1 构建与测试 | 在 macOS ARM64 使用 .NET 10 构建。 `dotnet build Jige.slnx -p:EnableWindowsTargeting=true` 零警告、零错误。 `dotnet test Jige.slnx` 通过 272 项，核心 141 项、托盘 131 项。 |
 | G2 入口与托盘 | [Program.cs](../src/Jige.Tray/Program.cs) 保留 STA 入口和 `--check` 分支。[Composition.cs](../src/Jige.Tray/Windows/Composition.cs) 的 `AddVisual` 保留 `false, null` 参数，[TrayIconManager.cs](../src/Jige.Tray/Windows/TrayIconManager.cs) 继续用 `TrayIconPlan.StableId` 推导 uID。Windows 原生 `--check` 和托盘启动待实机。 |
 | G3 只读 | [LogitechHidppProtocol.cs](../src/Jige.Core/Adapters/LogitechHidppProtocol.cs) 限制 Root、功能读取和 `81` 寄存器读。回放测试覆盖对 `80/82/83`、设置函数和未知功能的拒绝。原有 Centurion 和 ASTRO 固定查询保持其专用白名单。 |
 | G4 网络与隐私 | 蓝牙属性使用本机 SetupAPI。既有更新入口继续由用户发起，新增代码无网络调用。名称、地址和日志处理见 [隐私说明](../PRIVACY.md)。 |
@@ -20,13 +20,17 @@
 | L1 接收器 | 厂商集合和 PID 匹配 Bolt、Unifying、Nano、LIGHTSPEED。名称匹配的未知接收器先 Ping 经安全门，随后和已知接收器一样逐槽查 1–6。未回包又无历史记录的槽不会生成设备。见 [DeviceCatalog.cs](../src/Jige.Core/DeviceCatalog.cs)、[LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)。 |
 | L2 HID++ 1.0 | Ping 明确报 `01` 才使用短集合读 `0D/07`。档位读数带 `≈`，2.0 设备不走寄存器后备。完整 B5 配对表在参考实现中需要 `83`，超出本版白名单，因此不再主动读表。见 [LogitechHidppProtocol.cs](../src/Jige.Core/Adapters/LogitechHidppProtocol.cs)。 |
 | L3 线缆 | 同一设备 PID 的一对长短 HID++ 集合按 `FF` 读取。识别到同一 Unit ID 摘要时，线缆电量优先，同时保留原来的托盘 ID、名称别名和历史。缺失 Unit ID 时保留各连接，避免同型号设备误合并。见 [LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)、[TrayModel.cs](../src/Jige.Tray/TrayModel.cs)。 |
-| L4 蓝牙 | `FF43:0202` 按 `FF` 读取，Windows BYTE 电量属性覆盖其他品牌。按容器或地址分别合并每台外设，采用 HID++ 电量和 `0005` 名称，缺失时使用 Windows 电量或名称。默认显示开关已接入托盘、主面板、设备管理与后台轮询。Windows 蓝牙硬件、驱动是否暴露 HID++ 和提供电量仍待实机。见 [WindowsBluetoothDiscovery.cs](../src/Jige.Core/Windows/WindowsBluetoothDiscovery.cs)、[BluetoothBattery.cs](../src/Jige.Core/BluetoothBattery.cs)、[DevicePoll.cs](../src/Jige.Tray/Windows/DevicePoll.cs)、[SettingsPanel.cs](../src/Jige.Tray/Windows/SettingsPanel.cs)。 |
+| L4 蓝牙 | `FF43:0202` 按 `FF` 读取，Windows BYTE 电量属性覆盖其他品牌。识别经典蓝牙与 BLE 的 Windows 路径，按容器或地址分别合并每台外设。采用 HID++ 电量和 `0005` 名称，缺失时使用 Windows 电量或名称。来源切换和推送复用同一设备身份。默认显示开关已接入托盘、主面板、设备管理与后台轮询。Windows 蓝牙硬件、驱动是否暴露 HID++ 和提供电量仍待实机。见 [WindowsBluetoothDiscovery.cs](../src/Jige.Core/Windows/WindowsBluetoothDiscovery.cs)、[BluetoothBattery.cs](../src/Jige.Core/BluetoothBattery.cs)、[DevicePoll.cs](../src/Jige.Tray/Windows/DevicePoll.cs)、[SettingsPanel.cs](../src/Jige.Tray/Windows/SettingsPanel.cs)。 |
 | L5 耳机 | 登记型号经 `FF43:0202` 或 G535 的 `000C:0001`，优先 `1004`，再查 `1F20` 并显示估算电量和充电状态。Centurion 专用路径保留，PRO X 3 禁用。只响应非白名单旧命令的耳机固件暂未适配。见 [LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)、[LogitechHeadsetAdapter.cs](../src/Jige.Core/Adapters/LogitechHeadsetAdapter.cs)、[DeviceCatalog.cs](../src/Jige.Core/DeviceCatalog.cs)。 |
-| L6 缓存 | 同接收器和槽位复用已发现的电量读法及设备身份。第二轮对已取得读数的设备只发电量命令。断开、重连或接收器移除后重新发现。长短集合同时接收，并取消输掉竞争的读取。见 [LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)、[回放测试](../tests/Jige.Core.Tests/LogitechBatteryTests.cs)。 |
+| L6 缓存 | 结合接收器、槽位与 Unit ID 摘要复用已发现的电量读法。没有 Unit ID 时使用已发现的设备身份。第二轮对已取得读数的设备只发电量命令。断开、重连或接收器移除后重新发现。长短集合同时接收，并取消输掉竞争的读取。见 [LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)、[回放测试](../tests/Jige.Core.Tests/LogitechBatteryTests.cs)。 |
 | L7 推送 | 被动监听 `1004/1000` 电量事件，校验已发现的地址和索引，更新对应读数，无需写入通知设置或追加电量查询。实机是否主动广播由设备状态和固件决定。见 [LogitechHidppAdapter.cs](../src/Jige.Core/Adapters/LogitechHidppAdapter.cs)、[TrayModel.cs](../src/Jige.Tray/TrayModel.cs)。 |
-| L8 在线语义 | 静默保留上次读数和颜色，`04/09`、断开推送、接收器拔出或 Windows 明确断开进入离线。休眠保持 10 分钟规则，用户新输入触发限频补查。见 [TrayModel.cs](../src/Jige.Tray/TrayModel.cs)、[DevicePoll.cs](../src/Jige.Tray/Windows/DevicePoll.cs)、[托盘模型测试](../tests/Jige.Tray.Tests/LogitechTrayTests.cs)。 |
+| L8 在线语义 | 静默保留上次读数和颜色。接收器 `8F` 错误的 `04/09`、断开推送、接收器拔出或 Windows 明确断开进入离线。HID++ 2.0 功能错误和蓝牙 HID 句柄暂时不可用可走 Windows 电量回退。休眠保持 10 分钟规则，用户新输入触发限频补查。见 [TrayModel.cs](../src/Jige.Tray/TrayModel.cs)、[DevicePoll.cs](../src/Jige.Tray/Windows/DevicePoll.cs)、[托盘模型测试](../tests/Jige.Tray.Tests/LogitechTrayTests.cs)。 |
 | L9 诊断 | `罗技\|H…` 记录连接、版本、已发现功能索引和白名单回复摘要。 `蓝牙电量来源\|B…` 记录合并后来源。报告和日志屏蔽地址、原始 Unit ID、名称中的私人内容、序列号、实例 ID 和路径。见 [DiagnosticReport.cs](../src/Jige.Core/Diagnostics/DiagnosticReport.cs)、[DiagnosticPrivacy.cs](../src/Jige.Core/Diagnostics/DiagnosticPrivacy.cs)、[回放测试](../tests/Jige.Core.Tests/LogitechV024Tests.cs)。 |
 | L10 文档 | [设备读取协议](../docs/protocols.md)、[设备支持清单](../docs/devices.md)、[README](../README.md) 和 [致谢](../docs/credits.md) 已更新。标准 HID 电量兜底留待下一版。 |
+
+## Claude 复核后修正
+
+Claude 对首个实现提交独立复核，完整编译零警告、零错误，运行了当时的 260 项测试。针对复核发现，本地回放补测了 HID++ 2.0 功能错误和忙状态、两种蓝牙路径、Win32 31/1167、Windows 设备类别、保持型号身份及按容器合并的推送。Windows 驱动如何公开集合、连接属性及休眠错误码，仍需要实机确认。
 
 ## Windows 11 实机清单
 

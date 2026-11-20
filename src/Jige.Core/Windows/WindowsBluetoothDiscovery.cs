@@ -21,6 +21,11 @@ public static partial class WindowsDeviceDiscovery
         Format = new("A45C254E-DF1C-4EFD-8020-67D146A850E0"), Id = 2
     };
 
+    private static readonly Native.PropertyKey DeviceCategory = new()
+    {
+        Format = new("78C34FC8-104A-4ACA-9EA4-524D52996E57"), Id = 90
+    };
+
     // 查询 Windows 本机缓存，不发起蓝牙扫描、不打开设备连接。
     public static Task<(IReadOnlyList<BluetoothDevice> Devices, IReadOnlyList<string> Warnings)> ScanBluetoothAsync(
         CancellationToken cancellationToken) =>
@@ -65,7 +70,8 @@ public static partial class WindowsDeviceDiscovery
                 string container = ReadReceiverId(set, node, instance, instance);
                 bool? connected = ReadByte(set, node, IsConnected, 0x11) switch { 0 => false, 0xFF => true, _ => null };
                 var name = ReadDeviceString(set, node, FriendlyName) ?? ReadDeviceString(set, node, DeviceDescription);
-                nodes.Add(new(container, name ?? "", DeviceKind.Other, connected, level)
+                var category = ReadDeviceString(set, node, DeviceCategory, allowList: true);
+                nodes.Add(new(container, name ?? "", BluetoothBattery.KindFromCategory(category), connected, level)
                 {
                     Address = address ?? FindBluetoothAddress(node.DevInst),
                     MainNode = address.HasValue
@@ -98,6 +104,7 @@ public static partial class WindowsDeviceDiscovery
         {
             Name = ordered.FirstOrDefault(node => !string.IsNullOrWhiteSpace(node.Name))?.Name ?? "蓝牙设备",
             Address = ordered.FirstOrDefault(node => node.Address.HasValue)?.Address,
+            Kind = ordered.FirstOrDefault(node => node.Kind != DeviceKind.Other)?.Kind ?? DeviceKind.Other,
             Connected = connected,
             Percentage = level
         };
@@ -114,11 +121,12 @@ public static partial class WindowsDeviceDiscovery
             type == expectedType && size == 1 ? value : null;
     }
 
-    private static unsafe string? ReadDeviceString(nint set, Native.DeviceData node, Native.PropertyKey key)
+    private static unsafe string? ReadDeviceString(nint set, Native.DeviceData node, Native.PropertyKey key,
+        bool allowList = false)
     {
         char* value = stackalloc char[256];
         return Native.GetDeviceProperty(set, node, key, out uint type, value, 512, out uint size, 0) != 0 &&
-            type == 0x12 && size is >= 4 and <= 512 && size % 2 == 0 && value[(size / 2) - 1] == '\0'
+            (type == 0x12 || allowList && type == 0x2012) && size is >= 4 and <= 512 && size % 2 == 0 && value[(size / 2) - 1] == '\0'
             ? new string(value) : null;
     }
 

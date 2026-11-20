@@ -1,6 +1,7 @@
 using System.Text;
 using Jige.Core.Adapters;
 using Jige.Core.Diagnostics;
+using Jige.Core.Windows;
 using static Jige.Core.Tests.LogitechBatteryTests;
 
 namespace Jige.Core.Tests;
@@ -14,6 +15,7 @@ public sealed class LogitechV024Tests
     [InlineData(0x0D, "564D50", 86, false, (int)ChargingState.Charging)]
     [InlineData(0x07, "0522AA", 50, true, (int)ChargingState.Full)]
     [InlineData(0x07, "0321AA", 20, true, (int)ChargingState.Charging)]
+    [InlineData(0x07, "0523AA", 50, true, (int)ChargingState.Charging)]
     [InlineData(0x07, "0100AA", 5, true, (int)ChargingState.NotCharging)]
     [InlineData(0x07, "0700AA", 100, true, (int)ChargingState.NotCharging)]
     public async Task LegacyPingErrorEnablesOnlyWhitelistedBatteryRegisters(
@@ -80,6 +82,32 @@ public sealed class LogitechV024Tests
         Assert.Contains("线缆", reading.ProtocolSummary);
         Assert.All(session.Writes, request => Assert.Equal(0xFF, request[1]));
     }
+
+    [Theory]
+    [InlineData(@"\?\HID#{00001812-0000-1000-8000-00805F9B34FB}_Dev_VID&02046d_PID&b037_REV&0110_112233445566&Col02", 0xB037)]
+    [InlineData(@"\?\HID#{00001124-0000-1000-8000-00805F9B34FB}_vid&0002046d_pid&b010&col02", 0xB010)]
+    public async Task BluetoothPathWorksWithoutAnAddressFromParentNodes(string path, int pid)
+    {
+        Assert.Equal((ushort)0x046D, BluetoothHidPath.UsbVendorId(path));
+        Assert.Equal((ushort)pid, BluetoothHidPath.ProductId(path));
+        var endpoint = Nano with
+        {
+            ReceiverId = "container", Path = path, ProductId = (ushort)pid, UsagePage = 0xFF43, Usage = 0x0202
+        };
+        var registry = AdapterRegistry.CreateDefault();
+        var selected = Assert.Single(registry.Detect(new([endpoint], [], [])));
+        var session = new BatteryHidStub(request => DirectReply(request, "MX Anywhere", 3, 71));
+        var reading = Assert.Single(await registry.ReadDevicesAsync(selected, new BatteryTransportStub(_ => session), null, default));
+        Assert.Equal(DeviceConnection.Bluetooth, reading.Device.Connection);
+        Assert.Equal(71, reading.Percentage);
+    }
+
+    [Theory]
+    [InlineData("Input.Mouse", (int)DeviceKind.Mouse)]
+    [InlineData("Input.Keyboard", (int)DeviceKind.Keyboard)]
+    [InlineData("Audio.Headphones", (int)DeviceKind.Headset)]
+    public void WindowsBluetoothCategoryIdentifiesPeripherals(string category, int kind) =>
+        Assert.Equal((DeviceKind)kind, BluetoothBattery.KindFromCategory(category));
 
     [Fact]
     public async Task BleMouseAndKeyboardEachMergeWithTheirOwnWindowsDevice()
@@ -160,6 +188,8 @@ public sealed class LogitechV024Tests
         var detected = Assert.Single(registry.Detect(inventory));
         var transport = new BatteryTransportStub(_ => new BatteryHidStub(request => DirectReply(request, null, 0, null)));
         var hid = await registry.ReadDevicesAsync(detected, transport, null, default);
+        var noBattery = Assert.Single(BluetoothBattery.Merge(hid, [], DateTimeOffset.UtcNow));
+        Assert.Equal(LinkState.Asleep, noBattery.Link);
         var readings = BluetoothBattery.Merge(hid, properties, DateTimeOffset.UtcNow);
         Assert.Equal(new int?[] { 82, 48 }, readings.Select(reading => reading.Percentage));
         Assert.All(readings, reading => Assert.Contains("由 Windows 提供", reading.ProtocolSummary));
@@ -235,7 +265,30 @@ public sealed class LogitechV024Tests
     }
 
     [Fact]
-    public async Task SilenceRetainsCachedIdentityAndExplicitErrorGoesOffline()
+    public async Task BleHidpp20UnsupportedBatteryFunctionFallsBackToTheNextFeature()
+    {
+        var ble = Ble("container", 0xB037, null);
+        var registry = AdapterRegistry.CreateDefault();
+        var detected = Assert.Single(registry.Detect(new([ble], [], [])));
+        var session = new BatteryHidStub(request => (request[2], request[3]) switch
+        {
+            (6, 0x1A) => [Frame("11FFFF061A09", 20)],
+            (0, 0x0C) => [Frame("11FF000C09", 20)],
+            (9, 0x0A) => [Frame("11FF090A320001", 20)],
+            _ => DirectReply(request, "MX Anywhere 3S", 3, 78)
+        });
+
+        var reading = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => session), null, default));
+        Assert.Equal(LinkState.Online, reading.Link);
+        Assert.Equal(50, reading.Percentage);
+        Assert.Contains("电量 1000", reading.ProtocolSummary);
+    }
+
+    [Theory]
+    [InlineData(0x04)]
+    [InlineData(0x08)]
+    [InlineData(0x09)]
+    public async Task BleHidpp20ErrorsKeepIdentityAndAllowWindowsFallback(int code)
     {
         var ble = Ble("container", 0xB037, null);
         var registry = AdapterRegistry.CreateDefault();
@@ -244,14 +297,52 @@ public sealed class LogitechV024Tests
         var first = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => session), null, default));
         var silent = new BatteryHidStub(_ => []);
         var asleep = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => silent), null, default));
-        var unreachable = new BatteryHidStub(_ => [Frame("10FF8F061A09", 7)]);
-        var offline = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => unreachable), null, default));
+        var rejected = new BatteryHidStub(request => [Frame($"11FFFF{request[2]:X2}{request[3]:X2}{code:X2}", 20)]);
+        var failed = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => rejected), null, default));
+        var ping = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => rejected), null, default));
 
-        Assert.Equal(first.Device.Id, asleep.Device.Id);
-        Assert.Equal(first.Device.Id, offline.Device.Id);
+        Assert.Equal(first.Device, asleep.Device);
+        Assert.Equal(first.Device, failed.Device);
+        Assert.Equal(first.Device, ping.Device);
         Assert.Equal(LinkState.Asleep, asleep.Link);
-        Assert.Equal(LinkState.Offline, offline.Link);
+        Assert.Equal(LinkState.Asleep, failed.Link);
+        Assert.Equal(LinkState.Asleep, ping.Link);
         Assert.Equal(Frame("11FF061A", 20), Assert.Single(silent.Writes));
+
+        var property = new BluetoothDevice("container", "My Mouse", DeviceKind.Other, true, 83);
+        var merged = Assert.Single(BluetoothBattery.Merge([failed], [property], DateTimeOffset.UnixEpoch));
+        Assert.Equal(LinkState.Online, merged.Link);
+        Assert.Equal(83, merged.Percentage);
+        Assert.Equal("MX Anywhere 3S", merged.Device.Name);
+    }
+
+    [Theory]
+    [InlineData(31)]
+    [InlineData(1167)]
+    public async Task TransientBleTransportErrorUsesWindowsLinkStateWithoutDroppingKnownIdentity(int win32)
+    {
+        var endpoint = Ble("container", 0xB037, null);
+        var registry = AdapterRegistry.CreateDefault();
+        var detected = Assert.Single(registry.Detect(new([endpoint], [], [])));
+        var transport = new BatteryTransportStub(_ => new BatteryHidStub(request => DirectReply(request, "MX Anywhere 3S", 3, 78)));
+        var first = Assert.Single(await registry.ReadDevicesAsync(detected, transport, null, default));
+        var broken = new BatteryTransportStub(_ => new BatteryHidStub(_ => throw WindowsErrors.FromCode(win32, "读取")));
+        var unavailable = Assert.Single(await registry.ReadDevicesAsync(detected, broken, null, default));
+
+        Assert.Equal(first.Device, unavailable.Device);
+        Assert.Equal(LinkState.Asleep, unavailable.Link);
+        var windows = new BluetoothDevice("container", "My Mouse", DeviceKind.Other, true, 81);
+        var online = Assert.Single(BluetoothBattery.Merge([unavailable], [windows], DateTimeOffset.UnixEpoch));
+        Assert.Equal(LinkState.Online, online.Link);
+        Assert.Equal(81, online.Percentage);
+        Assert.Equal(first.Device, online.Device);
+        var offline = Assert.Single(BluetoothBattery.Merge([unavailable], [windows with { Connected = false }], DateTimeOffset.UnixEpoch));
+        Assert.Equal(LinkState.Offline, offline.Link);
+        Assert.Null(offline.Percentage);
+
+        var recovered = new BatteryHidStub(request => DirectReply(request, "MX Anywhere 3S", 3, 78));
+        await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => recovered), null, default);
+        Assert.Equal(Frame("11FF061A", 20), Assert.Single(recovered.Writes));
     }
 
     [Fact]

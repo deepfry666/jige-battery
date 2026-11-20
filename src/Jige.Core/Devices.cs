@@ -23,7 +23,11 @@ public sealed record DeviceIdentity(
     string Id, string Name, DeviceKind Kind,
     AdaptationSource Source = AdaptationSource.Catalog,
     VerificationTier Verification = VerificationTier.DocsOnly,
-    DeviceConnection Connection = DeviceConnection.Receiver);
+    DeviceConnection Connection = DeviceConnection.Receiver)
+{
+    public bool NameFromHidpp { get; init; }
+    public string? BluetoothContainerKey { get; init; }
+}
 
 public sealed record PresenceUpdate(
     string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None)

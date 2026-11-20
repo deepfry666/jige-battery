@@ -117,7 +117,8 @@ internal sealed class TrayModel
 
     public HashSet<string> AsleepDeviceIds() => devices.Values
         .Where(item => item.Link == LinkState.Asleep && IsShown(item.Device))
-        .Select(item => item.Device.Id)
+        .SelectMany(item => item.Device.BluetoothContainerKey is { } container
+            ? new[] { item.Device.Id, container } : [item.Device.Id])
         .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>R2：返回最早一台休眠设备达到 10 分钟离线阈值的时间点，供主循环安排定时器唤醒。</summary>
@@ -325,8 +326,27 @@ internal sealed class TrayModel
                     reading = reading with { Device = device };
                 }
             }
-            if (device.Connection == DeviceConnection.Bluetooth && reading.Percentage is null && !devices.ContainsKey(device.Id))
-                continue;
+            if (device.Connection == DeviceConnection.Bluetooth)
+            {
+                if (FindKnownDevice(device) is { } existing)
+                {
+                    var known = existing.Device;
+                    bool useKnownHidppName = known.NameFromHidpp && !device.NameFromHidpp;
+                    bool useKnownKind = device.Kind == DeviceKind.Other ||
+                        useKnownHidppName && known.Kind != DeviceKind.Other;
+                    device = device with
+                    {
+                        Id = known.Id,
+                        Name = useKnownHidppName ? known.Name : device.Name,
+                        Kind = useKnownKind ? known.Kind : device.Kind,
+                        NameFromHidpp = device.NameFromHidpp || known.NameFromHidpp,
+                        BluetoothContainerKey = device.BluetoothContainerKey ?? known.BluetoothContainerKey
+                    };
+                    reading = reading with { Device = device };
+                }
+                else if (reading.Percentage is null)
+                    continue;
+            }
             seen.Add(device.Id);
             if (removedOffline.Contains(device.Id))
             {
@@ -369,9 +389,9 @@ internal sealed class TrayModel
             // R1：接收器被拔出（非枚举失败且不在设备列表中）→ 立即离线。
             bool receiverStillPresent = id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
                 liveTargets?.Contains(id.Split('/', 2)[0]) == true;
-            var nextLink = ResolveLinkForSleep(id, previous.Link, scanFailed ? LinkState.Unknown :
-                receiverStillPresent || previous.Device.Connection == DeviceConnection.Bluetooth
-                    ? LinkState.Asleep : LinkState.Offline, now);
+            var missingLink = previous.Device.Connection == DeviceConnection.Bluetooth ? LinkState.Asleep :
+                scanFailed ? LinkState.Unknown : receiverStillPresent ? LinkState.Asleep : LinkState.Offline;
+            var nextLink = ResolveLinkForSleep(id, previous.Link, missingLink, now);
             if (previous.Link != nextLink || previous.Fresh)
                 meaningfulChange = true;
             devices[id] = previous with
@@ -396,6 +416,15 @@ internal sealed class TrayModel
         if (shouldSave)
             hasSavedOnce = true;
         return shouldSave;
+    }
+
+    private DeviceStatus? FindKnownDevice(DeviceIdentity device)
+    {
+        if (devices.TryGetValue(device.Id, out var exact))
+            return exact;
+        return device.Connection == DeviceConnection.Bluetooth && device.BluetoothContainerKey is { } key
+            ? devices.Values.FirstOrDefault(item => StringComparer.OrdinalIgnoreCase.Equals(item.Device.BluetoothContainerKey, key))
+            : null;
     }
 
     // 继续沿用首次建档的 ID，保留跨接收器和线缆切换时的历史、别名和托盘设置。
@@ -451,7 +480,7 @@ internal sealed class TrayModel
         {
             if (update.Battery is { } battery)
             {
-                var known = devices.GetValueOrDefault(battery.Device.Id);
+                var known = FindKnownDevice(battery.Device);
                 if (known is null && LogitechUnit(battery.Device.Id) is { } unit)
                     known = devices.Values.FirstOrDefault(item =>
                         StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), unit));
@@ -461,7 +490,8 @@ internal sealed class TrayModel
                     if (known.Device.Connection != battery.Device.Connection || !IsShown(known.Device) ||
                         known.Last is { } last && last.ReadAt > battery.ReadAt)
                         continue;
-                    battery = battery with { Device = known.Device };
+                    if (battery.Device.Connection != DeviceConnection.Bluetooth)
+                        battery = battery with { Device = known.Device };
                 }
                 uiChanged |= ApplyReadings([battery], ScanFailed, now, UnknownReceivers, onLinkChanged, null, completePoll: false);
                 continue;

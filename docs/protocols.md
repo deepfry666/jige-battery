@@ -78,11 +78,11 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 | Nano | `C518/C51A/C51B/C521/C525/C526/C52E/C52F/C531/C534/C535/C537` |
 | LIGHTSPEED | `C539/C53A/C53D/C53F/C541/C545/C547/C54D` |
 
-逐槽查询 1–6。未知 PID 需要产品描述包含 `receiver`、`dongle` 或「接收器」，且通过同一描述符检查。首次只发 Root Ping，校验成功回复的版本和事务标记，或错误回复的地址和回显。格式不符由第三道安全门记住，点「重新检测」后可重试。短、长集合同时等待回复。错误 `08` 为空槽，`04/09` 为明确不可达。已识别设备无回复进入休眠，保留上次读数。接收器移除、`40/41` 断连或重连清除相应缓存。缓存仅在内存中保存，用接收器接口、槽位与设备身份区分。已找到电量功能的设备下一轮只需一条电量查询。[HaloBattery HID++ 说明](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 通知解析](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/notifications.py)
+逐槽查询 1–6。未知 PID 需要产品描述包含 `receiver`、`dongle` 或「接收器」，且通过同一描述符检查。首次只发 Root Ping，校验成功回复的版本和事务标记，或错误回复的地址和回显。格式不符由第三道安全门记住，点「重新检测」后可重试。短、长集合同时等待回复。HID++ 1.0 的 `8F` 错误回复中，`08` 为空槽，`04/09` 为明确不可达。HID++ 2.0 的 `FF` 错误回复中，`04/08/09` 分别表示硬件错误、设备忙和功能不支持。已识别设备无回复进入休眠，保留上次读数。接收器移除、`40/41` 断连或重连清除相应缓存。缓存仅在内存中保存，用接收器接口、槽位与 Unit ID 摘要区分，未公布 Unit ID 的设备沿用当前已发现的设备身份。已找到电量功能的设备下一轮只需一条电量查询。[HaloBattery HID++ 说明](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 通知解析](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/notifications.py)
 
 ### HID++ 1.0 电量寄存器
 
-只有 Ping 回显错误 `01`（旧设备不识别 HID++ 2.0 子命令）才通过短集合读 `10 <地址> 81 <寄存器> 00 00 00`。先读 `0D`，回复 P0 是百分比，P2 高四位 `3/5/9` 分别是未充电、充电中和已充满。没有有效读数时读 `07`，P0 档位 `7/5/3/1` 分别显示约 `100/50/20/5%`。P1 按 `21/22` 掩码识别正在充电或已充满。寄存器 `B5` 只允许 `81` 形式。资料中的 Bolt / Unifying 完整配对记录使用 `83`，0.2.4 不主动读配对表。首次启动遇到一直静默且没有历史读数的槽位时，等它回复后才显示。[HaloBattery 旧寄存器解析](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 长寄存器定义](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp10.py)
+只有 Ping 回显错误 `01`（旧设备不识别 HID++ 2.0 子命令）才通过短集合读 `10 <地址> 81 <寄存器> 00 00 00`。先读 `0D`，回复 P0 是百分比，P2 高四位 `3/5/9` 分别是未充电、充电中和已充满。没有有效读数时读 `07`，P0 档位 `7/5/3/1` 分别显示约 `100/50/20/5%`。P1 按 `21/22` 掩码识别正在充电或已充满，两者同时成立时优先判为充电。寄存器 `B5` 只允许 `81` 形式。资料中的 Bolt / Unifying 完整配对记录使用 `83`，0.2.4 不主动读配对表。首次启动遇到一直静默且没有历史读数的槽位时，等它回复后才显示。[HaloBattery 旧寄存器解析](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 长寄存器定义](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp10.py)
 
 ### USB 线缆
 
@@ -90,11 +90,11 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 
 ### 蓝牙 HID++
 
-Windows HID 路径含 `VID&0002046D`（或能沿蓝牙设备节点取得地址），VID 为 `046D`，长集合为 `FF43:0202`，按 `FF` 读取。产品名优先使用 `0005`，否则采用 Windows 蓝牙名称。与 Windows 蓝牙属性按同一容器或地址合并，有有效 HID++ 电量时优先采用其百分比与充电状态。诊断看 `罗技|H…` 的协议细节及 `蓝牙电量来源|B…` 的最终来源。源文件中的 MX Anywhere 3S 与 MX Keys 回放使用合成数据。[HID++ 2.0 草案](https://lekensteyn.nl/files/logitech/logitech_hidpp_2.0_specification_draft_2012-06-04.pdf) · [Linux HID++ 驱动](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c)
+Windows 经典蓝牙 HID 路径含 `VID&0002046D`，HID over GATT 路径形如 `{00001812-…}_Dev_VID&02046D_PID&…`。路径可直接标识蓝牙路由，即使父节点没有公布地址。VID 为 `046D`，长集合为 `FF43:0202`，按 `FF` 读取。产品名优先使用 `0005`，否则采用 Windows 蓝牙名称。与 Windows 蓝牙属性按同一容器或地址合并，Windows 确认设备已断开时显示离线。其他情况下优先采用有效 HID++ 电量与充电状态。HID 集合暂时不可读或显示功能不支持时，可回退到 Windows 电量。切换来源会保留已知的 HID++ 名称与类型。诊断看 `罗技|H…` 的协议细节及 `蓝牙电量来源|B…` 的最终来源。源文件中的 MX Anywhere 3S 与 MX Keys 回放使用合成数据。[HID++ 2.0 草案](https://lekensteyn.nl/files/logitech/logitech_hidpp_2.0_specification_draft_2012-06-04.pdf) · [Windows HID API 路径样本](https://github.com/libusb/hidapi/discussions/593) · [Linux HID++ 驱动](https://github.com/torvalds/linux/blob/master/drivers/hid/hid-logitech-hidpp.c)
 
 ### Windows 蓝牙电量属性
 
-适用于 Windows 已提供电量的蓝牙外设。用 SetupAPI 读取 `{104EA319-6EE2-4701-BD47-8DDBF425BBE5}, 2`。只有类型为 BYTE、长度为 1 且在 0–100 的值可用。用设备连接属性记录显式断开，主蓝牙节点优先于服务节点。属性暂缺时保留上次读数并显示休眠。此路线不打开设备报告通道，不主动向设备发包，诊断标为「蓝牙属性（由 Windows 提供）」。设置「显示蓝牙设备」默认开启。[BatteryHub 本机属性用法](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor/blob/main/src/drivers/generic.cpp) · [Microsoft SetupDiGetDevicePropertyW](https://learn.microsoft.com/windows/win32/api/setupapi/nf-setupapi-setupdigetdevicepropertyw)
+适用于 Windows 已提供电量的蓝牙外设。用 SetupAPI 读取 `{104EA319-6EE2-4701-BD47-8DDBF425BBE5}, 2`。只有类型为 BYTE、长度为 1 且在 0–100 的值可用。用设备连接属性记录显式断开，主蓝牙节点优先于服务节点。Windows 公布设备类别时，用它识别鼠标、键盘或耳机。属性暂缺时保留上次读数并显示休眠。此路线不打开设备报告通道，不主动向设备发包，诊断标为「蓝牙属性（由 Windows 提供）」。设置「显示蓝牙设备」默认开启。[BatteryHub 本机属性用法](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor/blob/main/src/drivers/generic.cpp) · [Microsoft SetupDiGetDevicePropertyW](https://learn.microsoft.com/windows/win32/api/setupapi/nf-setupapi-setupdigetdevicepropertyw) · [Microsoft 设备类别属性](https://learn.microsoft.com/windows-hardware/drivers/install/devpkey-devicedisplay-category)
 
 ### HID++ 耳机
 

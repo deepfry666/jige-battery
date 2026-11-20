@@ -20,6 +20,15 @@ public static class BluetoothBattery
         return "bluetooth:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)).AsSpan(0, 12));
     }
 
+    internal static DeviceKind KindFromCategory(string? category) => category switch
+    {
+        "Input.Mouse" => DeviceKind.Mouse,
+        "Input.Keyboard" => DeviceKind.Keyboard,
+        "Audio.Headphones" => DeviceKind.Headset,
+        _ when category?.StartsWith("Communication.Headset", StringComparison.Ordinal) == true => DeviceKind.Headset,
+        _ => DeviceKind.Other
+    };
+
     /// <summary>合并同一物理蓝牙设备，并优先采用 HID++ 的实时电量与充电状态。</summary>
     public static IReadOnlyList<BatteryReading> Merge(IReadOnlyList<BatteryReading> readings,
         IReadOnlyList<BluetoothDevice> properties, DateTimeOffset now)
@@ -47,7 +56,7 @@ public static class BluetoothBattery
             }
             if (match == -1)
             {
-                result.Add(reading);
+                result.Add(WithoutWindowsReading(reading));
                 continue;
             }
 
@@ -56,17 +65,18 @@ public static class BluetoothBattery
             var identity = reading.Device with
             {
                 Id = DeviceId(property.Container, property.Address ?? reading.BluetoothAddress),
-                Name = reading.Device.Name == UnnamedHidpp ? property.Name : reading.Device.Name,
+                BluetoothContainerKey = DeviceId(property.Container, null),
+                Name = reading.Device.NameFromHidpp ? reading.Device.Name : property.Name,
                 Kind = reading.Device.Kind == DeviceKind.Other ? property.Kind : reading.Device.Kind
             };
-            if (reading.Link == LinkState.Online && reading.Percentage is not null)
-                result.Add(reading with { Device = identity });
-            else if (property.Connected == false)
+            if (property.Connected == false)
                 result.Add(FromProperty(property, now) with { Device = identity });
-            else if (reading.Link != LinkState.Offline && property.Percentage is not null)
+            else if (reading.Link == LinkState.Online && reading.Percentage is not null)
+                result.Add(reading with { Device = identity });
+            else if (property.Percentage is >= 0 and <= 100)
                 result.Add(FromProperty(property, now) with { Device = identity });
             else
-                result.Add(reading with { Device = identity });
+                result.Add(WithoutWindowsReading(reading with { Device = identity }));
         }
         for (int i = 0; i < properties.Count; i++)
         {
@@ -81,12 +91,19 @@ public static class BluetoothBattery
             .ToArray();
     }
 
+    private static BatteryReading WithoutWindowsReading(BatteryReading reading) =>
+        reading.Link == LinkState.Offline || reading is { Link: LinkState.Online, Percentage: null }
+            ? reading with { Link = LinkState.Asleep } : reading;
+
     internal static BatteryReading FromProperty(BluetoothDevice endpoint, DateTimeOffset now)
     {
         bool valid = endpoint.Percentage is >= 0 and <= 100;
         var link = endpoint.Connected == false ? LinkState.Offline : valid ? LinkState.Online : LinkState.Asleep;
         var device = new DeviceIdentity(DeviceId(endpoint.Container, endpoint.Address), endpoint.Name, endpoint.Kind,
-            AdaptationSource.Generic, Connection: DeviceConnection.Bluetooth);
+            AdaptationSource.Generic, Connection: DeviceConnection.Bluetooth)
+        {
+            BluetoothContainerKey = DeviceId(endpoint.Container, null)
+        };
         return new(device, link == LinkState.Online ? endpoint.Percentage : null, false, ChargingState.Unknown, link, now)
         {
             ProtocolSummary = $"蓝牙属性（由 Windows 提供）；HID++ —；功能索引 —；电量属性 {endpoint.Percentage?.ToString() ?? "—"}"
