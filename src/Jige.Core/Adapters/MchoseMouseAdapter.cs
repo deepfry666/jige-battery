@@ -127,7 +127,7 @@ internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null) : IDevic
         using var session = transport.OpenHid(endpoint with { FeatureOnly = true, RequiredFeatureReportId = reportId }, token);
         var reply = new byte[length];
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(650);
+        deadline.CancelAfter(1200); // 最多 4 轮，每轮先等 120 ms；给慢速接收器和 CI 留余量。
         bool malformedReply = false;
         TransportException? lastReadError = null;
         try
