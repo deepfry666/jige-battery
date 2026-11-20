@@ -149,3 +149,54 @@ jobs:
             gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+  sync-mirror:
+    name: 同步测试版到国内镜像
+    needs: prerelease
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 通过受限部署通道推送测试版到 download.imfourj.cn
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIRROR_HOST: ${{ secrets.JIGE_MIRROR_HOST }}
+          MIRROR_SSH_KEY: ${{ secrets.JIGE_MIRROR_SSH_KEY }}
+          MIRROR_KNOWN_HOSTS: ${{ secrets.JIGE_MIRROR_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MIRROR_HOST}" ] || [ -z "${MIRROR_SSH_KEY}" ] || [ -z "${MIRROR_KNOWN_HOSTS}" ]; then
+            echo "::notice::未配置国内镜像同步密钥，跳过同步。"
+            exit 0
+          fi
+
+          workdir=$(mktemp -d)
+          trap 'rm -rf "$workdir"' EXIT
+
+          mkdir -p "$workdir/pkg"
+          gh release download prerelease-build --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --pattern "Jige-Setup-prerelease-x64.exe" --pattern "SHA256SUMS.txt"
+          tar -czf "$workdir/payload.tar.gz" -C "$workdir/pkg" Jige-Setup-prerelease-x64.exe SHA256SUMS.txt
+          tar_sha=$(sha256sum "$workdir/payload.tar.gz" | awk '{print $1}')
+
+          printf '%s\n' "$MIRROR_SSH_KEY" > "$workdir/id_ed25519"
+          chmod 600 "$workdir/id_ed25519"
+          printf '%s\n' "$MIRROR_KNOWN_HOSTS" > "$workdir/known_hosts"
+          chmod 644 "$workdir/known_hosts"
+
+          for attempt in 1 2 3; do
+            if ssh -i "$workdir/id_ed25519" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$workdir/known_hosts" \
+              -o ConnectTimeout=15 \
+              "root@${MIRROR_HOST}" "publish-prerelease ${tar_sha}" < "$workdir/payload.tar.gz"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::国内镜像测试版同步重试 3 次后仍失败。"
+              exit 1
+            fi
+            sleep 5
+          done

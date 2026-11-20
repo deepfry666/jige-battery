@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Jige.Tray;
@@ -95,19 +96,51 @@ internal sealed record ReleaseAsset(
 [JsonSerializable(typeof(ReleaseResponse))]
 internal sealed partial class ReleaseJsonContext : JsonSerializerContext;
 
-internal sealed record AvailableUpdate(Version Version, string Notes, Uri Page, ReleaseAsset Installer, ReleaseAsset Checksums)
+internal sealed record UpdateSource(string Name, Uri LatestUri, string AssetBasePrefix, string[] AllowedHosts)
+{
+    public static UpdateSource Mirror { get; } = new(
+        "国内镜像",
+        new("https://download.imfourj.cn/jige-battery/latest.json"),
+        "https://download.imfourj.cn/jige-battery/releases/",
+        ["download.imfourj.cn"]);
+
+    public static UpdateSource GitHub { get; } = new(
+        "GitHub",
+        new("https://api.github.com/repos/deepfry666/jige-battery/releases/latest"),
+        AvailableUpdate.Repository + "/releases/download/",
+        ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
+
+    public bool IsAllowedHost(string host) => AllowedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
+
+    public string AssetUrl(string tag, string name) => $"{AssetBasePrefix}{tag}/{name}";
+}
+
+internal sealed record AvailableUpdate(
+    Version Version,
+    string Notes,
+    Uri Page,
+    ReleaseAsset Installer,
+    ReleaseAsset Checksums,
+    UpdateSource? Source = null,
+    AvailableUpdate? Fallback = null)
 {
     public const string Repository = "https://github.com/deepfry666/jige-battery";
+    public const string MirrorRoot = "https://download.imfourj.cn/jige-battery";
     public const string ChecksumsName = "SHA256SUMS.txt";
     public const int MaxChecksumsSize = 64 * 1024;
     private const long MaxInstallerSize = 512L * 1024 * 1024;
 
-    public static AvailableUpdate? Select(ReleaseResponse? release, Version current)
+    public UpdateSource EffectiveSource => Source ?? UpdateSource.GitHub;
+
+    public static AvailableUpdate? Select(ReleaseResponse? release, Version current) =>
+        Select(release, current, UpdateSource.GitHub);
+
+    public static AvailableUpdate? Select(ReleaseResponse? release, Version current, UpdateSource source)
     {
         if (release is null || release.Draft || release.Prerelease ||
             release.Tag is not { Length: > 1 } tag || tag[0] != 'v' ||
             !ReleaseVersion.TryParse(tag[1..], out var version))
-            throw new InvalidDataException("GitHub 没有返回有效的正式版本。");
+            throw new InvalidDataException($"{source.Name} 没有返回有效的正式版本。");
         if (version <= current)
             return null;
 
@@ -119,13 +152,22 @@ internal sealed record AvailableUpdate(Version Version, string Notes, Uri Page, 
         else
             notes = Presentation.Shorten(notes, 1600);
 
-        return new(version, notes, new($"{Repository}/releases/tag/{tag}"), installer, checksums);
+        var page = new Uri($"{Repository}/releases/tag/{tag}");
+        AvailableUpdate? fallback = null;
+        if (ReferenceEquals(source, UpdateSource.Mirror))
+        {
+            var githubInstaller = installer with { DownloadUrl = UpdateSource.GitHub.AssetUrl(tag, installer.Name!) };
+            var githubChecksums = checksums with { DownloadUrl = UpdateSource.GitHub.AssetUrl(tag, checksums.Name!) };
+            fallback = new(version, notes, page, githubInstaller, githubChecksums, UpdateSource.GitHub);
+        }
+
+        return new(version, notes, page, installer, checksums, source, fallback);
 
         ReleaseAsset FindAsset(string name, long maxSize)
         {
             var matches = release.Assets?.OfType<ReleaseAsset>().Where(asset => asset.Name == name).ToArray();
             if (matches is not [var match] || match.Size <= 0 || match.Size > maxSize ||
-                match.DownloadUrl != $"{Repository}/releases/download/{tag}/{name}")
+                match.DownloadUrl != source.AssetUrl(tag, name))
                 throw new InvalidDataException($"发行版缺少有效的 {name}。");
             return match;
         }
@@ -205,15 +247,31 @@ internal sealed class UpdateFiles(string path)
     }
 }
 
-internal sealed class UpdateClient(HttpClient http)
+internal sealed class UpdateClient(
+    HttpClient http,
+    IReadOnlyList<UpdateSource>? sources = null,
+    TimeSpan? mirrorCheckTimeout = null)
 {
     // C3：GitHub REST API 的 /releases/latest 端点按规范仅返回最新正式 Release，自动排除 draft 和 prerelease；
-    // 客户端在 AvailableUpdate.Select 中仍会再次拒绝 draft/prerelease 及非规范三段版本标签，且要求新正式版严格高于当前基础版本。
-    public static readonly Uri Latest = new("https://api.github.com/repos/deepfry666/jige-battery/releases/latest");
+    // 客户端默认优先查询国内镜像（download.imfourj.cn），不可达或失败时自动回退 GitHub；
+    // 无论来源为何，AvailableUpdate.Select 都会再次拒绝 draft/prerelease 及非规范三段版本标签，且要求新正式版严格高于当前基础版本。
+    public static readonly Uri Latest = UpdateSource.GitHub.LatestUri;
+    public static readonly Uri MirrorLatest = UpdateSource.Mirror.LatestUri;
+    public static readonly TimeSpan DefaultMirrorCheckTimeout = TimeSpan.FromSeconds(8);
+
+    private readonly IReadOnlyList<UpdateSource> sources = sources is { Count: > 0 }
+        ? sources
+        : [UpdateSource.Mirror, UpdateSource.GitHub];
+    private readonly TimeSpan primaryCheckTimeout = mirrorCheckTimeout ?? DefaultMirrorCheckTimeout;
 
     public static HttpClient CreateHttpClient()
     {
-        var client = new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false })
+        var client = new HttpClient(new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            ConnectTimeout = TimeSpan.FromSeconds(15)
+        })
         {
             Timeout = Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = 2 * 1024 * 1024
@@ -224,13 +282,41 @@ internal sealed class UpdateClient(HttpClient http)
 
     public async Task<AvailableUpdate?> CheckAsync(Version current, CancellationToken token)
     {
-        using var response = await http.GetAsync(Latest, token).ConfigureAwait(false);
+        for (int i = 0; i < sources.Count; i++)
+        {
+            var source = sources[i];
+            bool hasFallback = i + 1 < sources.Count;
+            using var attemptCts = hasFallback ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
+            if (attemptCts is not null && primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan)
+                attemptCts.CancelAfter(primaryCheckTimeout);
+            var attemptToken = attemptCts?.Token ?? token;
+
+            try
+            {
+                return await CheckSourceAsync(source, current, attemptToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception error) when (hasFallback && IsFallbackEligible(error, token))
+            {
+                // 国内镜像超时、连接失败或返回无效内容时，静默回退 GitHub。
+            }
+        }
+
+        throw new InvalidOperationException("未配置有效的更新源。");
+    }
+
+    private async Task<AvailableUpdate?> CheckSourceAsync(UpdateSource source, Version current, CancellationToken token)
+    {
+        using var response = await http.GetAsync(source.LatestUri, token).ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
-            throw new InvalidDataException("GitHub 上暂时没有可访问的正式版本。");
+            throw new InvalidDataException($"{source.Name} 上暂时没有可访问的正式版本。");
         response.EnsureSuccessStatusCode();
         var release = await response.Content.ReadFromJsonAsync(ReleaseJsonContext.Default.ReleaseResponse, token)
             .ConfigureAwait(false);
-        return AvailableUpdate.Select(release, current);
+        return AvailableUpdate.Select(release, current, source);
     }
 
     public Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files, CancellationToken token) =>
@@ -239,18 +325,36 @@ internal sealed class UpdateClient(HttpClient http)
     public async Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files,
         IProgress<UpdateProgress>? progress, CancellationToken token)
     {
+        try
+        {
+            return await DownloadFromSourceAsync(update, files, progress, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception error) when (update.Fallback is { } fallback && IsFallbackEligible(error, token))
+        {
+            return await DownloadFromSourceAsync(fallback, files, progress, token).ConfigureAwait(false);
+        }
+    }
+
+    private async Task<string> DownloadFromSourceAsync(AvailableUpdate update, UpdateFiles files,
+        IProgress<UpdateProgress>? progress, CancellationToken token)
+    {
         string path = files.PreparePackage(update.Installer.Name!);
+        var source = update.EffectiveSource;
         try
         {
             progress?.Report(new(0, update.Installer.Size, Verifying: false));
             using var checksums = new MemoryStream();
-            await CopyAssetAsync(update.Checksums, checksums, onBytes: null, token).ConfigureAwait(false);
+            await CopyAssetAsync(update.Checksums, source, checksums, onBytes: null, token).ConfigureAwait(false);
             string manifest = System.Text.Encoding.UTF8.GetString(checksums.GetBuffer(), 0, (int)checksums.Length);
             var hash = UpdateFiles.ReadChecksum(manifest, update.Installer.Name!);
             await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 bufferSize: 64 * 1024, useAsync: true))
             {
-                await CopyAssetAsync(update.Installer, file,
+                await CopyAssetAsync(update.Installer, source, file,
                     downloaded => progress?.Report(new(downloaded, update.Installer.Size, Verifying: false)),
                     token).ConfigureAwait(false);
             }
@@ -266,7 +370,15 @@ internal sealed class UpdateClient(HttpClient http)
         }
     }
 
-    private async Task CopyAssetAsync(ReleaseAsset asset, Stream destination, Action<long>? onBytes, CancellationToken token)
+    private static bool IsFallbackEligible(Exception error, CancellationToken outerToken) => error switch
+    {
+        OperationCanceledException => !outerToken.IsCancellationRequested,
+        HttpRequestException or IOException or JsonException or InvalidDataException => true,
+        _ => false
+    };
+
+    private async Task CopyAssetAsync(ReleaseAsset asset, UpdateSource source, Stream destination,
+        Action<long>? onBytes, CancellationToken token)
     {
         var url = new Uri(asset.DownloadUrl!);
         for (int redirect = 0; redirect <= 3; redirect++)
@@ -277,9 +389,9 @@ internal sealed class UpdateClient(HttpClient http)
                 response.Headers.Location is { } location)
             {
                 url = new Uri(url, location);
-                // GitHub 下载地址会跳转到存放发行资源的 GitHub CDN。
+                // 仅允许同一更新源白名单内的 HTTPS 默认端口跳转。
                 if (url.Scheme != Uri.UriSchemeHttps || !url.IsDefaultPort || url.UserInfo.Length != 0 ||
-                    url.Host is not ("github.com" or "release-assets.githubusercontent.com" or "objects.githubusercontent.com"))
+                    !source.IsAllowedHost(url.Host))
                     throw new InvalidDataException("发行资源跳转到了未知的下载地址。");
                 continue;
             }
@@ -287,11 +399,11 @@ internal sealed class UpdateClient(HttpClient http)
             response.EnsureSuccessStatusCode();
             if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
                 throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
-            await using var source = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+            await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
             byte[] buffer = new byte[64 * 1024];
             long total = 0;
             int read;
-            while ((read = await source.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
+            while ((read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
             {
                 total += read;
                 if (total > asset.Size)

@@ -40,7 +40,7 @@ Windows 实机截图待补，预留托盘、主面板和管理设备页的位置
 
 ## 安装与使用
 
-1. 从 [最新正式 Release](https://github.com/deepfry666/jige-battery/releases/latest) 下载 `Jige-Setup-<版本>-x64.exe` 和同版 `SHA256SUMS.txt`（如需提前试用主分支改动，可从滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build) 获取，详见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
+1. 从 [最新正式 Release](https://github.com/deepfry666/jige-battery/releases/latest) 下载 `Jige-Setup-<版本>-x64.exe` 和同版 `SHA256SUMS.txt`（无代理环境可通过国内镜像 [`download.imfourj.cn`](https://download.imfourj.cn/jige-battery/latest.json) 获取同版直链；如需提前试用主分支改动，可从滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build) 或国内镜像 [测试版安装包](https://download.imfourj.cn/jige-battery/prerelease/Jige-Setup-prerelease-x64.exe) 与 [`SHA256SUMS.txt`](https://download.imfourj.cn/jige-battery/prerelease/SHA256SUMS.txt) 获取，详见 [CONTRIBUTING.md](CONTRIBUTING.md)）。
 2. 在 PowerShell 运行 `Get-FileHash .\Jige-Setup-0.2.6-x64.exe -Algorithm SHA256`，将文件名替换为下载的版本，并和清单里的散列核对。
 3. 运行安装器，从开始菜单打开「几格」。首次安装默认勾选「开机时启动几格」。几格安装到当前用户的 `%LOCALAPPDATA%\Programs\Jige`，无需管理员权限。在 Windows 的「已安装的应用」（或「应用和功能」）可查看版本和卸载。
 
@@ -58,7 +58,7 @@ Windows 实机截图待补，预留托盘、主面板和管理设备页的位置
 
 ### 检查更新
 
-主动点击「检查更新」后，几格才访问 GitHub 查询最新正式版（`releases/latest`，不包含测试版；装了测试版也不会被提示降级到更低的正式版）。窗口显示检查结果及新版本摘要。选「下载并安装」后，几格再访问 Release 资源，核对安装包大小和 SHA-256，通过后退出并交给安装器静默升级，安装完成后自动重启。游戏中也可主动下载并安装。选「查看 Release」会用默认浏览器打开该版本页面。几格没有后台更新检查或主动弹出的更新卡片。
+主动点击「检查更新」后，几格才查询最新正式版（优先访问国内镜像 `download.imfourj.cn`，不可达或失败时自动回退 GitHub `releases/latest`，均不包含测试版；装了测试版也不会被提示降级到更低的正式版）。窗口显示检查结果及新版本摘要。选「下载并安装」后，几格优先从国内镜像下载（失败时自动回退 GitHub Release），核对安装包大小和 SHA-256，通过后退出并交给安装器静默升级，安装完成后自动重启。游戏中也可主动下载并安装。选「查看 Release」会用默认浏览器打开该版本页面。几格没有后台更新检查或主动弹出的更新卡片。
 
 升级原地覆盖程序文件，保留配置和设备缓存。下载目录为 `%LOCALAPPDATA%\Jige\updates`，下载前清理旧文件，最多保留一个待装包。校验失败的文件会清除，托盘下次启动会再次清理目录。CI 独立构建可用于试用和检查版本，从 Release 安装的托盘支持直接升级。同一台电脑只需保留正式安装版。
 

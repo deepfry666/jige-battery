@@ -555,7 +555,7 @@ internal sealed partial class PopupScene
                 canvas.Dot(172, 92, 21, colors.AccentSoft);
                 DrawUpdateArrowGlyph(canvas, 172, 92, colors.Accent, downward: false);
                 canvas.Text("正在检查更新…", 24, 122, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
-                canvas.Text("正在从 GitHub 查询最新正式版", 24, 146, 296, 18, 12, colors.Muted,
+                canvas.Text("正在查询最新正式版（优先国内镜像）", 24, 146, 296, 18, 12, colors.Muted,
                     align: DWRITE_TEXT_ALIGNMENT_CENTER);
                 canvas.Fill(82, 174, 180, 4, 2, colors.Empty);
                 if (!animations)

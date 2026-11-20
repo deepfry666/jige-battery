@@ -2,7 +2,7 @@
 
 ## 检查更新与去反馈
 
-几格自身**只在你主动点「检查更新…」后**向 GitHub 的 `releases/latest` 接口查询最新正式版本（不含测试版），点「下载并安装」后才访问该版本的 Release 资源及 GitHub 下载服务器。请求使用通用的 `Jige-Battery` User-Agent，不附带设备数据、诊断内容、账号信息或用户、设备标识。GitHub 会收到建立连接所需的常规网络信息，例如来源 IP。没有后台更新检查。点「查看 Release」会交给你的默认浏览器打开。
+几格自身**只在你主动点「检查更新…」后**才发起更新检查：优先查询作者维护的国内镜像 `https://download.imfourj.cn/jige-battery/latest.json`，若不可达或失败则自动回退到 GitHub 的 `releases/latest` 接口查询最新正式版本（均不含测试版）；点「下载并安装」后才访问该版本的安装包与 `SHA256SUMS.txt`（同样优先国内镜像，失败时自动回退 GitHub 下载服务器）并核对文件大小和 SHA-256。请求使用通用的 `Jige-Battery` User-Agent，不附带设备数据、诊断内容、账号信息或用户、设备标识。对应服务器仅会收到建立连接所需的常规网络信息，例如来源 IP。没有后台更新检查。点「查看 Release」会交给你的默认浏览器打开。
 
 在面板点击「复制报告并去反馈」时，几格仅在**你主动点击的这一刻**把本地已生成的 `diagnostics.txt` 全文复制到系统剪贴板，并调用系统默认浏览器打开固定的空白模板页 `https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml`。网址里**不携带**报告内容或任何设备信息，几格自身也不会发起任何上传或网络请求；是否粘贴并提交完全由你在浏览器中决定。
 

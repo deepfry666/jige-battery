@@ -11,6 +11,8 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.number }}
     permissions:
       contents: write
     steps:
@@ -100,3 +102,89 @@ jobs:
           JIGE_VERSION: ${{ steps.version.outputs.number }}
         run: |
           gh release create $env:GITHUB_REF_NAME "artifacts/release/Jige-Setup-${env:JIGE_VERSION}-x64.exe" artifacts/release/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --verify-tag --latest --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
+
+  sync-mirror:
+    name: 同步正式版到国内镜像
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 通过受限部署通道推送到 download.imfourj.cn
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIGE_VERSION: ${{ needs.release.outputs.version }}
+          MIRROR_HOST: ${{ secrets.JIGE_MIRROR_HOST }}
+          MIRROR_SSH_KEY: ${{ secrets.JIGE_MIRROR_SSH_KEY }}
+          MIRROR_KNOWN_HOSTS: ${{ secrets.JIGE_MIRROR_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MIRROR_HOST}" ] || [ -z "${MIRROR_SSH_KEY}" ] || [ -z "${MIRROR_KNOWN_HOSTS}" ]; then
+            echo "::notice::未配置国内镜像同步密钥，跳过同步。"
+            exit 0
+          fi
+
+          workdir=$(mktemp -d)
+          trap 'rm -rf "$workdir"' EXIT
+
+          tag="v${JIGE_VERSION}"
+          exe="Jige-Setup-${JIGE_VERSION}-x64.exe"
+
+          mkdir -p "$workdir/pkg"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --pattern "$exe" --pattern "SHA256SUMS.txt"
+          body=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
+          exe_size=$(stat -c %s "$workdir/pkg/$exe")
+          sums_size=$(stat -c %s "$workdir/pkg/SHA256SUMS.txt")
+
+          jq -n \
+            --arg tag "$tag" \
+            --arg body "$body" \
+            --arg exe "$exe" \
+            --argjson exe_size "$exe_size" \
+            --argjson sums_size "$sums_size" \
+            '{
+              tag_name: $tag,
+              body: $body,
+              draft: false,
+              prerelease: false,
+              assets: [
+                {
+                  name: $exe,
+                  size: $exe_size,
+                  browser_download_url: ("https://download.imfourj.cn/jige-battery/releases/" + $tag + "/" + $exe)
+                },
+                {
+                  name: "SHA256SUMS.txt",
+                  size: $sums_size,
+                  browser_download_url: ("https://download.imfourj.cn/jige-battery/releases/" + $tag + "/SHA256SUMS.txt")
+                }
+              ]
+            }' > "$workdir/pkg/latest.json"
+
+          tar -czf "$workdir/payload.tar.gz" -C "$workdir/pkg" latest.json "$exe" SHA256SUMS.txt
+          tar_sha=$(sha256sum "$workdir/payload.tar.gz" | awk '{print $1}')
+
+          printf '%s\n' "$MIRROR_SSH_KEY" > "$workdir/id_ed25519"
+          chmod 600 "$workdir/id_ed25519"
+          printf '%s\n' "$MIRROR_KNOWN_HOSTS" > "$workdir/known_hosts"
+          chmod 644 "$workdir/known_hosts"
+
+          for attempt in 1 2 3; do
+            if ssh -i "$workdir/id_ed25519" \
+              -o BatchMode=yes \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$workdir/known_hosts" \
+              -o ConnectTimeout=15 \
+              "root@${MIRROR_HOST}" "publish-stable ${JIGE_VERSION} ${tar_sha}" < "$workdir/payload.tar.gz"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::国内镜像同步重试 3 次后仍失败。"
+              exit 1
+            fi
+            sleep 5
+          done
+
+          curl -fsSL "https://download.imfourj.cn/jige-battery/latest.json" | jq -e --arg tag "$tag" '.tag_name == $tag' >/dev/null

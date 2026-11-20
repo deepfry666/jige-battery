@@ -103,11 +103,11 @@ internal sealed record UpdateViewState(
 
     public static string ExplainError(Exception error) => error switch
     {
-        HttpRequestException { StatusCode: { } status } => $"GitHub 请求失败（HTTP {(int)status}）。",
-        HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "无法解析 GitHub 的地址。",
-        HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError } => "无法与 GitHub 建立安全连接。",
-        HttpRequestException or HttpIOException => "无法连接 GitHub，或下载连接已经中断。",
-        JsonException => "无法读取 GitHub 返回的发行信息。",
+        HttpRequestException { StatusCode: { } status } => $"更新服务器请求失败（HTTP {(int)status}）。",
+        HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "无法解析更新服务器的地址。",
+        HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError } => "无法与更新服务器建立安全连接。",
+        HttpRequestException or HttpIOException => "无法连接更新服务器，或下载连接已经中断。",
+        JsonException => "无法读取更新服务器返回的发行信息。",
         _ => string.IsNullOrWhiteSpace(error.Message) ? "检查或更新时发生未知错误。" : error.Message
     };
 }

@@ -1712,7 +1712,7 @@ internal sealed class TrayApp : IDisposable
                     }
                     else
                     {
-                        events.LogUpdateCheck($"发现新版本 v{update.Version}（当前 {currentLabel}）");
+                        events.LogUpdateCheck($"发现新版本 v{update.Version}（当前 {currentLabel}，来源：{update.EffectiveSource.Name}）");
                         updateState = UpdateViewState.Found(currentLabel, installed, update, checkedAt);
                     }
                     RenderPopup();

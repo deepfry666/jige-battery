@@ -164,9 +164,9 @@ public sealed class FluentMenuAndUpdateUiTests
         Assert.Equal(UpdatePhase.Available, back.Phase);
         Assert.Null(back.Progress);
 
-        Assert.Equal("GitHub 请求失败（HTTP 403）。",
+        Assert.Equal("更新服务器请求失败（HTTP 403）。",
             UpdateViewState.ExplainError(new HttpRequestException("forbidden", null, HttpStatusCode.Forbidden)));
-        Assert.Equal("无法读取 GitHub 返回的发行信息。",
+        Assert.Equal("无法读取更新服务器返回的发行信息。",
             UpdateViewState.ExplainError(new JsonException("bad json")));
         Assert.Equal("校验失败", UpdateViewState.ExplainError(new InvalidDataException("校验失败")));
     }

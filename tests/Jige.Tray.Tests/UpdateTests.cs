@@ -9,6 +9,7 @@ public sealed class UpdateTests : IDisposable
     private const string Package = "Jige-Setup-0.10.0-x64.exe";
     private const string Hash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
     private const string ReleaseRoot = AvailableUpdate.Repository + "/releases/download/v0.10.0/";
+    private const string MirrorReleaseRoot = AvailableUpdate.MirrorRoot + "/releases/v0.10.0/";
     private const string Sums = Hash + "  " + Package + "\n";
     private static readonly Version Current = new(0, 9, 9);
     private readonly string dataFolder = Directory.CreateTempSubdirectory("jige-test-").FullName;
@@ -148,7 +149,7 @@ public sealed class UpdateTests : IDisposable
             };
             return Task.FromResult(response);
         }));
-        var client = new UpdateClient(http);
+        var client = new UpdateClient(http, [UpdateSource.GitHub]);
         var update = Assert.IsType<AvailableUpdate>(await client.CheckAsync(Current, default));
         Assert.Equal(UpdateClient.Latest.AbsoluteUri, Assert.Single(requests));
 
@@ -267,6 +268,134 @@ public sealed class UpdateTests : IDisposable
     }
 
     [Fact]
+    public async Task PrefersMirrorForCheckAndDownload()
+    {
+        var requests = new List<string>();
+        using var http = new HttpClient(new Responses((uri, _) =>
+        {
+            requests.Add(uri.AbsoluteUri);
+            var response = uri.AbsoluteUri switch
+            {
+                var url when url == UpdateClient.MirrorLatest.AbsoluteUri => Ok(Json(MirrorReleaseRoot)),
+                MirrorReleaseRoot + AvailableUpdate.ChecksumsName => Ok(Sums),
+                MirrorReleaseRoot + Package => Ok("abc"),
+                _ => throw new InvalidOperationException($"意外请求 {uri}")
+            };
+            return Task.FromResult(response);
+        }));
+        var client = new UpdateClient(http);
+        var update = Assert.IsType<AvailableUpdate>(await client.CheckAsync(Current, default));
+        Assert.Equal(UpdateSource.Mirror, update.EffectiveSource);
+        Assert.NotNull(update.Fallback);
+        Assert.Equal(UpdateSource.GitHub, update.Fallback!.EffectiveSource);
+        Assert.Equal(UpdateClient.MirrorLatest.AbsoluteUri, Assert.Single(requests));
+
+        string folder = Path.Combine(dataFolder, "updates");
+        string file = await client.DownloadAsync(update, new(folder), default);
+        Assert.Equal("abc", await File.ReadAllTextAsync(file));
+        Assert.Equal(
+            [
+                UpdateClient.MirrorLatest.AbsoluteUri,
+                MirrorReleaseRoot + AvailableUpdate.ChecksumsName,
+                MirrorReleaseRoot + Package
+            ],
+            requests);
+    }
+
+    [Fact]
+    public async Task FallsBackToGitHubWhenMirrorCheckFailsOrTimesOut()
+    {
+        var requests = new List<string>();
+        using var http = new HttpClient(new Responses(async (uri, token) =>
+        {
+            requests.Add(uri.AbsoluteUri);
+            if (uri == UpdateClient.MirrorLatest)
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                throw new InvalidOperationException();
+            }
+            if (uri == UpdateClient.Latest)
+                return Ok(Json());
+            throw new InvalidOperationException($"意外请求 {uri}");
+        }));
+        var client = new UpdateClient(http, mirrorCheckTimeout: TimeSpan.FromMilliseconds(50));
+        var update = Assert.IsType<AvailableUpdate>(await client.CheckAsync(Current, default));
+        Assert.Equal(UpdateSource.GitHub, update.EffectiveSource);
+        Assert.Null(update.Fallback);
+        Assert.Equal([UpdateClient.MirrorLatest.AbsoluteUri, UpdateClient.Latest.AbsoluteUri], requests);
+    }
+
+    [Fact]
+    public async Task FallsBackToGitHubWhenMirrorDownloadFails()
+    {
+        var requests = new List<string>();
+        using var http = new HttpClient(new Responses((uri, _) =>
+        {
+            requests.Add(uri.AbsoluteUri);
+            var response = uri.AbsoluteUri switch
+            {
+                var url when url == UpdateClient.MirrorLatest.AbsoluteUri => Ok(Json(MirrorReleaseRoot)),
+                MirrorReleaseRoot + AvailableUpdate.ChecksumsName => Ok(Sums),
+                MirrorReleaseRoot + Package => new(HttpStatusCode.BadGateway),
+                ReleaseRoot + AvailableUpdate.ChecksumsName => Ok(Sums),
+                ReleaseRoot + Package => Ok("abc"),
+                _ => throw new InvalidOperationException($"意外请求 {uri}")
+            };
+            return Task.FromResult(response);
+        }));
+        var client = new UpdateClient(http);
+        var update = Assert.IsType<AvailableUpdate>(await client.CheckAsync(Current, default));
+        string folder = Path.Combine(dataFolder, "updates");
+        string file = await client.DownloadAsync(update, new(folder), default);
+        Assert.Equal("abc", await File.ReadAllTextAsync(file));
+        Assert.Equal(
+            [
+                UpdateClient.MirrorLatest.AbsoluteUri,
+                MirrorReleaseRoot + AvailableUpdate.ChecksumsName,
+                MirrorReleaseRoot + Package,
+                ReleaseRoot + AvailableUpdate.ChecksumsName,
+                ReleaseRoot + Package
+            ],
+            requests);
+    }
+
+    [Fact]
+    public async Task DoesNotFallBackWhenUserCancelsMirrorCheck()
+    {
+        var requests = new List<string>();
+        using var cts = new CancellationTokenSource();
+        using var http = new HttpClient(new Responses((uri, _) =>
+        {
+            requests.Add(uri.AbsoluteUri);
+            cts.Cancel();
+            throw new TaskCanceledException();
+        }));
+        var client = new UpdateClient(http);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.CheckAsync(Current, cts.Token));
+        Assert.Equal(UpdateClient.MirrorLatest.AbsoluteUri, Assert.Single(requests));
+    }
+
+    [Fact]
+    public async Task RefusesAssetRedirectOutsideMirror()
+    {
+        using var http = new HttpClient(new Responses((uri, _) =>
+        {
+            Assert.Equal(MirrorReleaseRoot + AvailableUpdate.ChecksumsName, uri.AbsoluteUri);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Found)
+            {
+                Headers = { Location = new("https://example.com/sums") }
+            });
+        }));
+        var release = JsonSerializer.Deserialize(Json(MirrorReleaseRoot), ReleaseJsonContext.Default.ReleaseResponse);
+        var update = Assert.IsType<AvailableUpdate>(AvailableUpdate.Select(release, Current, UpdateSource.Mirror)) with
+        {
+            Fallback = null
+        };
+        await Assert.ThrowsAsync<InvalidDataException>(() => new UpdateClient(http).DownloadAsync(update,
+            new(Path.Combine(dataFolder, "updates")), default));
+    }
+
+    [Fact]
     public async Task RefusesAssetRedirectOutsideGitHub()
     {
         using var http = new HttpClient(new Responses((uri, _) =>
@@ -300,11 +429,11 @@ public sealed class UpdateTests : IDisposable
         Assert.False(InstallPaths.ShouldRepairAutostart(null, null));
     }
 
-    private static string Json() => $$"""
+    private static string Json(string root = ReleaseRoot) => $$"""
         {"tag_name":"v0.10.0","body":" 更新内容 ","draft":false,"prerelease":false,"assets":[
-            {"name":"Source.zip","size":999,"browser_download_url":"{{ReleaseRoot}}Source.zip"},
-            {"name":"{{Package}}","size":3,"browser_download_url":"{{ReleaseRoot}}{{Package}}"},
-            {"name":"{{AvailableUpdate.ChecksumsName}}","size":{{Sums.Length}},"browser_download_url":"{{ReleaseRoot}}{{AvailableUpdate.ChecksumsName}}"}
+            {"name":"Source.zip","size":999,"browser_download_url":"{{root}}Source.zip"},
+            {"name":"{{Package}}","size":3,"browser_download_url":"{{root}}{{Package}}"},
+            {"name":"{{AvailableUpdate.ChecksumsName}}","size":{{Sums.Length}},"browser_download_url":"{{root}}{{AvailableUpdate.ChecksumsName}}"}
         ]}
         """;
 
