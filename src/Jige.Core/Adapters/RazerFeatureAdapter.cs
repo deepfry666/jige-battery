@@ -21,15 +21,18 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
         var (status, _, foreign) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
             .ConfigureAwait(false);
         if (foreign)
-            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Busy, ReadIssue.Busy);
-        return status switch
+            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Busy, ReadIssue.Busy)
+            {
+                Connection = target.Device.Connection
+            };
+        return (status switch
         {
-            2 => new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Online),
-            4 => new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline),
+            2 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Online),
+            4 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline),
             // 协议忙重试耗尽不报告为 Busy（避免误报「被其他程序占用」），保持 Unknown/Timeout。
-            1 => new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.Timeout),
-            _ => new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.InvalidResponse)
-        };
+            1 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.Timeout),
+            _ => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.InvalidResponse)
+        }) with { Connection = target.Device.Connection };
     }
 
     private static RazerFeatureModel? Match(HidInterface endpoint)

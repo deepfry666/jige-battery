@@ -18,9 +18,9 @@
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |
 | [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |
-| [Razer 90B](docs/protocols.md#razer-90b-feature) | 14 款鼠标、3 款键盘的无线接收器，逐型号匹配 PID、接口、TID（协议忙时自动重试最多 3 次） | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
-| [Razer BlackShark V2 HyperSpeed](docs/protocols.md#razer-pa-与-blackshark-64b) | `1532:0565`，MI_03、`FF14:0001`，直接查询 | 多方开源实现一致 | 仅按资料 |
-| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/053A/0536`）、BlackShark V3（`057A/0577`）、ATK A9 Ultra（`373B:111A`）、ATK 星闪/前置校验候选、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 证据不足或存在写入/断链风险，打开句柄前跳过 | 暂未启用 |
+| [Razer 90B](docs/protocols.md#razer-90b-feature) | 72 个鼠标 PID、15 个键盘 PID（对齐 OpenRazer，含无线接收器、HyperPolling 接收器与 USB-C 有线充电模式；协议忙或被其他软件临时占用时自动重试最多 3 次） | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
+| [Razer BlackShark 纯只读耳机](docs/protocols.md#razer-pa-与-blackshark-64b) | BlackShark V2 Pro (2020) `1532:0528`（`FF00:0001` 64B Feature）与 BlackShark V2 HyperSpeed `1532:0565`（MI_03、`FF14:0001`） | 多方开源实现一致 | 仅按资料 |
+| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、BlackShark V3（`057A/0577`）、ATK A9 Ultra（`373B:111A`）、ATK 星闪/前置校验候选、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 证据不足或存在写入/断链风险，打开句柄前跳过 | 暂未启用 |
 
 完整设备支持表、三级验证状态和暂未启用原因见 [设备支持清单](docs/devices.md)。其余候选型号保留在 [设备清单](research/device-catalog.md)。
 

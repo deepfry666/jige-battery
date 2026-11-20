@@ -49,6 +49,7 @@ internal sealed class TrayModel
     private readonly Dictionary<string, SavedDeviceHistory> history = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> blockedReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> asleepSince = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> mergedRazerIds = new(StringComparer.OrdinalIgnoreCase);
     private bool hasSavedOnce;
 
     public TrayModel(TraySettings settings, TrayState saved)
@@ -326,7 +327,10 @@ internal sealed class TrayModel
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool anyFresh = false, meaningfulChange = false, removedChanged = false;
         if (completePoll)
+        {
             readings = MergeLogitechCableReadings(readings, ref meaningfulChange);
+            readings = MergeRazerCableReadings(readings, ref meaningfulChange);
+        }
         foreach (var input in readings)
         {
             var reading = input;
@@ -500,6 +504,85 @@ internal sealed class TrayModel
             ? id[(suffix + 1)..] : null;
     }
 
+    // 同一型号的雷蛇 90B 设备插上 USB-C 线充电时，原无线接收器会同时在位并报告未响应（离线）。
+    // 只要不是两台同型号设备同时在线，就沿用首次建档 ID 合并有线与无线路径，保留别名、历史与托盘勾选。
+    private IReadOnlyList<BatteryReading> MergeRazerCableReadings(
+        IReadOnlyList<BatteryReading> readings, ref bool changed)
+    {
+        var razerGroups = readings
+            .Where(reading => IsMergeableRazer90B(reading.Device))
+            .GroupBy(reading => (Name: reading.Device.Name, reading.Device.Kind),
+                RazerModelKeyComparer.Instance);
+        List<BatteryReading> merged = readings.Where(reading => !IsMergeableRazer90B(reading.Device)).ToList();
+        foreach (var group in razerGroups)
+        {
+            var items = group.ToArray();
+            // 两台同型号设备同时在线（例如两只 Viper V3 Pro），各自独立保留。
+            if (items.Count(item => item.Link == LinkState.Online) >= 2)
+            {
+                foreach (var item in items)
+                    mergedRazerIds.Remove(item.Device.Id);
+                merged.AddRange(items);
+                continue;
+            }
+
+            bool hasBothConnections = items.Any(item => item.Device.Connection == DeviceConnection.UsbCable) &&
+                items.Any(item => item.Device.Connection == DeviceConnection.Receiver);
+            var known = devices.Values
+                .Where(item => IsMergeableRazer90B(item.Device) &&
+                    item.Device.Kind == group.Key.Kind &&
+                    StringComparer.OrdinalIgnoreCase.Equals(item.Device.Name, group.Key.Name))
+                .OrderByDescending(item => item.Last is not null)
+                .ToArray();
+
+            bool singleSwitch = items.Length == 1 && !devices.ContainsKey(items[0].Device.Id) &&
+                known.Length == 1 && known[0].Device.Connection != items[0].Device.Connection;
+            if (!hasBothConnections && !singleSwitch)
+            {
+                merged.AddRange(items);
+                continue;
+            }
+
+            var winner = items
+                .OrderByDescending(item => item.Link == LinkState.Online && item.Percentage is not null)
+                .ThenByDescending(item => item.Link == LinkState.Online)
+                .ThenByDescending(item => item.Link == LinkState.Asleep)
+                .ThenByDescending(item => item.Device.Connection == DeviceConnection.UsbCable)
+                .First();
+            string canonicalId = known.FirstOrDefault()?.Device.Id ?? winner.Device.Id;
+            foreach (var item in items)
+            {
+                if (!StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, canonicalId))
+                    mergedRazerIds[item.Device.Id] = canonicalId;
+            }
+            merged.Add(winner with { Device = winner.Device with { Id = canonicalId } });
+            foreach (var duplicate in known.Skip(1))
+            {
+                string redundantId = duplicate.Device.Id;
+                changed |= devices.Remove(redundantId);
+                asleepSince.Remove(redundantId);
+                reminders.Remove(redundantId);
+                history.Remove(redundantId);
+                mergedRazerIds[redundantId] = canonicalId;
+            }
+        }
+        return merged;
+    }
+
+    private static bool IsMergeableRazer90B(DeviceIdentity device) =>
+        device.Id.StartsWith("razer-90b:", StringComparison.OrdinalIgnoreCase) &&
+        device.Connection is DeviceConnection.Receiver or DeviceConnection.UsbCable &&
+        !StringComparer.OrdinalIgnoreCase.Equals(device.Name, "Razer HyperPolling Wireless Dongle");
+
+    private sealed class RazerModelKeyComparer : IEqualityComparer<(string Name, DeviceKind Kind)>
+    {
+        public static readonly RazerModelKeyComparer Instance = new();
+        public bool Equals((string Name, DeviceKind Kind) x, (string Name, DeviceKind Kind) y) =>
+            x.Kind == y.Kind && StringComparer.OrdinalIgnoreCase.Equals(x.Name, y.Name);
+        public int GetHashCode((string Name, DeviceKind Kind) obj) =>
+            HashCode.Combine(StringComparer.OrdinalIgnoreCase.GetHashCode(obj.Name), obj.Kind);
+    }
+
     /// <summary>应用心跳或罗技接收器推送的在线状态变化（B1 / B2 / R1 / R2）。</summary>
     public (bool UiChanged, bool NeedsBatteryRefresh) ApplyPresence(
         IReadOnlyList<PresenceUpdate> updates,
@@ -540,7 +623,9 @@ internal sealed class TrayModel
             foreach (string id in matches)
             {
                 var previous = devices[id];
-                if (!IsShown(previous.Device) || update.Slot is not null && previous.Device.Connection == DeviceConnection.UsbCable)
+                if (!IsShown(previous.Device) ||
+                    update.Slot is not null && previous.Device.Connection == DeviceConnection.UsbCable ||
+                    update.Connection is { } conn && conn != previous.Device.Connection)
                     continue;
                 var resolvedLink = ResolveLinkForSleep(id, previous.Link, update.Link, now);
                 if (previous.Link == resolvedLink && previous.Issue == update.Issue)
@@ -613,6 +698,8 @@ internal sealed class TrayModel
         {
             if (devices.ContainsKey(exact))
                 return [exact];
+            if (mergedRazerIds.TryGetValue(exact, out var canonical) && devices.ContainsKey(canonical))
+                return [canonical];
             if (LogitechUnit(exact) is { } unit)
                 return devices.Keys.Where(id => StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(id), unit)).ToList();
         }
