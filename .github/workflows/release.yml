@@ -11,6 +11,7 @@ permissions:
 jobs:
   release:
     runs-on: windows-latest
+    timeout-minutes: 25
     outputs:
       version: ${{ steps.version.outputs.number }}
     permissions:
@@ -39,11 +40,14 @@ jobs:
           }
           $section.Groups[1].Value.Trim() | Set-Content release-notes.md -Encoding utf8
           "number=$version" >> $env:GITHUB_OUTPUT
-      - name: 运行测试
+      - name: 编译解决方案
         shell: pwsh
         env:
           JIGE_VERSION: ${{ steps.version.outputs.number }}
-        run: dotnet test Jige.slnx -c Release "-p:Version=$env:JIGE_VERSION"
+        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_VERSION"
+      - name: 运行测试
+        shell: pwsh
+        run: dotnet test Jige.slnx -c Release --no-build -m:1 --blame-hang-timeout 60s
       - name: 发布 win-x64 NativeAOT 托盘
         shell: pwsh
         env:
@@ -80,8 +84,12 @@ jobs:
 
           $compiler = Find-Compiler
           if (-not $compiler) {
-            choco install innosetup --no-progress -y
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              choco install innosetup --no-progress -y
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) { exit $LASTEXITCODE }
+              Start-Sleep -Seconds 5
+            }
             $compiler = Find-Compiler
           }
           if (-not $compiler) { throw "找不到 Inno Setup 编译器 ISCC.exe" }
@@ -107,6 +115,7 @@ jobs:
     name: 同步正式版到国内镜像
     needs: release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -132,7 +141,16 @@ jobs:
           exe="Jige-Setup-${JIGE_VERSION}-x64.exe"
 
           mkdir -p "$workdir/pkg"
-          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --pattern "$exe" --pattern "SHA256SUMS.txt"
+          for attempt in 1 2 3; do
+            if gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --clobber --pattern "$exe" --pattern "SHA256SUMS.txt"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::下载正式版 Release 附件重试 3 次后仍失败。"
+              exit 1
+            fi
+            sleep 5
+          done
           body=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
           exe_size=$(stat -c %s "$workdir/pkg/$exe")
           sums_size=$(stat -c %s "$workdir/pkg/SHA256SUMS.txt")
@@ -187,4 +205,4 @@ jobs:
             sleep 5
           done
 
-          curl -fsSL "https://download.imfourj.cn/jige-battery/latest.json" | jq -e --arg tag "$tag" '.tag_name == $tag' >/dev/null
+          curl -fsSL --retry 3 --retry-delay 3 --max-time 20 "https://download.imfourj.cn/jige-battery/latest.json" | jq -e --arg tag "$tag" '.tag_name == $tag' >/dev/null

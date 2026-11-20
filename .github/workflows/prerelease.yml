@@ -16,6 +16,7 @@ permissions:
 jobs:
   prerelease:
     runs-on: windows-latest
+    timeout-minutes: 25
     permissions:
       contents: write
     steps:
@@ -52,12 +53,15 @@ jobs:
           "beta=$betaVersion" >> $env:GITHUB_OUTPUT
           "file=$fileVersion" >> $env:GITHUB_OUTPUT
           "title=$displayTitle" >> $env:GITHUB_OUTPUT
-      - name: 运行测试
+      - name: 编译解决方案
         shell: pwsh
         env:
           JIGE_BETA: ${{ steps.version.outputs.beta }}
           JIGE_FILE: ${{ steps.version.outputs.file }}
-        run: dotnet test Jige.slnx -c Release "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE"
+        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE"
+      - name: 运行测试
+        shell: pwsh
+        run: dotnet test Jige.slnx -c Release --no-build -m:1 --blame-hang-timeout 60s
       - name: 发布 win-x64 NativeAOT 托盘
         shell: pwsh
         env:
@@ -100,8 +104,12 @@ jobs:
 
           $compiler = Find-Compiler
           if (-not $compiler) {
-            choco install innosetup --no-progress -y
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            for ($attempt = 1; $attempt -le 3; $attempt++) {
+              choco install innosetup --no-progress -y
+              if ($LASTEXITCODE -eq 0) { break }
+              if ($attempt -eq 3) { exit $LASTEXITCODE }
+              Start-Sleep -Seconds 5
+            }
             $compiler = Find-Compiler
           }
           if (-not $compiler) { throw "找不到 Inno Setup 编译器 ISCC.exe" }
@@ -154,6 +162,7 @@ jobs:
     name: 同步测试版到国内镜像
     needs: prerelease
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -175,7 +184,16 @@ jobs:
           trap 'rm -rf "$workdir"' EXIT
 
           mkdir -p "$workdir/pkg"
-          gh release download prerelease-build --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --pattern "Jige-Setup-prerelease-x64.exe" --pattern "SHA256SUMS.txt"
+          for attempt in 1 2 3; do
+            if gh release download prerelease-build --repo "$GITHUB_REPOSITORY" --dir "$workdir/pkg" --clobber --pattern "Jige-Setup-prerelease-x64.exe" --pattern "SHA256SUMS.txt"; then
+              break
+            fi
+            if [ "$attempt" -eq 3 ]; then
+              echo "::error::下载测试版 Release 附件重试 3 次后仍失败。"
+              exit 1
+            fi
+            sleep 5
+          done
           tar -czf "$workdir/payload.tar.gz" -C "$workdir/pkg" Jige-Setup-prerelease-x64.exe SHA256SUMS.txt
           tar_sha=$(sha256sum "$workdir/payload.tar.gz" | awk '{print $1}')
 
