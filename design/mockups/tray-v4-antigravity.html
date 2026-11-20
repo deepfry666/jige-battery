@@ -692,11 +692,11 @@ function renderP1Strip(devices, dark, scale, withGrid) {
     const iconW = 11;
     const boltW = d.chg ? 7 : 0;
     const textW = textWidth69(pctStr);
-    const padX = isLow ? 5 : 4;
+    const padX = 4;
     const segW = padX + iconW + 3 + boltW + textW + padX;
 
-    if (isLow) {
-      // 低电量柔和警示胶囊，整块一眼抓人
+    if (false) {
+      // 用户 2026-11-20 要求去掉低电量红底框，只把图标和数字变红
       body += `<rect x="${x}" y="1" width="${segW}" height="${H - 2}" fill="${pal.lowBg}"/>`;
       body += `<rect x="${x + 1}" y="0" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
       body += `<rect x="${x + 1}" y="${H - 1}" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
@@ -720,7 +720,7 @@ function renderP1Strip(devices, dark, scale, withGrid) {
     x += segW;
     if (idx < devices.length - 1) {
       x += 4;
-      if (!isLow && !(devices[idx + 1] && !devices[idx + 1].chg && devices[idx + 1].pct <= 20)) {
+      if (true) {
         body += `<rect x="${x - 2}" y="6" width="1" height="10" fill="${pal.sep}"/>`;
       }
     }
@@ -919,7 +919,7 @@ const p1Html = `
     <div class="scale-block">
       <div class="scale-head">
         <span class="scale-label">实际大小（100% 缩放）</span>
-        <span class="scale-hint">键盘 80%、鼠标 12%（红底胶囊警示）、耳机 45% 充电中，与右侧系统时钟同比例</span>
+        <span class="scale-hint">键盘 80%、鼠标 12%（图标和数字变红，无底框）、耳机 45% 充电中，与右侧系统时钟同比例</span>
       </div>
       <div class="theme-pair">
         <div class="theme-col">
@@ -953,7 +953,7 @@ const p1Html = `
     <div class="scale-block">
       <div class="scale-head">
         <span class="scale-label">放大看像素（3 倍 · 单项像素结构）</span>
-        <span class="scale-hint">图标 11×11 像素，数字 6×9 粗体（2px 笔画），无毛边、低电红底与充电闪电一目了然</span>
+        <span class="scale-hint">图标 11×11 像素，数字 6×9 粗体（2px 笔画），无毛边、低电变红与充电闪电一目了然</span>
       </div>
       <div class="zoom-box">
         <div class="zoom-item">
@@ -961,7 +961,7 @@ const p1Html = `
           <div class="zoom-frame">${renderP1Strip([DEVICES[0]], true, 3, true)}</div>
         </div>
         <div class="zoom-item">
-          <span class="zoom-cap">鼠标 12%（低电量胶囊）</span>
+          <span class="zoom-cap">鼠标 12%（低电量变红）</span>
           <div class="zoom-frame">${renderP1Strip([DEVICES[1]], true, 3, true)}</div>
         </div>
         <div class="zoom-item">
@@ -978,7 +978,7 @@ const p1Html = `
       <ul>
         <li><strong>哪台设备</strong>：11×11 清晰图标，键鼠耳机绝不混淆。</li>
         <li><strong>大概多少电</strong>：直接读精确百分比（80%、12%、45%），不用猜也不用悬停。</li>
-        <li><strong>要不要充电</strong>：低于 20% 整块亮柔和红底胶囊；充电中亮绿电标与绿字，余光就能扫到。</li>
+        <li><strong>要不要充电</strong>：低于阈值时图标和数字变红（不加底框）；充电中亮绿电标与绿字，余光就能扫到。</li>
       </ul>
     </div>
     <div class="info-box">

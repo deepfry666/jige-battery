@@ -194,11 +194,11 @@ function renderP1Strip(devices, dark, scale, withGrid) {
     const iconW = 11;
     const boltW = d.chg ? 7 : 0;
     const textW = textWidth69(pctStr);
-    const padX = isLow ? 5 : 4;
+    const padX = 4;
     const segW = padX + iconW + 3 + boltW + textW + padX;
 
-    if (isLow) {
-      // 低电量柔和警示胶囊，整块一眼抓人
+    if (false) {
+      // 用户 2026-11-20 要求去掉低电量红底框，只把图标和数字变红
       body += `<rect x="${x}" y="1" width="${segW}" height="${H - 2}" fill="${pal.lowBg}"/>`;
       body += `<rect x="${x + 1}" y="0" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
       body += `<rect x="${x + 1}" y="${H - 1}" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
@@ -222,7 +222,7 @@ function renderP1Strip(devices, dark, scale, withGrid) {
     x += segW;
     if (idx < devices.length - 1) {
       x += 4;
-      if (!isLow && !(devices[idx + 1] && !devices[idx + 1].chg && devices[idx + 1].pct <= 20)) {
+      if (true) {
         body += `<rect x="${x - 2}" y="6" width="1" height="10" fill="${pal.sep}"/>`;
       }
     }
@@ -466,7 +466,7 @@ const R=[
   d=>bar(opt2,d?"dark":"light",1), ()=>bar(opt2,"dark",2)],
  ["Claude","3","「几格」格子",false,"每台设备一个图标，5 根粗格子，剩几格亮几格。对上品牌名，但图标上看不出是哪台设备。",
   d=>bar(opt3,d?"dark":"light",1), ()=>bar(opt3,"dark",2)],
- ["反重力","4","任务栏直读条",true,"思路和方案 1 相同，做成横排一行：像素图标 + 像素数字，低电量整块红底胶囊，充电带绿闪电。风险同方案 1。",
+ ["反重力","4","任务栏直读条",true,"思路和方案 1 相同，做成横排一行：像素图标 + 像素数字，低电量图标和数字变红（已按你的要求去掉红底框），充电带绿闪电。风险同方案 1。",
   d=>tb(renderP1Strip(DEVICES,d,1,false),d,1), ()=>tb(renderP1Strip(DEVICES,true,2,false),true,2)],
  ["反重力","5","单图标多排格表",false,"一个托盘图标里上下分排，每台设备一排 5 格，靠排位分设备，悬停看数字。普通托盘图标，没有兼容风险。",
   d=>tb(renderP2Icon(DEVICES.slice(0,2),d,1,false),d,1), ()=>tb(renderP2Icon(DEVICES.slice(0,2),true,2,false),true,2)],
