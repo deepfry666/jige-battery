@@ -170,6 +170,61 @@ public sealed class UpdateTests : IDisposable
         Assert.Equal(4, requests.Count);
     }
 
+    [Theory]
+    [InlineData("abc", true)]
+    [InlineData("abd", false)]
+    public void ConfirmedInstallVerifiesPackageAndLaunchesWithoutAGameQuery(string payload, bool valid)
+    {
+        using var http = new HttpClient(new Responses((uri, _) => Task.FromResult(uri.AbsoluteUri switch
+        {
+            ReleaseRoot + AvailableUpdate.ChecksumsName => Ok(Sums),
+            ReleaseRoot + Package => Ok(payload),
+            _ => throw new InvalidOperationException()
+        })));
+        var release = JsonSerializer.Deserialize(Json(), ReleaseJsonContext.Default.ReleaseResponse);
+        var update = Assert.IsType<AvailableUpdate>(AvailableUpdate.Select(release, Current));
+        var client = new UpdateClient(http);
+        string folder = Path.Combine(dataFolder, "updates");
+        var files = new UpdateFiles(folder);
+        string? launched = null;
+
+        bool Install() => UpdateInstallation.Run(files, () => DownloadVerifiedPackage(client, update, files),
+            isClosing: () => false, launch: path => launched = path);
+
+        if (valid)
+        {
+            Assert.True(Install());
+            Assert.Equal(Assert.Single(Directory.GetFiles(folder)), launched);
+            Assert.Equal("abc", File.ReadAllText(launched!));
+        }
+        else
+        {
+            Assert.Throws<InvalidDataException>(() => Install());
+            Assert.Null(launched);
+            Assert.False(Directory.Exists(folder));
+        }
+    }
+
+    [Fact]
+    public void ClosingAfterDownloadClearsPackageWithoutLaunching()
+    {
+        string folder = Path.Combine(dataFolder, "updates");
+        var files = new UpdateFiles(folder);
+        bool started = UpdateInstallation.Run(files, () =>
+        {
+            Directory.CreateDirectory(folder);
+            string package = Path.Combine(folder, Package);
+            File.WriteAllText(package, "abc");
+            return package;
+        }, isClosing: () => true, launch: _ => throw new InvalidOperationException("安装器不应启动"));
+
+        Assert.False(started);
+        Assert.False(Directory.Exists(folder));
+    }
+
+    private static string DownloadVerifiedPackage(UpdateClient client, AvailableUpdate update, UpdateFiles files) =>
+        client.DownloadAsync(update, files, default).GetAwaiter().GetResult();
+
     [Fact]
     public async Task CancelsDownloadAndClearsStagingDirectory()
     {

@@ -248,7 +248,8 @@ internal sealed class TrayApp : IDisposable
     {
         foreground = PInvoke.GetForegroundWindow();
         uint process = 0, thread = 0;
-        if (model.Settings.GameSilent && Desktop.Classify(foreground, out _) == ForegroundKind.Other)
+        // 系统报告 BUSY 时，即使关闭「游戏中不打扰」，也需要跟踪同一前台窗口进出全屏。
+        if (Desktop.Classify(foreground, out _) == ForegroundKind.Other)
             thread = PInvoke.GetWindowThreadProcessId(foreground, &process);
         if (locationProcess == process && locationThread == thread)
             return;
@@ -535,7 +536,7 @@ internal sealed class TrayApp : IDisposable
         bool changed = next.BlockPopups != game.BlockPopups;
         bool enteredGame = next.Game && !game.Game;
         game = next;
-        events.LogGameMode(game.Game);
+        events.LogGameMode(game);
         if (enteredGame && schedule.Running && !startedInGame && !schedule.StartedByUser)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
@@ -1494,7 +1495,7 @@ internal sealed class TrayApp : IDisposable
     private void ShowUpdates()
     {
         DestroyHoverCard();
-        var dialog = new UpdateDialog(host, files.Updates, InGameForInstall, events.LogUpdateCheck);
+        var dialog = new UpdateDialog(host, files.Updates, events.LogUpdateCheck);
         updateDialog = dialog;
         try
         {
@@ -1510,10 +1511,6 @@ internal sealed class TrayApp : IDisposable
                 ArmTimer(WorkTimer, 50);
         }
     }
-
-    private bool InGameForInstall() =>
-        Desktop.GameMode(PInvoke.GetForegroundWindow(), model.Settings).Game ||
-        Desktop.GameMode(foreground, model.Settings).Game;
 
     private void CleanupUpdates()
     {
@@ -1572,7 +1569,8 @@ internal sealed class TrayApp : IDisposable
             DeviceHistories: model.DiagnosticHistories(),
             ProcessMetrics: Desktop.CollectProcessMetrics(startedAt),
             SettingsSummary: summary,
-            Gates: gates);
+            Gates: gates,
+            GameState: Desktop.GameMode(PInvoke.GetForegroundWindow(), settings).Status);
     }
 
     private async Task<bool> GenerateDiagnosticsAsync(DiagnosticContext context, CancellationToken token)

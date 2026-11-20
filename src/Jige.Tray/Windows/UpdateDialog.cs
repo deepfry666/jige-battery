@@ -13,7 +13,7 @@ using static Windows.Win32.UI.Controls.TASKDIALOG_NOTIFICATIONS;
 namespace Jige.Tray.Windows;
 
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inGame, Action<string>? logResult = null)
+internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Action<string>? logResult = null)
 {
     private const int Cancel = 2, Install = 100, Release = 101;
     private const uint CloseMessage = 0x0010; // WM_CLOSE
@@ -82,43 +82,22 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
             PInvoke.PostMessage(window, CloseMessage, default, default);
     }
 
-    private bool InstallUpdate(UpdateClient client, AvailableUpdate update)
+    private bool InstallUpdate(UpdateClient client, AvailableUpdate update) =>
+        UpdateInstallation.Run(files,
+            () => Wait($"正在下载 v{update.Version}…", "正在下载安装包并核对大小和 SHA-256。",
+                TimeSpan.FromMinutes(10), token => client.DownloadAsync(update, files, token)),
+            () => closing,
+            LaunchInstaller);
+
+    private static void LaunchInstaller(string package)
     {
-        if (inGame())
+        var start = new ProcessStartInfo(package)
         {
-            ShowGameNotice();
-            return false;
-        }
-
-        bool started = false;
-        try
-        {
-            string package = Wait($"正在下载 v{update.Version}…", "正在下载安装包并核对大小和 SHA-256。",
-                TimeSpan.FromMinutes(10), token => client.DownloadAsync(update, files, token));
-            if (closing)
-                return false;
-            if (inGame())
-            {
-                ShowGameNotice();
-                return false;
-            }
-            var start = new ProcessStartInfo(package)
-            {
-                ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" },
-                UseShellExecute = false
-            };
-            using var installer = Process.Start(start) ?? throw new InvalidOperationException("无法启动几格安装器。");
-            started = true;
-            return true;
-        }
-        finally
-        {
-            if (!started)
-                files.Clear();
-        }
+            ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" },
+            UseShellExecute = false
+        };
+        using var installer = Process.Start(start) ?? throw new InvalidOperationException("无法启动几格安装器。");
     }
-
-    private void ShowGameNotice() => Show("游戏中暂缓安装", "请退出游戏后再检查更新并安装。");
 
     private static string Explain(Exception error) => error switch
     {

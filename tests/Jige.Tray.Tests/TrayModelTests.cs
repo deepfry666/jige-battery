@@ -88,7 +88,9 @@ public sealed class TrayModelTests
         model.ApplyPoll([Reading(Headset, 20, charging: ChargingState.Full)], false, Now);
         Assert.Null(model.ReadyReminder(Now, false));
         Assert.Equal("已充满", Presentation.Status(model.OrderedDevices()[0], Now, 22));
-        Assert.False(Presentation.Icon(model.OrderedDevices()[0], false, 22).Underline);
+        var trayIcon = Presentation.Icon(model.OrderedDevices()[0], false, 22);
+        Assert.Equal(BatteryTone.Charging, trayIcon.Tone);
+        Assert.Equal(20, trayIcon.Percentage);
 
         model.ApplyPoll([Reading(Headset, 20)], false, Now);
         model.ApplySettings(model.Settings with { LowBatteryThreshold = 20 }, Now);

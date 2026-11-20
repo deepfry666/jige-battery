@@ -1,3 +1,6 @@
+using Jige.Core.Diagnostics;
+
+
 namespace Jige.Tray;
 
 /// <summary>
@@ -201,19 +204,39 @@ internal sealed class DesktopRefreshDebouncer
 
 internal enum ForegroundKind { System, Own, Other }
 
-internal readonly record struct GameMode(bool Game, bool BlockPopups)
+internal enum ForegroundGame { None, Fullscreen, BorderlessWorkArea, ProcessName }
+
+internal readonly record struct GameMode(DiagnosticGameState Status)
 {
-    public static GameMode Evaluate(int notificationState, bool foregroundGame, bool gameSilent)
+    public bool Game => Status.Active;
+    public bool BlockPopups => Game;
+
+    public static GameMode Evaluate(int notificationState, ForegroundGame foreground, bool gameSilent)
     {
-        bool game = notificationState is 2 or 3 or 4 || gameSilent && foregroundGame;
-        return new(game, game);
+        var reason = notificationState switch
+        {
+            3 => GameDetectionReason.D3dFullscreen,
+            4 => GameDetectionReason.Presentation,
+            2 => foreground == ForegroundGame.Fullscreen ? GameDetectionReason.BusyFullscreen : GameDetectionReason.None,
+            _ when gameSilent => foreground switch
+            {
+                ForegroundGame.Fullscreen or ForegroundGame.BorderlessWorkArea => GameDetectionReason.ForegroundGeometry,
+                ForegroundGame.ProcessName => GameDetectionReason.ProcessName,
+                _ => GameDetectionReason.None
+            },
+            _ => GameDetectionReason.None
+        };
+        return new(new(notificationState, reason));
     }
 
-    public static bool IsGameWindow(ForegroundKind kind, Bounds frame, Bounds screen, Bounds work,
-        bool hasCaption, bool knownGame)
+    public static ForegroundGame ClassifyWindow(ForegroundKind kind, Bounds frame, Bounds screen, Bounds work,
+        bool hasCaption)
     {
-        return kind == ForegroundKind.Other && (knownGame || Covers(frame, screen) ||
-            !hasCaption && Covers(frame, work));
+        if (kind != ForegroundKind.Other)
+            return ForegroundGame.None;
+        if (Covers(frame, screen))
+            return ForegroundGame.Fullscreen;
+        return !hasCaption && Covers(frame, work) ? ForegroundGame.BorderlessWorkArea : ForegroundGame.None;
     }
 
     private static bool Covers(Bounds frame, Bounds area)

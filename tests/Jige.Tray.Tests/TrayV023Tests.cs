@@ -26,7 +26,7 @@ public sealed class TrayV023Tests
 
         var onlineIcon = Presentation.Icon(model.PrimaryDevice, darkTaskbar: true, threshold: 15);
         Assert.Equal(BatteryTone.Normal, onlineIcon.Tone);
-        Assert.Equal((byte)255, onlineIcon.Ink.Alpha);
+        Assert.Equal((byte)255, onlineIcon.FillInk.Alpha);
 
         // t=8s: 几秒没动鼠标，Compx 接收器无回复超时 → 休眠（Asleep）。
         long hbTick = schedule.HeartbeatDue(clockMs, game: false, hasHeartbeatDevices: true)!.Value;
@@ -46,7 +46,7 @@ public sealed class TrayV023Tests
         // R1：图标不变灰，保留上次读数，悬停提示明确写「休眠中 · 上次 72%」。
         var asleepIcon = Presentation.Icon(asleepDevice, darkTaskbar: true, threshold: 15);
         Assert.Equal(BatteryTone.Normal, asleepIcon.Tone);
-        Assert.Equal((byte)255, asleepIcon.Ink.Alpha);
+        Assert.Equal((byte)255, asleepIcon.FillInk.Alpha);
         Assert.Equal(72, asleepIcon.Percentage);
         Assert.Equal("ATK 鼠标 · 休眠中 · 上次 72%", Presentation.DeviceTooltip(model, asleepDevice));
 
@@ -61,7 +61,7 @@ public sealed class TrayV023Tests
         model.ApplyPresence([new("atk-1", null, CompxMouse.Id, LinkState.Asleep, ReadIssue.Timeout)], Now.AddSeconds(28));
         var lowAsleepIcon = Presentation.Icon(model.PrimaryDevice, darkTaskbar: true, threshold: 15);
         Assert.Equal(BatteryTone.Low, lowAsleepIcon.Tone);
-        Assert.Equal((byte)255, lowAsleepIcon.Ink.Alpha);
+        Assert.Equal((byte)255, lowAsleepIcon.FillInk.Alpha);
         Assert.Null(model.ReadyReminder(Now.AddSeconds(28), false));
     }
 
@@ -91,7 +91,7 @@ public sealed class TrayV023Tests
         Assert.Equal(LinkState.Offline, offlineDevice.Link);
         var icon = Presentation.Icon(offlineDevice, darkTaskbar: true, threshold: 15);
         Assert.Equal(BatteryTone.Idle, icon.Tone);
-        Assert.Equal((byte)140, icon.Ink.Alpha);
+        Assert.Equal((byte)140, icon.FillInk.Alpha);
         Assert.Equal("ATK 鼠标 · 已断开 · 上次 65%", Presentation.DeviceTooltip(model, offlineDevice));
         Assert.True(model.BuildMainPanel().HeroDisconnected);
     }
@@ -201,7 +201,7 @@ public sealed class TrayV023Tests
         Assert.Equal(LinkState.Online, model.PrimaryDevice!.Link);
         Assert.True(model.PrimaryDevice.PendingRefresh);
         Assert.Equal(BatteryTone.Normal, Presentation.Icon(model.PrimaryDevice, true, 15).Tone);
-        Assert.Equal((byte)255, Presentation.Icon(model.PrimaryDevice, true, 15).Ink.Alpha);
+        Assert.Equal((byte)255, Presentation.Icon(model.PrimaryDevice, true, 15).FillInk.Alpha);
 
         // 随后的完整电量查询返回最新值 87%，清除 PendingRefresh 并标记 Fresh。
         model.ApplyPoll([new(CompxMouse, 87, false, ChargingState.NotCharging, LinkState.Online, Now.AddSeconds(12))],

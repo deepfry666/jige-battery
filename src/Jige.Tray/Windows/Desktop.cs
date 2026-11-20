@@ -96,29 +96,38 @@ internal static unsafe class Desktop
     {
         var result = PInvoke.SHQueryUserNotificationState(out var state);
         int notificationState = result.Succeeded ? (int)state : 0;
-        bool foregroundGame = settings.GameSilent && notificationState is not (2 or 3 or 4) &&
-            IsGameWindow(foreground, settings.GameProcessNames);
+        bool busy = notificationState == 2;
+        var foregroundGame = busy || settings.GameSilent && notificationState is not (3 or 4)
+            ? IsGameWindow(foreground, settings.GameProcessNames, fullscreenOnly: busy)
+            : ForegroundGame.None;
         return Jige.Tray.GameMode.Evaluate(notificationState, foregroundGame, settings.GameSilent);
     }
 
-    private static bool IsGameWindow(HWND foreground, string[] gameProcessNames)
+    private static ForegroundGame IsGameWindow(HWND foreground, string[] gameProcessNames, bool fullscreenOnly)
     {
         var kind = Classify(foreground, out uint processId);
         if (kind != ForegroundKind.Other || !PInvoke.IsWindowVisible(foreground))
-            return false;
+            return ForegroundGame.None;
 
-        if (gameProcessNames.Length > 0 && ProcessMatches(processId, gameProcessNames))
-            return true;
+        if (fullscreenOnly)
+        {
+            var exStyle = (WINDOW_EX_STYLE)PInvoke.GetWindowLong(foreground, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+            if ((exStyle & (WINDOW_EX_STYLE.WS_EX_TOOLWINDOW | WINDOW_EX_STYLE.WS_EX_NOACTIVATE)) != 0)
+                return ForegroundGame.None;
+        }
+
+        if (!fullscreenOnly && gameProcessNames.Length > 0 && ProcessMatches(processId, gameProcessNames))
+            return ForegroundGame.ProcessName;
         RECT frame;
         if (PInvoke.DwmGetWindowAttribute(foreground, DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS,
             &frame, (uint)sizeof(RECT)).Failed && !PInvoke.GetWindowRect(foreground, out frame))
-            return false;
+            return ForegroundGame.None;
         var monitor = Monitor(PInvoke.MonitorFromWindow(foreground, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST));
         const int styleIndex = -16; // GWL_STYLE
         const int caption = 0x00C00000; // WS_CAPTION
         bool hasCaption = (PInvoke.GetWindowLong(foreground, (WINDOW_LONG_PTR_INDEX)styleIndex) & caption) == caption;
-        return Jige.Tray.GameMode.IsGameWindow(kind, ToBounds(frame), ToBounds(monitor.rcMonitor),
-            ToBounds(monitor.rcWork), hasCaption, knownGame: false);
+        return Jige.Tray.GameMode.ClassifyWindow(kind, ToBounds(frame), ToBounds(monitor.rcMonitor),
+            ToBounds(monitor.rcWork), hasCaption);
     }
 
     private static Bounds ToBounds(RECT rect) => new(rect.left, rect.top, rect.right, rect.bottom);

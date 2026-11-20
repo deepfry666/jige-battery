@@ -367,7 +367,8 @@ public sealed class GenericAndPresenceTests
             ],
             ProcessMetrics: new(32 * 1024 * 1024, 48 * 1024 * 1024, 450, 22, 28, TimeSpan.FromSeconds(1.25), TimeSpan.FromMinutes(15)),
             SettingsSummary: new("每台设备一个图标", 15, 60, 300, 8, 30, true, 2, true, gates.BlockedCount),
-            Gates: gates);
+            Gates: gates,
+            GameState: new(5, GameDetectionReason.ProcessName));
 
         string report = await DiagnosticReport.GenerateAsync(new([], [], []), new FakeReceiverTransport(),
             CancellationToken.None, 115200, context);
@@ -380,6 +381,11 @@ public sealed class GenericAndPresenceTests
         Assert.Contains("私有内存=32.0MB|工作集=48.0MB|句柄=450|GDI=22|USER=28|累计CPU=1.25s|运行时长=15m00s", report);
         Assert.Contains("# 当前设置摘要", report);
         Assert.Contains("托盘模式=每台设备一个图标|低电量阈值=15%", report);
+        Assert.Contains($"{Environment.NewLine}当前游戏判定：游戏中（通知状态=5，依据=进程名）", report);
+
+        string desktopReport = await DiagnosticReport.GenerateAsync(new([], [], []), new FakeReceiverTransport(),
+            context: context with { GameState = new(2, GameDetectionReason.None) });
+        Assert.Contains("当前游戏判定：非游戏中（通知状态=2，依据=未触发）", desktopReport);
 
         // D3 脱敏验证：不出现任何序列号、实例 ID、用户名、计算机名或本地路径。
         Assert.DoesNotContain("secret", report, StringComparison.OrdinalIgnoreCase);

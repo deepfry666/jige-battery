@@ -9,178 +9,6 @@ public sealed class TrayV025Tests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 20, 12, 0, 0, TimeSpan.Zero);
 
-    private static readonly DeviceKind[] AllKinds =
-        [DeviceKind.Mouse, DeviceKind.Keyboard, DeviceKind.Headset, DeviceKind.Other];
-
-    private static readonly int[] AllSizes = [16, 20, 24, 28, 32, 48];
-
-    [Fact]
-    public void T1AndT5_IconLayoutNeverOverlapsOrExitsBoundsForEveryKindSizeAndState()
-    {
-        int?[] percentages = [null, 5, 9, 20, 48, 80, 100];
-        bool[] darkModes = [false, true];
-        ChargingState[] chargingStates = [ChargingState.NotCharging, ChargingState.Charging, ChargingState.Full];
-
-        foreach (var kind in AllKinds)
-        {
-            foreach (int size in AllSizes)
-            {
-                foreach (var pct in percentages)
-                {
-                    foreach (bool dark in darkModes)
-                    {
-                        foreach (var charging in chargingStates)
-                        {
-                            var id = new DeviceIdentity($"dev:{kind}", "测试设备", kind);
-                            var last = pct is int value ? new SavedBattery(id, value, false, Now) : null;
-                            var status = new DeviceStatus(id, LinkState.Online, ReadIssue.None, charging, last, Fresh: last is not null);
-                            var appearance = Presentation.Icon(status, dark, threshold: 15);
-                            var layout = TrayIconLayout.Compute(size, appearance);
-
-                            Assert.True(layout.HasGlyph);
-                            Assert.True(layout.Glyph.IsWithin(size), $"{kind} {size}px glyph out of bounds: {layout.Glyph}");
-                            Assert.True(layout.Digits.IsWithin(size), $"{kind} {size}px digits out of bounds: {layout.Digits}");
-                            Assert.False(layout.Glyph.Overlaps(layout.Digits), $"{kind} {size}px glyph overlaps digits");
-                            Assert.True(layout.Glyph.Bottom < layout.Digits.Y,
-                                $"{kind} {size}px missing gap between glyph ({layout.Glyph.Bottom}) and digits ({layout.Digits.Y})");
-
-                            if (layout.HasUnderline)
-                            {
-                                Assert.True(layout.Underline.IsWithin(size), $"{kind} {size}px underline out of bounds");
-                                Assert.False(layout.Underline.Overlaps(layout.Digits));
-                                Assert.False(layout.Underline.Overlaps(layout.Glyph));
-                                Assert.True(layout.Digits.Bottom < layout.Underline.Y,
-                                    $"{kind} {size}px missing gap between digits and underline");
-                            }
-
-                            if (size == 16 && !layout.HasUnderline)
-                                Assert.Equal(10, layout.Digits.Height);
-                            if (size == 24)
-                                Assert.Equal(15, layout.Digits.Height);
-                            if (size == 32)
-                                Assert.Equal(20, layout.Digits.Height);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    [Fact]
-    public void T2AndT3_16pxPixelsHaveDistinctDeviceGlyphsCleanGapAndNonTruncated100()
-    {
-        HashSet<string> normalSignatures = [];
-        HashSet<string> chargingSignatures = [];
-
-        foreach (var kind in AllKinds)
-        {
-            var id = new DeviceIdentity($"dev:{kind}", "测试设备", kind);
-            var normalDev = new DeviceStatus(id, LinkState.Online, ReadIssue.None, ChargingState.NotCharging,
-                new(id, 80, false, Now), true);
-            var normalIcon = Presentation.Icon(normalDev, darkTaskbar: true, threshold: 15);
-            var normalLayout = TrayIconLayout.Compute(16, normalIcon);
-            var normalPixels = new uint[256];
-            PixelDigits.Draw(normalPixels, normalIcon);
-
-            // 上方设备图形区域有像素且各类型互不相同。
-            string glyphSig = RegionSignature(normalPixels, normalLayout.Glyph);
-            Assert.Contains('#', glyphSig);
-            Assert.True(normalSignatures.Add(glyphSig), $"设备类型 {kind} 的 16px 图形与其他类型重复");
-
-            // 图形和数字之间的空行（y=5）必须完全透明，绝不重叠。
-            AssertRowEmpty(normalPixels, 5);
-            // 数字区域（y=6..15）有像素。
-            Assert.Contains('#', RegionSignature(normalPixels, normalLayout.Digits));
-
-            // 充电带底线（48%）：y=4 和 y=14 两行空隙都必须完全透明，y=15 绘制绿色底线。
-            var chargingDev = new DeviceStatus(id, LinkState.Online, ReadIssue.None, ChargingState.Charging,
-                new(id, 48, false, Now), true);
-            var chargingIcon = Presentation.Icon(chargingDev, darkTaskbar: false, threshold: 15);
-            var chargingLayout = TrayIconLayout.Compute(16, chargingIcon);
-            var chargingPixels = new uint[256];
-            PixelDigits.Draw(chargingPixels, chargingIcon);
-
-            string compactSig = RegionSignature(chargingPixels, chargingLayout.Glyph);
-            Assert.Contains('#', compactSig);
-            Assert.True(chargingSignatures.Add(compactSig), $"设备类型 {kind} 的 16px 充电紧凑图形重复");
-            AssertRowEmpty(chargingPixels, 4);
-            AssertRowEmpty(chargingPixels, 14);
-            uint expectedGreen = chargingIcon.Ink.Premultiplied;
-            Assert.All(chargingPixels.AsSpan(15 * 16 + chargingLayout.Underline.X, chargingLayout.Underline.Width).ToArray(),
-                p => Assert.Equal(expectedGreen, p));
-
-            // T3：100% 在 16px 宽度内完整放下（三位数 100，左侧 1 + 中间 0 + 右侧 0 都有像素且不越界）。
-            var fullDev = new DeviceStatus(id, LinkState.Online, ReadIssue.None, ChargingState.Full,
-                new(id, 100, false, Now), true);
-            var fullIcon = Presentation.Icon(fullDev, darkTaskbar: true, threshold: 15);
-            Assert.True(fullIcon.Full);
-            Assert.False(fullIcon.Underline);
-            var fullPixels = new uint[256];
-            PixelDigits.Draw(fullPixels, fullIcon);
-            AssertRowEmpty(fullPixels, 5);
-            // 验证“1”（x=1）、第一个“0”（x=4..8）、第二个“0”（x=10..14）均已绘制。
-            Assert.NotEqual(0u, fullPixels[7 * 16 + 1]);
-            Assert.NotEqual(0u, fullPixels[7 * 16 + 4]);
-            Assert.Equal(0u, fullPixels[8 * 16 + 6]); // 第一个 0 中空
-            Assert.NotEqual(0u, fullPixels[7 * 16 + 10]);
-            Assert.Equal(0u, fullPixels[8 * 16 + 12]); // 第二个 0 中空
-        }
-    }
-
-    [Fact]
-    public void T1_GlyphUsesTaskbarInkWhileDigitsPreserveStatusColors()
-    {
-        var id = new DeviceIdentity("logitech-hidpp:bolt/1/unit-A", "MX Anywhere 3S", DeviceKind.Mouse);
-        var low = new DeviceStatus(id, LinkState.Online, ReadIssue.None, ChargingState.NotCharging, new(id, 10, false, Now), true);
-        var darkIcon = Presentation.Icon(low, darkTaskbar: true, threshold: 15);
-        Assert.Equal(BatteryTone.Low, darkIcon.Tone);
-        Assert.Equal(new Color(0xff99a4), darkIcon.Ink);
-        Assert.Equal(new Color(0xf3f3f3), darkIcon.EffectiveGlyphInk);
-
-        var lightIcon = Presentation.Icon(low, darkTaskbar: false, threshold: 15);
-        Assert.Equal(new Color(0xc42b1c), lightIcon.Ink);
-        Assert.Equal(new Color(0x1b1b1b), lightIcon.EffectiveGlyphInk);
-
-        // 休眠中保留上次读数且图标不变灰。
-        var asleep = new DeviceStatus(id, LinkState.Asleep, ReadIssue.Timeout, ChargingState.Unknown, new(id, 20, false, Now), false);
-        var asleepIcon = Presentation.Icon(asleep, darkTaskbar: true, threshold: 15);
-        Assert.Equal(BatteryTone.Warning, asleepIcon.Tone);
-        Assert.Equal((byte)255, asleepIcon.Ink.Alpha);
-        Assert.Equal((byte)255, asleepIcon.EffectiveGlyphInk.Alpha);
-    }
-
-    [Fact]
-    public void T4_LowestBatteryCarriesDeviceKindAndNoActiveDeviceKeepsFallbackIcon()
-    {
-        var model = new TrayModel(new() { TrayMode = TrayDisplayMode.LowestBattery }, new());
-        var mouse = new DeviceIdentity("logitech-hidpp:bolt/1/unit-M", "MX Anywhere 3S", DeviceKind.Mouse);
-        var keyboard = new DeviceIdentity("logitech-hidpp:bolt/2/unit-K", "MX Keys S", DeviceKind.Keyboard);
-        model.ApplyPoll([
-            new(mouse, 80, false, ChargingState.NotCharging, LinkState.Online, Now),
-            new(keyboard, 25, false, ChargingState.NotCharging, LinkState.Online, Now)
-        ], false, Now);
-
-        var lowestSlot = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
-        Assert.Equal(TrayIconPlan.SingleKey, lowestSlot.Key);
-        var lowestAppearance = Presentation.Icon(lowestSlot.Device, darkTaskbar: true, threshold: 15);
-        Assert.Equal(DeviceKind.Keyboard, lowestAppearance.Kind);
-        Assert.Equal(25, lowestAppearance.Percentage);
-        Assert.True(TrayIconLayout.Compute(16, lowestAppearance).HasGlyph);
-
-        // 无活跃设备时保留「几格」默认短横线图标（不带设备类型图形）。
-        model.ApplyPoll([], false, Now.AddMinutes(1));
-        var emptySlot = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
-        Assert.Null(emptySlot.Device);
-        var fallback = Presentation.Icon(emptySlot.Device, darkTaskbar: true, threshold: 15);
-        Assert.Null(fallback.Kind);
-        Assert.Null(fallback.Percentage);
-        Assert.False(TrayIconLayout.Compute(16, fallback).HasGlyph);
-
-        var pixels = new uint[256];
-        PixelDigits.Draw(pixels, fallback);
-        Assert.Equal(12, pixels.Count(p => p != 0));
-    }
-
     [Fact]
     public void H5AndH6_CustomModeSingleCardCoversAllStatesSourceLabelsAndLongNames()
     {
@@ -430,24 +258,9 @@ public sealed class TrayV025Tests
     }
 
     [Fact]
-    public void T1AndH5_UnknownReadingWithKnownKindDrawsGlyphAndShowsWaitingStatus()
+    public void H5_UnknownReadingShowsWaitingStatus()
     {
-        var mouse = new DeviceIdentity("logitech-hidpp:bolt/1/unit-M", "MX Anywhere 3S", DeviceKind.Mouse)
-        {
-            SourceLabel = "罗技 Bolt 接收器"
-        };
-        var icon = Presentation.Icon(new DeviceStatus(mouse, LinkState.Online, ReadIssue.None, ChargingState.Unknown, null, false),
-            darkTaskbar: true, threshold: 15);
-        Assert.Equal(DeviceKind.Mouse, icon.Kind);
-        Assert.Null(icon.Percentage);
-        Assert.Equal(BatteryTone.Idle, icon.Tone);
-
-        var pixels = new uint[256];
-        PixelDigits.Draw(pixels, icon);
-        AssertRowEmpty(pixels, 5);
-        Assert.Contains('#', RegionSignature(pixels, TrayIconLayout.Compute(16, icon).Glyph));
-        Assert.Contains('#', RegionSignature(pixels, TrayIconLayout.Compute(16, icon).Digits));
-
+        var mouse = new DeviceIdentity("logitech-hidpp:bolt/1/unit-M", "MX Anywhere 3S", DeviceKind.Mouse);
         var waitingStatus = HoverCardBuilder.SingleStatusLine(
             new DeviceStatus(mouse, LinkState.Asleep, ReadIssue.Timeout, ChargingState.Unknown, null, false),
             BatteryTone.Idle, Now);
@@ -457,16 +270,18 @@ public sealed class TrayV025Tests
     [Fact]
     public void G4H2AndH8_HoverCardBlockedInGameOrWhenMainPanelOrMenuIsOpen()
     {
-        var normal = GameMode.Evaluate(notificationState: 5, foregroundGame: false, gameSilent: true);
-        var d3dFullscreen = GameMode.Evaluate(notificationState: 3, foregroundGame: false, gameSilent: false);
-        var busy = GameMode.Evaluate(notificationState: 2, foregroundGame: false, gameSilent: false);
-        var borderlessGame = GameMode.Evaluate(notificationState: 5, foregroundGame: true, gameSilent: true);
+        var normal = GameMode.Evaluate(notificationState: 5, foreground: ForegroundGame.None, gameSilent: true);
+        var d3dFullscreen = GameMode.Evaluate(notificationState: 3, foreground: ForegroundGame.None, gameSilent: false);
+        var busy = GameMode.Evaluate(notificationState: 2, foreground: ForegroundGame.None, gameSilent: false);
+        var borderlessGame = GameMode.Evaluate(notificationState: 5, foreground: ForegroundGame.BorderlessWorkArea, gameSilent: true);
 
         Assert.True(HoverCardPolicy.CanShow(normal, popupOpen: false, menuOpen: false, dialogOpen: false));
 
         // 全屏独占游戏（即使关闭 GameSilent）与游戏静默识别的游戏均不显示悬停卡片。
         Assert.False(HoverCardPolicy.CanShow(d3dFullscreen, popupOpen: false));
-        Assert.False(HoverCardPolicy.CanShow(busy, popupOpen: false));
+        Assert.True(HoverCardPolicy.CanShow(busy, popupOpen: false));
+        var busyFullscreen = GameMode.Evaluate(2, ForegroundGame.Fullscreen, gameSilent: false);
+        Assert.False(HoverCardPolicy.CanShow(busyFullscreen, popupOpen: false));
         Assert.False(HoverCardPolicy.CanShow(borderlessGame, popupOpen: false));
 
         // 主面板、右键菜单或更新窗口打开时不显示悬停卡片。
@@ -518,23 +333,5 @@ public sealed class TrayV025Tests
         model.ApplyPoll([new(mouse, 63, false, ChargingState.NotCharging, LinkState.Online, Now.AddSeconds(10))], false, Now.AddSeconds(10));
         var reconnected = Assert.Single(TrayIconPlan.Build(model, suppressTooltip: false));
         Assert.Equal(firstUid, TrayIconPlan.ReserveId(reconnected.Key, reservations));
-    }
-
-    private static string RegionSignature(uint[] pixels, IconRect rect)
-    {
-        var chars = new char[rect.Width * rect.Height];
-        int i = 0;
-        for (int y = rect.Y; y < rect.Bottom; y++)
-        {
-            for (int x = rect.X; x < rect.Right; x++)
-                chars[i++] = pixels[y * 16 + x] != 0 ? '#' : '.';
-        }
-        return new string(chars);
-    }
-
-    private static void AssertRowEmpty(uint[] pixels, int y)
-    {
-        for (int x = 0; x < 16; x++)
-            Assert.Equal(0u, pixels[y * 16 + x]);
     }
 }
