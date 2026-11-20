@@ -79,6 +79,7 @@ internal sealed partial class PopupScene : IDisposable
     private Composition.Layer? updatePulse;
     private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion;
     private string? error;
+    private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
     private UpdateViewState updateState = UpdateViewState.Idle("", false);
@@ -161,10 +162,12 @@ internal sealed partial class PopupScene : IDisposable
         : item;
 
     public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing,
-        DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded, UpdateViewState update)
+        DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded, UpdateViewState update,
+        string? stripFallback = null)
     {
         offlineExpanded = showOfflineExpanded;
         updateState = update;
+        displayLocationFallback = stripFallback;
         if (update.Phase != UpdatePhase.Available || update.Available?.Version != lastUpdateNotesVersion)
         {
             updateNotesScroll = 0;

@@ -102,7 +102,7 @@ internal sealed partial class PopupScene
             string value = row switch
             {
                 SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
-                SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation),
+                SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation, displayLocationFallback),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
                 _ => Presentation.Interval(settings.PollSeconds)
             };
@@ -183,7 +183,10 @@ internal sealed partial class PopupScene
                     continue;
                 }
                 bool selected = IsSelected(choice.Target);
-                canvas.Text(choice.Label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
+                string label = row == SettingRow.DisplayLocation
+                    ? SettingsPanel.DisplayLocationOptionLabel(choice, displayLocationFallback)
+                    : choice.Label;
+                canvas.Text(label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
                     selected ? 600 : 400, ellipsis: true);
                 if (selected)
                 {

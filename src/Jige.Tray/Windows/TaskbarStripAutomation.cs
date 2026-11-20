@@ -23,6 +23,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     private HWND requested;
     private TaskbarStripGeometry? pending, lastPublished;
     private bool posted, disposed, reconnect;
+    private string? lastErrorLog;
 
     public TaskbarStripAutomation(HWND host, uint message)
     {
@@ -117,14 +118,22 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                     if (automation == null)
                         automation = ConnectAutomation();
                     if (root == null)
-                        root = Observe(automation, owner);
+                    {
+                        root = automation->ElementFromHandle(owner);
+                        if (root == null)
+                            throw new COMException();
+                        TrySubscribeEvents(automation, root);
+                    }
                     var controls = ReadControls(automation, root);
                     geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, controls) };
+                    lastErrorLog = null;
                 }
                 catch (Exception error) when (error is ExternalException or UnauthorizedAccessException or InvalidOperationException)
                 {
                     // Explorer may be restarting or have an unavailable provider. The
                     // next Shell or UI Automation notification can supply fresh bounds.
+                    Disconnect(automation, ref root);
+                    LogErrorOnce("读取任务栏布局失败", error);
                 }
                 finally
                 {
@@ -163,11 +172,8 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         }
     }
 
-    private IUIAutomationElement* Observe(IUIAutomation2* automation, HWND owner)
+    private void TrySubscribeEvents(IUIAutomation2* automation, IUIAutomationElement* root)
     {
-        var root = automation->ElementFromHandle(owner);
-        if (root == null)
-            throw new COMException();
         try
         {
             var sink = (IUnknown*)EventComWrappers.Instance.GetOrCreateComInterfaceForObject(
@@ -185,7 +191,6 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                 };
                 automation->AddPropertyChangedEventHandlerNativeArray(root, TreeScope.TreeScope_Subtree,
                     null, property, properties, 2);
-                return root;
             }
             finally
             {
@@ -194,10 +199,20 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                 Graphics.Release(sink);
             }
         }
-        catch
+        catch (Exception error) when (error is ExternalException or UnauthorizedAccessException or InvalidOperationException)
         {
-            Disconnect(automation, ref root);
-            throw;
+            // 即使事件订阅失败，仍继续使用本次及后续 Shell 通知读取的控件边界。
+            LogErrorOnce("订阅任务栏变更失败", error);
+        }
+    }
+
+    private void LogErrorOnce(string message, Exception error)
+    {
+        string summary = TrayLog.Describe(message, error);
+        if (lastErrorLog != summary)
+        {
+            lastErrorLog = summary;
+            Desktop.Log(summary);
         }
     }
 

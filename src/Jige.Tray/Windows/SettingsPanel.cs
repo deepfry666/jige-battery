@@ -27,8 +27,17 @@ internal sealed class SettingsPanel(int availableHeight)
         new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.TrayIcons), "托盘图标")
     ];
 
-    public static string DisplayLocationLabel(TrayDisplayLocation location) =>
-        DisplayLocationChoices[location == TrayDisplayLocation.TrayIcons ? 1 : 0].Label;
+    public static string DisplayLocationLabel(TrayDisplayLocation location, string? fallbackReason = null) =>
+        location == TrayDisplayLocation.TrayIcons ? DisplayLocationChoices[1].Label
+        : string.IsNullOrEmpty(fallbackReason) ? DisplayLocationChoices[0].Label
+        : "已回退托盘";
+
+    public static string DisplayLocationOptionLabel(SettingChoice choice, string? fallbackReason) =>
+        choice.Target.Action == PopupAction.DisplayLocation &&
+        choice.Target.Value == (int)TrayDisplayLocation.Taskbar &&
+        !string.IsNullOrEmpty(fallbackReason)
+            ? $"任务栏（回退：{fallbackReason}）"
+            : choice.Label;
 
     public static readonly SettingChoice[] ThresholdChoices =
     [
