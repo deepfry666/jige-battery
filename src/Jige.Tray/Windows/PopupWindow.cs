@@ -35,6 +35,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private DateTimeOffset now;
     private bool running;
     private string? error;
+    private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
     private UpdateViewState updateState = UpdateViewState.Idle("", false);
@@ -64,7 +65,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     }
 
     public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics,
-        bool previewPending, UpdateViewState update, bool reset = false)
+        bool previewPending, UpdateViewState update, string? displayLocationFallback = null, bool reset = false)
     {
         if (Closing)
             return;
@@ -72,6 +73,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         now = time;
         running = pollRunning;
         error = settingsError;
+        this.displayLocationFallback = displayLocationFallback;
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
         updateState = update;
@@ -353,7 +355,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState, displayLocationFallback);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)

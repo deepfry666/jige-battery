@@ -193,6 +193,47 @@ public sealed class TaskbarStripTests
     }
 
     [Fact]
+    public void FindsWindows11AutomationPeerTaskbarButtonsAndFullWidthFrame()
+    {
+        TaskbarControl[] controls =
+        [
+            new(Bar, "", "Taskbar.TaskbarFrameAutomationPeer", false),
+            new(new(613, 1036, 659, 1076), "StartButton", "ToggleButton", true),
+            new(new(663, 1036, 860, 1076), "SearchButton", "Button", false),
+            new(new(864, 1036, 912, 1076), "Appid: Microsoft.Windows.Explorer", "Taskbar.TaskListButtonAutomationPeer", true),
+            new(new(916, 1036, 964, 1076), "Appid: Chrome", "Taskbar.TaskListButtonAutomationPeer", true),
+            new(Tray, "", "SystemTray.SystemTrayFrame", false),
+            new(new(1800, 1036, 1840, 1076), "ControlCenterButton", "SystemTray.OmniButton", true)
+        ];
+        Assert.Equal(new TaskbarControls(Tray, 964), TaskbarControls.Locate(Bar, Tray, controls));
+
+        // 即使当前没有固定或打开的应用按钮，只要识别到现代 TaskbarFrame 与开始按钮也能确认占用边界。
+        TaskbarControl[] noApps = [controls[0], controls[1], controls[2], controls[5], controls[6]];
+        Assert.Equal(new TaskbarControls(Tray, 860), TaskbarControls.Locate(Bar, Tray, noApps));
+
+        // 仅凭开始按钮而缺少框架和任务列表时，仍保持保守回退。
+        TaskbarControl[] startOnly = [controls[1], controls[5]];
+        Assert.Equal(new TaskbarControls(Tray, null), TaskbarControls.Locate(Bar, Tray, startOnly));
+    }
+
+    [Fact]
+    public void SettingsShowsFallbackStatusWhenTaskbarStripFallsBack()
+    {
+        var noRoom = TaskbarStripDisplay.Resolve(TrayDisplayLocation.Taskbar, Place(occupiedRight: 1700), true, false);
+        Assert.True(noRoom.IsFallback);
+        Assert.Equal("已回退托盘", SettingsPanel.DisplayLocationLabel(TrayDisplayLocation.Taskbar, noRoom.Description));
+        Assert.Equal("任务栏（回退：通知区左侧空间不足）",
+            SettingsPanel.DisplayLocationOptionLabel(SettingsPanel.DisplayLocationChoices[0], noRoom.Description));
+        Assert.Equal("托盘图标",
+            SettingsPanel.DisplayLocationOptionLabel(SettingsPanel.DisplayLocationChoices[1], noRoom.Description));
+
+        var ready = TaskbarStripDisplay.Resolve(TrayDisplayLocation.Taskbar, Place(), true, false);
+        Assert.False(ready.IsFallback);
+        Assert.Equal("任务栏（推荐）", SettingsPanel.DisplayLocationLabel(TrayDisplayLocation.Taskbar, null));
+        Assert.Equal("托盘图标", SettingsPanel.DisplayLocationLabel(TrayDisplayLocation.TrayIcons, noRoom.Description));
+    }
+
+    [Fact]
     public void ChoosesEarliestTrayControlAndDoesNotIgnoreKnownOverlappingTaskButton()
     {
         var chevron = new Bounds(1690, 1036, 1720, 1076);

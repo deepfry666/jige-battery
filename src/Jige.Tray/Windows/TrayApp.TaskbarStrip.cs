@@ -20,6 +20,11 @@ internal sealed partial class TrayApp
     private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.NoDevices, default);
     private HWND stripOwner;
     private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable;
+    private bool StripGeometryPending => model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
+        !stripOwner.IsNull && stripGeometry.Owner.IsNull;
+    private string? DisplayLocationFallbackReason =>
+        model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar && stripDisplay.IsFallback && !StripGeometryPending
+            ? stripDisplay.Description : null;
 
     private void RefreshStripGeometry()
     {
@@ -91,10 +96,13 @@ internal sealed partial class TrayApp
         if (!geometry.Owner.IsNull && geometry.Owner != stripOwner)
             return;
         var previous = stripWindow?.VisibleBounds;
+        var previousReason = stripDisplay.Reason;
         stripGeometry = geometry;
         RefreshIcon();
         if (openedFromStrip && previous != stripWindow?.VisibleBounds)
             ReanchorStripPopup();
+        else if (stripDisplay.Reason != previousReason)
+            RenderPopup();
         if (hoverCard is not null && hoverIconId is null)
             RenderHoverCard();
     }
@@ -166,9 +174,7 @@ internal sealed partial class TrayApp
 
         if (next.Reason != stripDisplay.Reason)
         {
-            if (next.Reason is TaskbarStripReason.MissingTaskbar or TaskbarStripReason.MissingNotificationArea or
-                TaskbarStripReason.UnknownButtonBounds or TaskbarStripReason.UnsupportedEdge or
-                TaskbarStripReason.NoRoom or TaskbarStripReason.WindowUnavailable)
+            if (next.IsFallback && !(next.Reason == TaskbarStripReason.MissingTaskbar && StripGeometryPending))
                 Desktop.Log($"任务栏直读条临时回退：{next.Description}");
             else if (next.ShowStrip && !stripDisplay.DefaultIconOnly && stripDisplay.Reason != TaskbarStripReason.UserSelectedTray)
                 Desktop.Log("任务栏直读条已恢复");
