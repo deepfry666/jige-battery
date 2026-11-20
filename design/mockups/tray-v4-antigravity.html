@@ -1,0 +1,1216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>几格 · 托盘电量显示新方案（v4）</title>
+<style>
+  :root {
+    --paper: #f0ece4;
+    --bg: #f6f3ee;
+    --ink: #211d19;
+    --muted: #665e56;
+    --card: #fffdf9;
+    --line: #e2dbd0;
+    --soft: #efeae1;
+    --accent-bg: #211d19;
+    --accent-fg: #f0ece4;
+    --ok: #1b7f46;
+    --warn: #b54708;
+    --risk: #b42318;
+    --tb-dark: rgb(28, 31, 40);
+    --tb-light: #eeeeee;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171513;
+      --ink: #f0ece4;
+      --muted: #a89f94;
+      --card: #211d19;
+      --line: #36302a;
+      --soft: #2a2520;
+      --accent-bg: #f0ece4;
+      --accent-fg: #211d19;
+      --ok: #5cd68d;
+      --warn: #f7b955;
+      --risk: #ff7b7b;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.65 "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    padding: 28px 18px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 1020px; margin: 0 auto; }
+
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding-bottom: 18px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid var(--line);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .brand-mark {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    background: var(--ink);
+    color: var(--paper);
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: -0.02em;
+    flex: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    .brand-mark { background: var(--paper); color: #211d19; }
+  }
+  h1 { margin: 0; font-size: 21px; letter-spacing: -0.01em; line-height: 1.25; }
+  .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  .sample-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.ok { background: #8c857b; }
+  .dot.low { background: #ff5c5c; }
+  .dot.chg { background: #3fd16b; }
+
+  .summary-table-wrap {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    overflow-x: auto;
+  }
+  .summary-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 0 0 10px;
+    letter-spacing: 0.04em;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    min-width: 620px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-top: 1px solid var(--line);
+    vertical-align: top;
+  }
+  thead th {
+    border-top: none;
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    padding-top: 2px;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: var(--accent-bg);
+    color: var(--accent-fg);
+    margin-left: 6px;
+    vertical-align: 1px;
+    white-space: nowrap;
+  }
+  .badge.soft {
+    background: var(--soft);
+    color: var(--muted);
+    border: 1px solid var(--line);
+  }
+
+  .proposal {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 20px 22px 22px;
+    margin-bottom: 22px;
+  }
+  .proposal-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .proposal h2 {
+    margin: 0;
+    font-size: 18px;
+    line-height: 1.3;
+  }
+  .proposal-lead {
+    margin: 0 0 18px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  /* Visual stage */
+  .stage-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 18px;
+  }
+  .scale-block {
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 14px;
+  }
+  .scale-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .scale-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .scale-hint {
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .theme-pair {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: flex-end;
+  }
+  .theme-col {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+  }
+  .theme-tag {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  /* Simulated Windows 11 Taskbar */
+  .taskbar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    height: 48px;
+    padding: 0 12px 0 16px;
+    background: var(--tb-dark);
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow-x: auto;
+    max-width: 100%;
+  }
+  .taskbar.light {
+    background: var(--tb-light);
+    border-color: rgba(0, 0, 0, 0.1);
+  }
+  .taskbar.scale-2x {
+    height: 72px;
+    padding: 0 18px 0 22px;
+    gap: 16px;
+  }
+
+  /* Tray icons group */
+  .tray-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .taskbar.scale-2x .tray-group { gap: 16px; }
+  .p2-slot {
+    width: 48px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .taskbar.scale-2x .p2-slot { width: 64px; }
+  .p2-legend {
+    display: flex;
+    gap: 10px;
+    padding-left: 16px;
+    margin-top: 2px;
+  }
+  .p2-legend.scale-2x {
+    gap: 16px;
+    padding-left: 22px;
+  }
+  .p2-legend span {
+    width: 48px;
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .p2-legend.scale-2x span { width: 64px; font-size: 11px; }
+
+  .sys-right {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0.72;
+    padding-left: 8px;
+    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    flex: none;
+  }
+  .taskbar.light .sys-right {
+    border-left-color: rgba(0, 0, 0, 0.12);
+    opacity: 0.78;
+  }
+  .taskbar.scale-2x .sys-right {
+    gap: 16px;
+    padding-left: 14px;
+  }
+  .sys-clock {
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-size: 12px;
+    line-height: 1.2;
+    text-align: right;
+    color: #f3f3f3;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+  }
+  .taskbar.light .sys-clock { color: #1b1b1b; }
+  .taskbar.scale-2x .sys-clock { font-size: 20px; }
+
+  /* Desktop corner mockup for Proposal 3 */
+  .desktop-scene {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    max-width: 100%;
+  }
+  .desktop-scene.light {
+    border-color: rgba(0, 0, 0, 0.12);
+  }
+  .wallpaper {
+    width: 100%;
+    min-width: 280px;
+    padding: 18px 12px 8px 28px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: flex-end;
+    background: linear-gradient(155deg, #273245 0%, #1a2130 60%, #151923 100%);
+  }
+  .desktop-scene.light .wallpaper {
+    background: linear-gradient(155deg, #d7e2ef 0%, #e7edf5 60%, #edf1f6 100%);
+  }
+  .desktop-scene.scale-2x .wallpaper {
+    padding: 24px 16px 12px 32px;
+    min-width: 340px;
+  }
+  .desktop-scene .taskbar {
+    width: 100%;
+    border-radius: 0;
+    border: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .desktop-scene.light .taskbar {
+    border-top-color: rgba(0, 0, 0, 0.08);
+  }
+
+  /* Zoom pixel inspection box */
+  .zoom-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-start;
+    background: var(--tb-dark);
+    border-radius: 8px;
+    padding: 14px 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .zoom-box.light {
+    background: var(--tb-light);
+    border-color: rgba(0, 0, 0, 0.1);
+  }
+  .zoom-item {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .zoom-cap {
+    font-size: 11px;
+    color: #c7ccd6;
+  }
+  .zoom-box.light .zoom-cap { color: #555; }
+  .zoom-frame {
+    padding: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px dashed rgba(255, 255, 255, 0.18);
+    border-radius: 5px;
+  }
+  .zoom-box.light .zoom-frame {
+    background: rgba(0, 0, 0, 0.03);
+    border-color: rgba(0, 0, 0, 0.18);
+  }
+  .mode-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+  }
+  .mini-unit {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .mini-cap {
+    font-size: 10.5px;
+    color: #aeb5c4;
+    white-space: nowrap;
+  }
+  .taskbar.light .mini-cap { color: #666; }
+
+  /* Info cards inside each proposal */
+  .info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+  @media (max-width: 780px) {
+    .info-grid { grid-template-columns: 1fr; }
+  }
+  .info-box {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 12px 14px;
+  }
+  .info-box h3 {
+    margin: 0 0 6px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+  .info-box ul {
+    margin: 0;
+    padding-left: 16px;
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .info-box li + li { margin-top: 3px; }
+  .info-box strong { color: var(--ink); font-weight: 600; }
+
+  svg { display: block; image-rendering: pixelated; }
+
+  footer {
+    margin-top: 28px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="brand">
+        <div class="brand-mark">几格</div>
+        <div>
+          <h1>托盘电量显示 · 3 个全新方向（v4）</h1>
+          <p class="sub">针对 Win11 100% 缩放、深色任务栏（rgb 28,31,40）看不清的问题，跳出旧方案，给出 3 套不同思路。</p>
+        </div>
+      </div>
+    </div>
+    <div class="sample-bar">
+      <span class="chip"><span class="dot ok"></span>键盘 80%</span>
+      <span class="chip"><span class="dot low"></span>鼠标 12%（低电）</span>
+      <span class="chip"><span class="dot chg"></span>耳机 45% 充电中</span>
+    </div>
+  </header>
+
+  <section class="summary-table-wrap">
+    <p class="summary-title">三套方案一眼对比</p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:26%">方案</th>
+          <th style="width:23%">一眼能看清什么</th>
+          <th style="width:21%">占哪里</th>
+          <th style="width:15%">系统兼容风险</th>
+          <th style="width:15%">游戏体验</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>方案一 · 任务栏直读条</strong><span class="badge">推荐</span></td>
+          <td>哪台设备 + 精确数字 + 红/绿状态</td>
+          <td>任务栏托盘左侧（无框融入）</td>
+          <td>中（需随 Win11 适配，异常可自动回退）</td>
+          <td>零打扰（随任务栏藏在游戏后面）</td>
+        </tr>
+        <tr>
+          <td><strong>方案二 · 单图标「几格」格表</strong><span class="badge soft">最稳</span></td>
+          <td>全桌设备各剩几格 + 红/绿状态</td>
+          <td>仅占 1 个 16×16 托盘格</td>
+          <td>极低（100% 官方标准图标）</td>
+          <td>零打扰（标准托盘图标）</td>
+        </tr>
+        <tr>
+          <td><strong>方案三 · 屏角「几格」微贴片</strong></td>
+          <td>哪台设备 + 5 格电量 + 精确数字</td>
+          <td>任务栏右上方屏角（或副屏）</td>
+          <td>低（独立小窗，不碰任务栏）</td>
+          <td>零打扰（进全屏游戏自动隐藏）</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div id="proposals"></div>
+
+  <footer>
+    <span>请把浏览器缩放到 100% 查看「实际大小（100%）」一栏，即可还原 1080p 屏幕上的真实观感。</span>
+    <span>几格 / Jige Battery · 设计稿 v4</span>
+  </footer>
+</main>
+
+<script>
+// ===== 像素位图字库（全部按真实整数像素绘制，crispEdges 渲染）=====
+// 11x11 设备图形
+const ICONS = {
+  keyboard: [
+    "...........",
+    "...........",
+    ".XXXXXXXXX.",
+    "XXXXXXXXXXX",
+    "X.X.X.X.X.X",
+    "XXXXXXXXXXX",
+    "XX.X.X.X.XX",
+    "XXXXXXXXXXX",
+    "XXX.....XXX",
+    ".XXXXXXXXX.",
+    "..........."
+  ],
+  mouse: [
+    "...XXXXX...",
+    "..XXX.XXX..",
+    ".XXXX.XXXX.",
+    ".XXXX.XXXX.",
+    ".XXXX.XXXX.",
+    ".XXXXXXXXX.",
+    ".XXXXXXXXX.",
+    ".XXXXXXXXX.",
+    ".XXXXXXXXX.",
+    "..XXXXXXX..",
+    "...XXXXX..."
+  ],
+  headset: [
+    "..XXXXXXX..",
+    ".XX.....XX.",
+    "XX.......XX",
+    "XX.......XX",
+    "XX.......XX",
+    "XXX.....XXX",
+    "XXX.....XXX",
+    "XXX.....XXX",
+    "XXX.....XXX",
+    ".XX.....XX.",
+    "..........."
+  ]
+};
+
+// 5x7 充电闪电
+const BOLT = [
+  "...XX",
+  "..XX.",
+  ".XX..",
+  "XXXXX",
+  "..XX.",
+  ".XX..",
+  "XX..."
+];
+
+// 6x9 清晰加粗像素数字（对齐 Win11 任务栏 12px 时钟字高）
+const DIG69 = {
+  "0": [".XXXX.", "XX..XX", "XX..XX", "XX..XX", "XX..XX", "XX..XX", "XX..XX", "XX..XX", ".XXXX."],
+  "1": ["..XX..", ".XXX..", "XX.X..", "..XX..", "..XX..", "..XX..", "..XX..", "..XX..", ".XXXX."],
+  "2": [".XXXX.", "XX..XX", "....XX", "...XX.", "..XX..", ".XX...", "XX....", "XX....", "XXXXXX"],
+  "3": [".XXXX.", "XX..XX", "....XX", "..XXX.", "....XX", "....XX", "....XX", "XX..XX", ".XXXX."],
+  "4": ["...XX.", "..XXX.", ".XXXX.", "XX.XX.", "XX.XX.", "XXXXXX", "...XX.", "...XX.", "...XX."],
+  "5": ["XXXXXX", "XX....", "XX....", "XXXXX.", "....XX", "....XX", "....XX", "XX..XX", ".XXXX."],
+  "6": [".XXXX.", "XX....", "XX....", "XXXXX.", "XX..XX", "XX..XX", "XX..XX", "XX..XX", ".XXXX."],
+  "7": ["XXXXXX", "....XX", "...XX.", "...XX.", "..XX..", "..XX..", ".XX...", ".XX...", ".XX..."],
+  "8": [".XXXX.", "XX..XX", "XX..XX", ".XXXX.", "XX..XX", "XX..XX", "XX..XX", "XX..XX", ".XXXX."],
+  "9": [".XXXX.", "XX..XX", "XX..XX", ".XXXXX", "....XX", "....XX", "....XX", "XX..XX", ".XXXX."],
+  "%": ["......", "XX...X", "XX..X.", "...X..", "..X...", ".X....", "X...XX", "....XX", "......"]
+};
+
+const DEVICES = [
+  { kind: "keyboard", name: "键盘", pct: 80, chg: false },
+  { kind: "mouse",    name: "鼠标", pct: 12, chg: false },
+  { kind: "headset",  name: "耳机", pct: 45, chg: true  }
+];
+
+function drawBits(bits, x0, y0, fill) {
+  let out = "";
+  for (let y = 0; y < bits.length; y++) {
+    const row = bits[y];
+    for (let x = 0; x < row.length; x++) {
+      if (row[x] === "X") {
+        out += `<rect x="${x0 + x}" y="${y0 + y}" width="1" height="1" fill="${fill}"/>`;
+      }
+    }
+  }
+  return out;
+}
+
+function drawText69(str, x0, y0, fill) {
+  let out = "", x = x0;
+  for (const ch of str) {
+    const bm = DIG69[ch];
+    if (bm) {
+      out += drawBits(bm, x, y0, fill);
+      x += bm[0].length + (ch === "%" ? 0 : 1);
+    }
+  }
+  return out;
+}
+
+function textWidth69(str) {
+  let w = 0;
+  for (let i = 0; i < str.length; i++) {
+    w += 6;
+    if (i < str.length - 1) w += 1;
+  }
+  return w;
+}
+
+// 系统任务栏右侧参考（折叠箭头、Wi-Fi、音量、时钟）
+function sysTrayRight(dark, scale) {
+  const c = dark ? "#f3f3f3" : "#1b1b1b";
+  const s = scale;
+  const chev = `<svg width="${12*s}" height="${12*s}" viewBox="0 0 12 12" shape-rendering="crispEdges">
+    <rect x="5" y="4" width="2" height="1" fill="${c}"/>
+    <rect x="4" y="5" width="1" height="1" fill="${c}"/><rect x="7" y="5" width="1" height="1" fill="${c}"/>
+    <rect x="3" y="6" width="1" height="1" fill="${c}"/><rect x="8" y="6" width="1" height="1" fill="${c}"/>
+    <rect x="2" y="7" width="1" height="1" fill="${c}"/><rect x="9" y="7" width="1" height="1" fill="${c}"/>
+  </svg>`;
+  const wifi = `<svg width="${14*s}" height="${12*s}" viewBox="0 0 14 12" shape-rendering="crispEdges">
+    <rect x="3" y="2" width="8" height="1" fill="${c}"/>
+    <rect x="2" y="3" width="1" height="1" fill="${c}"/><rect x="11" y="3" width="1" height="1" fill="${c}"/>
+    <rect x="4" y="5" width="6" height="1" fill="${c}"/>
+    <rect x="3" y="6" width="1" height="1" fill="${c}"/><rect x="10" y="6" width="1" height="1" fill="${c}"/>
+    <rect x="6" y="8" width="2" height="2" fill="${c}"/>
+  </svg>`;
+  const vol = `<svg width="${14*s}" height="${12*s}" viewBox="0 0 14 12" shape-rendering="crispEdges">
+    <rect x="2" y="4" width="2" height="4" fill="${c}"/>
+    <rect x="4" y="3" width="2" height="6" fill="${c}"/>
+    <rect x="6" y="2" width="1" height="8" fill="${c}"/>
+    <rect x="9" y="4" width="1" height="4" fill="${c}"/>
+    <rect x="11" y="3" width="1" height="6" fill="${c}"/>
+  </svg>`;
+  return `<div class="sys-right">${chev}${wifi}${vol}<div class="sys-clock">16:04<br>2026/11/20</div></div>`;
+}
+
+// =========================================================================
+// 方案一：任务栏直读条（嵌在任务栏托盘左侧，无框融入，图标 + 清晰大数字）
+// =========================================================================
+function paletteP1(dark) {
+  return dark ? {
+    fg: "#f0ece4",
+    muted: "#9aa1b0",
+    lowBg: "#4a2329",
+    lowBorder: "#8c3742",
+    lowFg: "#ff8080",
+    chgFg: "#4ce07a",
+    sep: "#393e4c"
+  } : {
+    fg: "#211d19",
+    muted: "#666",
+    lowBg: "#fad6d8",
+    lowBorder: "#e09297",
+    lowFg: "#b42318",
+    chgFg: "#0f7b38",
+    sep: "#d2d2d2"
+  };
+}
+
+function renderP1Strip(devices, dark, scale, withGrid) {
+  const pal = paletteP1(dark);
+  const H = 22;
+  let x = 0;
+  let body = "";
+
+  devices.forEach((d, idx) => {
+    const isLow = !d.chg && d.pct <= 20;
+    const fg = d.chg ? pal.chgFg : isLow ? pal.lowFg : pal.fg;
+    const pctStr = `${d.pct}%`;
+    const iconW = 11;
+    const boltW = d.chg ? 7 : 0;
+    const textW = textWidth69(pctStr);
+    const padX = isLow ? 5 : 4;
+    const segW = padX + iconW + 3 + boltW + textW + padX;
+
+    if (isLow) {
+      // 低电量柔和警示胶囊，整块一眼抓人
+      body += `<rect x="${x}" y="1" width="${segW}" height="${H - 2}" fill="${pal.lowBg}"/>`;
+      body += `<rect x="${x + 1}" y="0" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
+      body += `<rect x="${x + 1}" y="${H - 1}" width="${segW - 2}" height="1" fill="${pal.lowBorder}"/>`;
+      body += `<rect x="${x}" y="1" width="1" height="${H - 2}" fill="${pal.lowBorder}"/>`;
+      body += `<rect x="${x + segW - 1}" y="1" width="1" height="${H - 2}" fill="${pal.lowBorder}"/>`;
+    }
+
+    // 设备图标
+    body += drawBits(ICONS[d.kind], x + padX, 5, fg);
+    let cx = x + padX + iconW + 3;
+
+    // 充电闪电
+    if (d.chg) {
+      body += drawBits(BOLT, cx, 7, pal.chgFg);
+      cx += 7;
+    }
+
+    // 大号百分比数字
+    body += drawText69(pctStr, cx, 6, fg);
+
+    x += segW;
+    if (idx < devices.length - 1) {
+      x += 4;
+      if (!isLow && !(devices[idx + 1] && !devices[idx + 1].chg && devices[idx + 1].pct <= 20)) {
+        body += `<rect x="${x - 2}" y="6" width="1" height="10" fill="${pal.sep}"/>`;
+      }
+    }
+  });
+
+  const W = x;
+  let grid = "";
+  if (withGrid) {
+    for (let gx = 0; gx <= W; gx++) {
+      grid += `<rect x="${gx}" y="0" width="0.12" height="${H}" fill="rgba(255,255,255,0.08)"/>`;
+    }
+    for (let gy = 0; gy <= H; gy++) {
+      grid += `<rect x="0" y="${gy}" width="${W}" height="0.12" fill="rgba(255,255,255,0.08)"/>`;
+    }
+  }
+  return `<svg width="${W * scale}" height="${H * scale}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges">${body}${grid}</svg>`;
+}
+
+// =========================================================================
+// 方案二：单图标「几格」多排格表（1 个 16×16 原生托盘图标，汇总全桌设备）
+// =========================================================================
+function paletteP2(dark) {
+  return dark ? {
+    ok: "#f0ece4",
+    empty: "#525868",
+    low: "#ff5c5c",
+    lowEmpty: "#5e333a",
+    chg: "#3fd16b",
+    chgNext: "#266e42",
+    chgEmpty: "#384d43"
+  } : {
+    ok: "#211d19",
+    empty: "#c2c6cf",
+    low: "#d13438",
+    lowEmpty: "#e5bfc2",
+    chg: "#10893e",
+    chgNext: "#7cc899",
+    chgEmpty: "#bdd4c5"
+  };
+}
+
+function renderP2Row(d, y, h, pal) {
+  // 5 格，每格代表 20%：80% -> 4 格；45% -> 2 格（充电中第 3 格浅绿提示正在充）；12% -> 1 格红
+  const isLow = !d.chg && d.pct <= 20;
+  const lit = d.pct <= 0 ? 0 : Math.max(1, Math.min(5, Math.round(d.pct / 20)));
+  const xs = [1, 4, 7, 10, 13]; // 每格 2px 宽，间隔 1px，总宽 14px，左右各留 1px 呼吸边
+  let out = "";
+  for (let i = 0; i < 5; i++) {
+    let fill;
+    if (d.chg) {
+      if (i < lit) fill = pal.chg;
+      else if (i === lit && lit < 5) fill = pal.chgNext;
+      else fill = pal.chgEmpty;
+    } else if (isLow) {
+      fill = i < lit ? pal.low : pal.lowEmpty;
+    } else {
+      fill = i < lit ? pal.ok : pal.empty;
+    }
+    out += `<rect x="${xs[i]}" y="${y}" width="2" height="${h}" fill="${fill}"/>`;
+  }
+  return out;
+}
+
+function renderP2Icon(devices, dark, scale, withGrid) {
+  const pal = paletteP2(dark);
+  let body = "";
+  if (devices.length === 1) {
+    // 单台 / 仅最低电量模式：单排超大 5 格（高 10px）
+    body += renderP2Row(devices[0], 3, 10, pal);
+  } else if (devices.length === 2) {
+    // 2 台日常模式（最常见）：上下两排大格（每排高 6px，中间空 2px）
+    body += renderP2Row(devices[0], 1, 6, pal);
+    body += renderP2Row(devices[1], 9, 6, pal);
+  } else {
+    // 3 台同屏模式：上中下三排（每排高 4px，中间空 1px）
+    body += renderP2Row(devices[0], 1, 4, pal);
+    body += renderP2Row(devices[1], 6, 4, pal);
+    body += renderP2Row(devices[2], 11, 4, pal);
+  }
+  let grid = "";
+  if (withGrid) {
+    const gc = dark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)";
+    for (let i = 0; i <= 16; i++) {
+      grid += `<rect x="${i}" y="0" width="0.1" height="16" fill="${gc}"/>`;
+      grid += `<rect x="0" y="${i}" width="16" height="0.1" fill="${gc}"/>`;
+    }
+  }
+  return `<svg width="${16 * scale}" height="${16 * scale}" viewBox="0 0 16 16" shape-rendering="crispEdges">${body}${grid}</svg>`;
+}
+
+// =========================================================================
+// 方案三：屏角「几格」微贴片（不碰任务栏，独立可点穿竖排品牌卡片）
+// =========================================================================
+function paletteP3(dark) {
+  return dark ? {
+    bg: "#211d19",
+    border: "#3e3730",
+    fg: "#f0ece4",
+    empty: "#453e37",
+    lowRowBg: "#3a2123",
+    lowFg: "#ff7a7a",
+    lowEmpty: "#5c3336",
+    chgFg: "#4ce07a",
+    chgNext: "#266e42",
+    chgEmpty: "#33473b"
+  } : {
+    bg: "#f0ece4",
+    border: "#cfc7ba",
+    fg: "#211d19",
+    empty: "#d5cec3",
+    lowRowBg: "#f5d7d8",
+    lowFg: "#b42318",
+    lowEmpty: "#e6b9bc",
+    chgFg: "#0f7b38",
+    chgNext: "#7cc899",
+    chgEmpty: "#c4d6ca"
+  };
+}
+
+function renderP3Card(devices, dark, scale, withGrid) {
+  const pal = paletteP3(dark);
+  const rowH = 18;
+  const padY = 5;
+  const W = 100;
+  const H = padY * 2 + devices.length * rowH + (devices.length - 1) * 2;
+  let body = "";
+
+  // 卡片底板 + 1px 清晰描边（四角 1px 切角圆润感）
+  body += `<rect x="1" y="1" width="${W - 2}" height="${H - 2}" fill="${pal.bg}"/>`;
+  body += `<rect x="1" y="0" width="${W - 2}" height="1" fill="${pal.border}"/>`;
+  body += `<rect x="1" y="${H - 1}" width="${W - 2}" height="1" fill="${pal.border}"/>`;
+  body += `<rect x="0" y="1" width="1" height="${H - 2}" fill="${pal.border}"/>`;
+  body += `<rect x="${W - 1}" y="1" width="1" height="${H - 2}" fill="${pal.border}"/>`;
+
+  devices.forEach((d, idx) => {
+    const ry = padY + idx * (rowH + 2);
+    const isLow = !d.chg && d.pct <= 20;
+    const fg = d.chg ? pal.chgFg : isLow ? pal.lowFg : pal.fg;
+
+    if (isLow) {
+      body += `<rect x="3" y="${ry}" width="${W - 6}" height="${rowH}" fill="${pal.lowRowBg}"/>`;
+    }
+
+    // 左侧：清晰设备图标 (x=6)
+    body += drawBits(ICONS[d.kind], 6, ry + 3, fg);
+
+    // 中间：5 格「几格」实心电量格 (x=21..54，每格 5×10px，间距 2px)
+    const lit = d.pct <= 0 ? 0 : Math.max(1, Math.min(5, Math.round(d.pct / 20)));
+    for (let i = 0; i < 5; i++) {
+      let cFill;
+      if (d.chg) {
+        cFill = i < lit ? pal.chgFg : (i === lit && lit < 5 ? pal.chgNext : pal.chgEmpty);
+      } else if (isLow) {
+        cFill = i < lit ? pal.lowFg : pal.lowEmpty;
+      } else {
+        cFill = i < lit ? pal.fg : pal.empty;
+      }
+      body += `<rect x="${21 + i * 7}" y="${ry + 4}" width="5" height="10" fill="${cFill}"/>`;
+    }
+
+    // 右侧：充电小闪电（若有）+ 右对齐百分比数字
+    const pctStr = `${d.pct}%`;
+    const tw = textWidth69(pctStr);
+    const tx = W - 6 - tw;
+    if (d.chg) {
+      body += drawBits(BOLT, tx - 7, ry + 5, pal.chgFg);
+    }
+    body += drawText69(pctStr, tx, ry + 4, fg);
+  });
+
+  let grid = "";
+  if (withGrid) {
+    const gc = dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+    for (let gx = 0; gx <= W; gx += 2) {
+      grid += `<rect x="${gx}" y="0" width="0.16" height="${H}" fill="${gc}"/>`;
+    }
+    for (let gy = 0; gy <= H; gy += 2) {
+      grid += `<rect x="0" y="${gy}" width="${W}" height="0.16" fill="${gc}"/>`;
+    }
+  }
+  return `<svg width="${W * scale}" height="${H * scale}" viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges">${body}${grid}</svg>`;
+}
+
+// 渲染三个方案卡片
+const root = document.getElementById("proposals");
+
+// --- 方案一 HTML ---
+const p1Html = `
+<section class="proposal">
+  <div class="proposal-head">
+    <h2>方案一：任务栏直读条（像系统时钟一样直接写数字）<span class="badge">推荐</span></h2>
+  </div>
+  <p class="proposal-lead">彻底跳出 16×16 的小格子。在任务栏托盘左侧直接横排显示「清晰设备图标 + 精确数字」，字号和 Windows 11 右下角时钟一样大，不悬停也能一眼看全。</p>
+
+  <div class="stage-grid">
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">实际大小（100% 缩放）</span>
+        <span class="scale-hint">键盘 80%、鼠标 12%（红底胶囊警示）、耳机 45% 充电中，与右侧系统时钟同比例</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色任务栏 · rgb(28, 31, 40)</span>
+          <div class="taskbar">${renderP1Strip(DEVICES, true, 1, false)}${sysTrayRight(true, 1)}</div>
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色任务栏 · #eeeeee</span>
+          <div class="taskbar light">${renderP1Strip(DEVICES, false, 1, false)}${sysTrayRight(false, 1)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">200% 放大查看</span>
+        <span class="scale-hint">同时展示 2 台日常模式（公司：键盘 + 鼠标）与 3 台同屏效果</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色任务栏 · 3 台示例（200%）</span>
+          <div class="taskbar scale-2x">${renderP1Strip(DEVICES, true, 2, false)}${sysTrayRight(true, 2)}</div>
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色任务栏 · 2 台日常（200%）</span>
+          <div class="taskbar light scale-2x">${renderP1Strip(DEVICES.slice(0, 2), false, 2, false)}${sysTrayRight(false, 2)}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">放大看像素（3 倍 · 单项像素结构）</span>
+        <span class="scale-hint">图标 11×11 像素，数字 6×9 粗体（2px 笔画），无毛边、低电红底与充电闪电一目了然</span>
+      </div>
+      <div class="zoom-box">
+        <div class="zoom-item">
+          <span class="zoom-cap">键盘 80%（正常态）</span>
+          <div class="zoom-frame">${renderP1Strip([DEVICES[0]], true, 3, true)}</div>
+        </div>
+        <div class="zoom-item">
+          <span class="zoom-cap">鼠标 12%（低电量胶囊）</span>
+          <div class="zoom-frame">${renderP1Strip([DEVICES[1]], true, 3, true)}</div>
+        </div>
+        <div class="zoom-item">
+          <span class="zoom-cap">耳机 45%（充电中）</span>
+          <div class="zoom-frame">${renderP1Strip([DEVICES[2]], true, 3, true)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-box">
+      <h3>一眼能看出什么</h3>
+      <ul>
+        <li><strong>哪台设备</strong>：11×11 清晰图标，键鼠耳机绝不混淆。</li>
+        <li><strong>大概多少电</strong>：直接读精确百分比（80%、12%、45%），不用猜也不用悬停。</li>
+        <li><strong>要不要充电</strong>：低于 20% 整块亮柔和红底胶囊；充电中亮绿电标与绿字，余光就能扫到。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>实现方式与风险</h3>
+      <ul>
+        <li><strong>怎么实现</strong>：Win11 取消了旧版任务栏插件（DeskBand），改用纯系统窗口（Win32）嵌入任务栏并紧贴托盘左缘（与 TrafficMonitor 思路一致），不注入任何进程，NativeAOT 轻量化打包完全兼容。</li>
+        <li><strong>主要风险</strong>：微软未官方承诺任务栏内部结构不变，未来 Win11 大更新可能导致错位；任务栏开满软件图标时空间不够需自动收窄。出错时可一键自动退回普通托盘图标。</li>
+        <li><strong>全屏游戏时</strong>：层级与任务栏绑定，进全屏游戏自然被挡在后面，<strong>绝不压画面、不抢焦点</strong>；配合几格已有游戏检测，游戏中暂停刷新。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>适合哪种托盘模式</h3>
+      <ul>
+        <li><strong>「自定义」模式（最搭）</strong>：2～3 台设备横排只占 95～150 像素宽，桌面最清爽。</li>
+        <li><strong>「只显示最低一台」模式</strong>：同样适用，仅占约 46 像素，极省空间。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+`;
+
+// --- 方案二 HTML ---
+const p2Pairs = [
+  { label: "2 台日常（键80+鼠12）", list: [DEVICES[0], DEVICES[1]] },
+  { label: "3 台合显（键+鼠+耳）", list: DEVICES },
+  { label: "仅最低（鼠12%）",      list: [DEVICES[1]] },
+  { label: "单台充电（耳45%⚡）",  list: [DEVICES[2]] }
+];
+
+function p2RowBar(dark, scale) {
+  return `<div class="tray-group">${p2Pairs.map(g =>
+    `<div class="p2-slot">${renderP2Icon(g.list, dark, scale, false)}</div>`
+  ).join("")}</div>`;
+}
+function p2Legend(scale) {
+  return `<div class="p2-legend ${scale === 2 ? "scale-2x" : ""}">${p2Pairs.map(g =>
+    `<span>${g.label.split("（")[0]}</span>`
+  ).join("")}</div>`;
+}
+
+const p2Html = `
+<section class="proposal">
+  <div class="proposal-head">
+    <h2>方案二：单图标「几格」多排格表（1 个图标看全桌）<span class="badge soft">零系统风险</span></h2>
+  </div>
+  <p class="proposal-lead">留在最稳妥的原生 16×16 托盘图标里，但彻底放弃画微缩鼠标和挤小数字。回归「几格」本义：<strong>只占 1 个托盘格</strong>，用上下分排的高对比 5 格大色块，同时显示全桌设备各自还剩几格电。</p>
+
+  <div class="stage-grid">
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">实际大小（100% 缩放 · 16×16 物理像素）</span>
+        <span class="scale-hint">从左到右依次为：2 台日常合显、3 台合显、只显最低 1 台、单台充电态（实际使用时只出现其中 1 个图标）</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色任务栏 · rgb(28, 31, 40)</span>
+          <div class="taskbar">${p2RowBar(true, 1)}${sysTrayRight(true, 1)}</div>
+          ${p2Legend(1)}
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色任务栏 · #eeeeee</span>
+          <div class="taskbar light">${p2RowBar(false, 1)}${sysTrayRight(false, 1)}</div>
+          ${p2Legend(1)}
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">200% 放大查看（32×32）</span>
+        <span class="scale-hint">空槽使用不透明中灰色，彻底解决以前暗色部分融进深色任务栏看不清的问题</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色任务栏 · 200%</span>
+          <div class="taskbar scale-2x">${p2RowBar(true, 2)}${sysTrayRight(true, 2)}</div>
+          ${p2Legend(2)}
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色任务栏 · 200%</span>
+          <div class="taskbar light scale-2x">${p2RowBar(false, 2)}${sysTrayRight(false, 2)}</div>
+          ${p2Legend(2)}
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">放大看像素（6 倍 · 96×96）</span>
+        <span class="scale-hint">每排固定 5 格（每格 = 20%）；2 台时每排高达 6px，3 台时每排 4px；充电排下一格浅绿提示「正在充」</span>
+      </div>
+      <div class="zoom-box">
+        ${p2Pairs.map(g => `
+          <div class="zoom-item">
+            <span class="zoom-cap">${g.label}</span>
+            <div class="zoom-frame">${renderP2Icon(g.list, true, 6, true)}</div>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-box">
+      <h3>一眼能看出什么</h3>
+      <ul>
+        <li><strong>哪台设备</strong>：靠<strong>固定排位</strong>记忆（例如上排永远键盘、下排永远鼠标，用两天成习惯）；想核对名字或看精确数字，悬停弹出卡片即可。</li>
+        <li><strong>大概多少电</strong>：5 格数得清清楚楚——4 格亮是 80%，2 格亮是 45%，1 格红是 12%。</li>
+        <li><strong>要不要充电</strong>：低电那一排亮红格配暗红空槽；充电那一排亮绿格配浅绿待充格，余光一扫便知。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>实现方式与风险</h3>
+      <ul>
+        <li><strong>怎么实现</strong>：100% 标准 Windows 托盘图标，直接复用几格现有像素画图代码，开发量最小，NativeAOT 零额外开销。</li>
+        <li><strong>主要风险</strong>：<strong>无系统兼容风险</strong>，怎么更新 Win11 都稳如磐石。唯一局限是单图标最多清晰排 3 台设备（超过 3 台按电量最低优先显示前 3 台），且图标本身不带设备图案。</li>
+        <li><strong>全屏游戏时</strong>：纯原生托盘图标，进游戏完全看不见、零弹窗、零干预，最省心。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>适合哪种托盘模式</h3>
+      <ul>
+        <li><strong>最适合「单图标汇总」（升级原「最低一台」模式）</strong>：只占 1 个托盘格，也不用反复把多个图标从 Win11 折叠箭头里拖出来。</li>
+        <li><strong>「只显示最低一台」模式</strong>：自动变成超大单排 5 格（10px 高），两米外也能看清。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+`;
+
+// --- 方案三 HTML ---
+const p3Html = `
+<section class="proposal">
+  <div class="proposal-head">
+    <h2>方案三：屏角「几格」微贴片（不碰任务栏的轻量小牌）</h2>
+  </div>
+  <p class="proposal-lead">既不挤进 16×16 托盘格，也不去改 Windows 11 任务栏。用几格暖墨/暖纸风格的迷你小卡片，安静停在任务栏右上方（或拖到副屏），<strong>设备图标 + 5 格电量 + 精确数字</strong>一次看全。</p>
+
+  <div class="stage-grid">
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">实际大小（100% 缩放 · 宽 100px）</span>
+        <span class="scale-hint">停靠在任务栏右上方屏角，默认鼠标穿透不挡点击，鼠标靠近可自动淡出</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色桌面 · 暖墨 #211d19 + 纸 #f0ece4</span>
+          <div class="desktop-scene">
+            <div class="wallpaper">${renderP3Card(DEVICES, true, 1, false)}</div>
+            <div class="taskbar">${sysTrayRight(true, 1)}</div>
+          </div>
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色桌面 · 暖纸 #f0ece4 + 墨 #211d19</span>
+          <div class="desktop-scene light">
+            <div class="wallpaper">${renderP3Card(DEVICES, false, 1, false)}</div>
+            <div class="taskbar light">${sysTrayRight(false, 1)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">200% 放大查看</span>
+        <span class="scale-hint">展示 3 台完整模式与 2 台日常模式（2 台仅高 46px，非常小巧）</span>
+      </div>
+      <div class="theme-pair">
+        <div class="theme-col">
+          <span class="theme-tag">深色 · 3 台示例（200%）</span>
+          <div class="desktop-scene scale-2x">
+            <div class="wallpaper">${renderP3Card(DEVICES, true, 2, false)}</div>
+            <div class="taskbar scale-2x">${sysTrayRight(true, 2)}</div>
+          </div>
+        </div>
+        <div class="theme-col">
+          <span class="theme-tag">浅色 · 2 台日常（200%）</span>
+          <div class="desktop-scene light scale-2x">
+            <div class="wallpaper">${renderP3Card(DEVICES.slice(0, 2), false, 2, false)}</div>
+            <div class="taskbar light scale-2x">${sysTrayRight(false, 2)}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="scale-block">
+      <div class="scale-head">
+        <span class="scale-label">放大看像素（3 倍 · 品牌卡片细节）</span>
+        <span class="scale-hint">左 11×11 设备图标 + 中间 5 块 5×10 粗格 + 右侧 6×9 精确数字，低电整行红底强调</span>
+      </div>
+      <div class="zoom-box">
+        <div class="zoom-item">
+          <span class="zoom-cap">深色暖墨卡片（3 倍像素）</span>
+          <div class="zoom-frame">${renderP3Card(DEVICES, true, 3, true)}</div>
+        </div>
+        <div class="zoom-item">
+          <span class="zoom-cap">浅色暖纸卡片（3 倍像素）</span>
+          <div class="zoom-frame">${renderP3Card(DEVICES, false, 3, true)}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-box">
+      <h3>一眼能看出什么</h3>
+      <ul>
+        <li><strong>哪台设备</strong>：每行独立清晰图标，一清二楚。</li>
+        <li><strong>大概多少电</strong>：5 块大电量格 + 精确百分比同时给到，远看数格、近看读数。</li>
+        <li><strong>要不要充电</strong>：鼠标 12% 整行铺暖红底并亮红字；耳机 45% 亮翠绿格与闪电标。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>实现方式与风险</h3>
+      <ul>
+        <li><strong>怎么实现</strong>：标准独立透明小窗（Win32 分层窗口），和几格现有的悬停卡片用完全相同的技术，<strong>不碰任务栏内部</strong>，NativeAOT 极轻量。</li>
+        <li><strong>主要风险</strong>：系统更新风险极低。体验上的取舍是：单屏把浏览器最大化时，会盖住窗口右下角一小块边缘（默认鼠标穿透、不抢焦点，且鼠标滑近自动淡出，按住 Alt 才能拖动；有副屏时体验极佳）。</li>
+        <li><strong>全屏游戏时</strong>：依靠几格现有的全屏游戏检测，进游戏立刻彻底隐藏窗口，不占显卡、不触发反作弊、绝不弹窗。</li>
+      </ul>
+    </div>
+    <div class="info-box">
+      <h3>适合哪种托盘模式</h3>
+      <ul>
+        <li><strong>「自定义」多设备模式（最搭）</strong>：2～3 台竖排整齐，托盘本身可只留 1 个几格主图标方便打开设置。</li>
+        <li><strong>「只显示最低一台」模式</strong>：自动缩成高仅 26px 的单行小胶囊，更不占地。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+`;
+
+root.innerHTML = p1Html + p2Html + p3Html;
+</script>
+</body>
+</html>

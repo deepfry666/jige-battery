@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>托盘电量新方案</title>
+<style>
+:root{--bg:#f6f3ee;--ink:#211d19;--muted:#6b645c;--card:#fff;--line:#e3ddd3}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1816;--ink:#f0ece4;--muted:#a59d93;--card:#24211e;--line:#38332e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI Variable","Segoe UI","PingFang SC",sans-serif;padding:24px 16px 48px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 20px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+.opt h3{margin:0 0 4px;font-size:16px}
+.opt p{margin:0 0 8px;color:var(--muted)}
+.opt ul{margin:0 0 12px;padding-left:18px;color:var(--muted)}
+.tag{font-size:12px;background:#211d19;color:#f0ece4;border-radius:4px;padding:1px 6px;margin-left:8px;vertical-align:2px}
+@media (prefers-color-scheme:dark){.tag{background:#f0ece4;color:#211d19}}
+.lab{font-size:12px;color:var(--muted);margin:10px 0 4px}
+.strip{overflow-x:auto}
+svg{display:block}
+</style></head><body><main>
+<h1>托盘电量新方案（Claude）</h1>
+<p class="sub">示例设备：键盘 80%、鼠标 12%（电量低）、耳机 45% 充电中。灰底条模拟 Windows 11 任务栏右下角，「实际大小」就是 100% 缩放下的真实尺寸。</p>
+<div id="root"></div>
+</main>
+<script>
+const TB={dark:{bg:"rgb(28,31,40)",fg:"#ffffff",track:"#4b4f5c",low:"#ff6b6b",warn:"#ffc83d",chg:"#3fd16b",clock:"#ffffff"},
+          light:{bg:"#eeeeee",fg:"#1b1b1b",track:"#b9b9b9",low:"#d13438",warn:"#b37400",chg:"#107c10",clock:"#1b1b1b"}};
+const devs=[{kind:"keyboard",pct:80},{kind:"mouse",pct:12},{kind:"headset",pct:45,chg:true}];
+function col(d,t){return d.chg?t.chg:d.pct<=15?t.low:d.pct<=30?t.warn:t.fg}
+function bits(bm,x0,y0,fill){let s="";bm.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==="X")s+=`<rect x="${x0+x}" y="${y0+y}" width="1" height="1" fill="${fill}"/>`});return s}
+// 10px 高的小图形，给任务栏文字用
+const MINI={
+ keyboard:["XXXXXXXXXXXXX","X.X.X.X.X.X.X","XXXXXXXXXXXXX","XX.X.X.X.X.XX","XXXXXXXXXXXXX","XXX.......XXX","XXXXXXXXXXXXX"],
+ mouse:["..XXX..",".XXXXX.","XX.X.XX","XX.X.XX","XXXXXXX","XXXXXXX","XXXXXXX","XXXXXXX",".XXXXX.","..XXX.."],
+ headset:["..XXXXXX..",".XX....XX.","XX......XX","X........X","XXX....XXX","XXX....XXX","XXX....XXX","XXX....XXX",".X......X."]};
+const MW={keyboard:13,mouse:7,headset:10}, MH={keyboard:7,mouse:10,headset:9};
+
+function chevron(x,t){return `<path d="M${x} 27 l4 -4 l4 4" stroke="${t.fg}" stroke-width="1.2" fill="none" shape-rendering="geometricPrecision"/>`}
+function clock(x,t){return `<text x="${x}" y="21" font-size="12" fill="${t.clock}" text-anchor="end" font-family="Segoe UI Variable,Segoe UI,sans-serif">15:42</text><text x="${x}" y="37" font-size="12" fill="${t.clock}" text-anchor="end" font-family="Segoe UI Variable,Segoe UI,sans-serif">2026/11/20</text>`}
+function logo(x,y,t){ // 「几格」默认图标的简化占位：墨色方块里三格
+ return `<rect x="${x}" y="${y}" width="16" height="16" rx="3" fill="${t.fg}"/>`+[0,1,2].map(i=>`<rect x="${x+3+i*4}" y="${y+4}" width="2" height="8" fill="${t===TB.dark?"#1c1f28":"#eeeeee"}"/>`).join("")}
+
+// 方案 1：任务栏文字条
+function opt1(t){
+ let s="",x=40;
+ const rows=devs.slice(0,2); // 两行；第三台设备并到下一列
+ const cols=[devs.slice(0,2),devs.slice(2)];
+ cols.forEach(c=>{
+  c.forEach((d,i)=>{
+   const yc=c.length===1?24:(i===0?16:32);
+   s+=bits(MINI[d.kind],x+(13-MW[d.kind])/2|0,yc-(MH[d.kind]/2|0),t.fg);
+   s+=`<text x="${x+17}" y="${yc+4.5}" font-size="13" font-weight="600" fill="${col(d,t)}" font-family="Segoe UI Variable,Segoe UI,sans-serif">${d.pct}%</text>`;
+   if(d.chg){const bx=x+17+String(d.pct).length*7.6+11;s+=`<path d="M${bx+3} ${yc-6} L${bx} ${yc+1} H${bx+3} L${bx+2} ${yc+6} L${bx+6} ${yc-1} H${bx+3} Z" fill="${t.chg}"/>`}
+  });
+  x+=62;
+ });
+ return {w:x+130,body:chevron(16,t)+s+logo(x+6,16,t)+clock(x+108,t)};
+}
+// 方案 2：一个图标汇总所有设备
+function opt2(t){
+ const x0=44,y0=16;let s=`<g shape-rendering="crispEdges">`;
+ devs.forEach((d,i)=>{const bx=x0+i*6,h=Math.max(1,Math.round(d.pct/100*16));
+  s+=`<rect x="${bx}" y="${y0}" width="4" height="16" fill="${t.track}"/><rect x="${bx}" y="${y0+16-h}" width="4" height="${h}" fill="${col(d,t)}"/>`});
+ s+=`</g>`;
+ return {w:200,body:chevron(16,t)+s+clock(190,t)};
+}
+// 方案 3：「几格」格子图标，每台设备一个
+function opt3(t){
+ let s=`<g shape-rendering="crispEdges">`;
+ devs.forEach((d,i)=>{const x0=44+i*28,y0=16,n=Math.max(1,Math.ceil(d.pct/20));
+  for(let k=0;k<5;k++){const cx=x0+1+k*3;s+=`<rect x="${cx}" y="${y0+1}" width="2" height="14" fill="${k<n?col(d,t):t.track}"/>`}});
+ s+=`</g>`;
+ return {w:230,body:chevron(16,t)+s+clock(220,t)};
+}
+function bar(fn,theme,z){const t=TB[theme],{w,body}=fn(t);
+ return `<svg width="${w*z}" height="${48*z}" viewBox="0 0 ${w} 48"><rect width="${w}" height="48" fill="${t.bg}"/>${body}</svg>`}
+
+const opts=[
+ [opt1,"方案 1　任务栏文字",true,
+  "不再挤在 16px 的托盘图标里，而是在托盘左边直接显示「图形 + 百分比」，两台设备上下两行，字号和时钟一样大。电量低时数字变红，充电时变绿并带闪电。托盘里只留一个「几格」图标，用来点开面板。",
+  ["一眼能看出：哪台设备、具体剩多少、要不要充电，全都不用悬停。",
+   "实现：把几格的小窗口挂到任务栏上（流量监控软件 TrafficMonitor 在 Windows 11 上就是这样做的）。几格只在数字变化时重画，开销很小。",
+   "风险：这不是 Windows 官方支持的做法。Windows 大版本更新改了任务栏，可能会错位或暂时不显示，所以要保留「改回托盘图标」的开关作为后备。任务栏设成自动隐藏、或者图标居中时也要适配。",
+   "游戏：全屏游戏时任务栏本来就隐藏，不受影响。"]],
+ [opt2,"方案 2　一个图标看全部",false,
+  "托盘里只有一个图标，里面每台设备一根粗竖条，从下往上涨：左键盘、中鼠标、右耳机，顺序固定，和面板一致。最多放 3 台。",
+  ["一眼能看出：哪根条最短、是不是红色，也就是有没有设备该充电。哪根是哪台要记顺序，或者悬停看卡片。",
+   "实现：还是普通托盘图标，改动小，没有兼容风险。条是实心不透明色，不会再出现上次那种暗色看不见的问题。",
+   "缺点：看不到具体数字，也没有设备图形。"]],
+ [opt3,"方案 3　「几格」格子",false,
+  "每台设备一个托盘图标，图标就是 5 根粗格子，剩几格电就亮几格，像手机信号。低电量只剩 1 格并变红，充电时变绿。",
+  ["一眼能看出：还剩几格，正好对上「几格」这个名字。格子占满整个图标高度，比之前任何方案都粗。",
+   "实现：普通托盘图标，改动最小。",
+   "缺点：图标上看不出是鼠标还是键盘，要靠位置记，或者悬停看卡片。每格代表 20%，没有更细的精度。"]]
+];
+const root=document.getElementById("root");
+for(const [fn,title,rec,desc,points] of opts){
+ const el=document.createElement("div");el.className="opt";
+ let h=`<h3>${title}${rec?'<span class="tag">推荐</span>':''}</h3><p>${desc}</p><ul>${points.map(p=>`<li>${p}</li>`).join("")}</ul>`;
+ h+=`<div class="lab">实际大小 · 100% 缩放</div><div class="strip">${bar(fn,"dark",1)}</div><div class="strip" style="margin-top:6px">${bar(fn,"light",1)}</div>`;
+ h+=`<div class="lab">200% 缩放</div><div class="strip">${bar(fn,"dark",2)}</div>`;
+ h+=`<div class="lab">放大 4 倍看像素</div><div class="strip">${bar(fn,"dark",4)}</div>`;
+ el.innerHTML=h;root.appendChild(el);
+}
+</script></body></html>
