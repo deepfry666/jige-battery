@@ -57,8 +57,11 @@ internal static class MchoseMouseProtocol
         (frame[1] == 0xF9 && !frame[2..].ContainsAnyExcept((byte)0xFF));
 }
 
-internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null) : IDeviceAdapter
+internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null, TimeSpan? replyDelay = null) : IDeviceAdapter
 {
+    // 每轮 SET 之后等接收器准备回包；测试传 0，避免依赖 CI 机器的计时。
+    private readonly TimeSpan replyWait = replyDelay ?? TimeSpan.FromMilliseconds(120);
+
     internal const string Prefix = "mchose-mouse:";
     internal const string Family = "MCHOSE 反码 Feature";
 
@@ -136,7 +139,8 @@ internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null) : IDevic
             {
                 await session.WriteFeatureAsync(request, deadline.Token).ConfigureAwait(false);
                 trace?.Invoke(FrameDirection.Sent, request);
-                await Task.Delay(120, deadline.Token).ConfigureAwait(false);
+                if (replyWait > TimeSpan.Zero)
+                    await Task.Delay(replyWait, deadline.Token).ConfigureAwait(false);
                 Array.Clear(reply);
                 reply[0] = reportId;
                 try
