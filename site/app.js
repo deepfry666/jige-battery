@@ -1,191 +1,79 @@
+// 几格官网：读取同源 /latest.json，把下载按钮指向国内镜像上的最新正式版。
+// 读不到时保留页面里写好的 v0.2.10 链接，并显示 GitHub 备用下载。
 (function () {
   "use strict";
 
-  var FALLBACK = {
-    version: "v0.2.10",
-    sizeBytes: 5242198,
-    exeUrl: "https://download.imfourj.cn/jige-battery/releases/v0.2.10/Jige-Setup-0.2.10-x64.exe",
-    shaUrl: "https://download.imfourj.cn/jige-battery/releases/v0.2.10/SHA256SUMS.txt",
-    githubLatestUrl: "https://github.com/deepfry666/jige-battery/releases/latest"
-  };
-
-  function isSafeHttpsUrl(value) {
-    if (typeof value !== "string" || value.length === 0) {
-      return false;
-    }
+  function safeHttps(value) {
     try {
-      var parsed = new URL(value);
-      return parsed.protocol === "https:";
-    } catch (_err) {
+      return typeof value === "string" && new URL(value).protocol === "https:";
+    } catch (_) {
       return false;
     }
   }
 
-  function formatMegabytes(bytes) {
-    if (typeof bytes !== "number" || !isFinite(bytes) || bytes <= 0) {
-      return "";
-    }
-    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  function megabytes(bytes) {
+    return typeof bytes === "number" && isFinite(bytes) && bytes > 0
+      ? (bytes / 1048576).toFixed(1) + " MB"
+      : "";
   }
 
-  function setText(id, text) {
-    var el = document.getElementById(id);
-    if (el && typeof text === "string") {
-      el.textContent = text;
-    }
+  function each(selector, fn) {
+    var nodes = document.querySelectorAll(selector);
+    for (var i = 0; i < nodes.length; i += 1) fn(nodes[i]);
   }
 
-  function renderReleaseNotes(body) {
-    if (typeof body !== "string") {
-      return;
-    }
-    var lines = body
-      .split(/\r?\n/)
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(function (line) {
-        return line.length > 0;
-      })
-      .map(function (line) {
-        return line.replace(/^-\s+/, "");
-      })
-      .filter(function (line) {
-        return line.length > 0;
-      });
-
-    if (lines.length === 0) {
-      return;
-    }
-
-    var list = document.getElementById("changelog-list");
-    if (!list) {
-      return;
-    }
-
-    var fragment = document.createDocumentFragment();
-    for (var i = 0; i < lines.length; i += 1) {
-      var li = document.createElement("li");
-      li.textContent = lines[i];
-      fragment.appendChild(li);
-    }
-
-    while (list.firstChild) {
-      list.removeChild(list.firstChild);
-    }
-    list.appendChild(fragment);
+  function showFallback() {
+    each("[data-fallback]", function (el) { el.hidden = false; });
   }
 
-  function applyFallback() {
-    var downloadBtn = document.getElementById("download-btn");
-    var shaLink = document.getElementById("sha256-link");
-    var githubFallback = document.getElementById("github-fallback-link");
-    var sizeText = formatMegabytes(FALLBACK.sizeBytes);
-
-    if (downloadBtn) {
-      downloadBtn.href = FALLBACK.exeUrl;
-    }
-    if (shaLink) {
-      shaLink.href = FALLBACK.shaUrl;
-    }
-    if (githubFallback) {
-      githubFallback.href = FALLBACK.githubLatestUrl;
-      githubFallback.hidden = false;
-    }
-
-    setText("download-btn-meta", FALLBACK.version + " · " + sizeText);
-    setText("meta-version", FALLBACK.version);
-    setText("meta-size", sizeText);
-    setText("changelog-version", FALLBACK.version);
-  }
-
-  function applyReleaseData(data) {
-    if (!data || typeof data !== "object" || !Array.isArray(data.assets)) {
-      applyFallback();
-      return;
-    }
-
-    var exeAsset = data.assets.find(function (asset) {
-      return asset && typeof asset.name === "string" && /\.exe$/i.test(asset.name);
+  function apply(data) {
+    if (!data || !Array.isArray(data.assets)) return showFallback();
+    var exe = null, sums = null;
+    data.assets.forEach(function (a) {
+      if (!a || typeof a.name !== "string") return;
+      if (/\.exe$/i.test(a.name)) exe = a;
+      if (/^SHA256SUMS\.txt$/i.test(a.name)) sums = a;
     });
-    var shaAsset = data.assets.find(function (asset) {
-      return asset && typeof asset.name === "string" && /^SHA256SUMS\.txt$/i.test(asset.name);
-    });
+    if (!exe || !safeHttps(exe.browser_download_url)) return showFallback();
 
-    if (!exeAsset || !isSafeHttpsUrl(exeAsset.browser_download_url)) {
-      applyFallback();
-      return;
+    var version = typeof data.tag_name === "string" && data.tag_name.trim() ? data.tag_name.trim() : "";
+    each("[data-download]", function (el) { el.href = exe.browser_download_url; });
+    if (sums && safeHttps(sums.browser_download_url)) {
+      each("[data-sha]", function (el) { el.href = sums.browser_download_url; });
     }
+    if (version) each("[data-version]", function (el) { el.textContent = version; });
+    var size = megabytes(exe.size);
+    if (size) each("[data-size]", function (el) { el.textContent = size; });
 
-    var version =
-      typeof data.tag_name === "string" && data.tag_name.trim().length > 0
-        ? data.tag_name.trim()
-        : FALLBACK.version;
-    var sizeText = formatMegabytes(exeAsset.size);
-
-    var downloadBtn = document.getElementById("download-btn");
-    if (downloadBtn) {
-      downloadBtn.href = exeAsset.browser_download_url;
-    }
-
-    if (shaAsset && isSafeHttpsUrl(shaAsset.browser_download_url)) {
-      var shaLink = document.getElementById("sha256-link");
-      if (shaLink) {
-        shaLink.href = shaAsset.browser_download_url;
+    if (typeof data.body === "string") {
+      var lines = data.body.split(/\r?\n/).map(function (l) { return l.trim().replace(/^-\s+/, ""); })
+        .filter(function (l) { return l.length > 0; });
+      var list = document.querySelector("[data-changes]");
+      if (list && lines.length) {
+        while (list.firstChild) list.removeChild(list.firstChild);
+        lines.forEach(function (line) {
+          var li = document.createElement("li");
+          li.textContent = line;
+          list.appendChild(li);
+        });
       }
     }
-
-    var githubFallback = document.getElementById("github-fallback-link");
-    if (githubFallback) {
-      githubFallback.hidden = true;
-    }
-
-    setText("download-btn-meta", sizeText ? version + " · " + sizeText : version);
-    setText("meta-version", version);
-    if (sizeText) {
-      setText("meta-size", sizeText);
-    }
-    setText("changelog-version", version);
-    setText("changelog-note", "最新正式版更新内容。");
-
-    renderReleaseNotes(data.body);
   }
 
-  function loadLatestRelease() {
-    if (typeof window.fetch !== "function") {
-      applyFallback();
-      return;
-    }
-
-    var controller = typeof AbortController === "function" ? new AbortController() : null;
-    var timerId = controller
-      ? window.setTimeout(function () {
-          controller.abort();
-        }, 8000)
-      : null;
-
-    var options = controller ? { signal: controller.signal, cache: "no-cache" } : { cache: "no-cache" };
-
-    window
-      .fetch("/latest.json", options)
-      .then(function (response) {
-        if (!response.ok) {
-          throw new Error("HTTP " + response.status);
-        }
-        return response.json();
-      })
-      .then(function (data) {
-        applyReleaseData(data);
-      })
-      .catch(function () {
-        applyFallback();
-      })
-      .finally(function () {
-        if (timerId !== null) {
-          window.clearTimeout(timerId);
-        }
-      });
+  // 导航在页面滚动后加一条分隔线。
+  var nav = document.querySelector(".nav");
+  if (nav) {
+    var onScroll = function () { nav.classList.toggle("is-scrolled", window.scrollY > 8); };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
   }
 
-  loadLatestRelease();
+  if (typeof fetch !== "function") return showFallback();
+  var controller = typeof AbortController === "function" ? new AbortController() : null;
+  var timer = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
+  fetch("/latest.json", { cache: "no-cache", signal: controller ? controller.signal : undefined })
+    .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+    .then(apply)
+    .catch(showFallback)
+    .finally(function () { if (timer) clearTimeout(timer); });
 })();

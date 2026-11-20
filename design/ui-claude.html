@@ -184,6 +184,8 @@ section{margin-top:28px}
 .row .dev-ico{width:32px;height:32px;border-radius:7px;background:var(--chip);color:var(--ink-2)}
 .row .meta{flex:1;min-width:0}
 .row .nm{font-size:13.5px;display:flex;gap:6px;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .nm .nmt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.row .nm .badge{flex:none}
 .row .st{font-size:12px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .row .num{font-family:var(--font-num);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;text-align:right;min-width:44px}
 .row .num small{font-size:12px;color:var(--ink-3);font-weight:600;margin-left:1px}
@@ -604,7 +606,7 @@ section{margin-top:28px}
     const genTag = d.badge==='generic' ? `<span class="badge gen">${bm.text}</span>` : '';
     return `<div class="row ${s.dim?'dim':''}" style="transition-delay:${40+i*25}ms">
       <div class="dev-ico">${ICON[d.kind]||ICON.other}</div>
-      <div class="meta"><div class="nm">${d.name} ${genTag}</div>
+      <div class="meta"><div class="nm"><span class="nmt">${d.name}</span>${genTag}</div>
         <div class="st" style="${s.k==='low'||s.k==='warn'||s.k==='charge'?`color:${s.c}`:''}">${s.text}</div></div>
       ${indicator(d, s, false)}
       <div class="num" style="${numColor}">${d.est?'≈':''}${pctOf(d)}<small>%</small></div>

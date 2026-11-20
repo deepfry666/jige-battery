@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-20T12:00:00.000Z",
+  "title": "Design System: 几格 / Jige Battery",
+  "extensions": {
+    "colorMeta": {
+      "ground": { "role": "neutral", "displayName": "Night Ground", "canonical": "#08090a", "tonalRamp": ["#08090a", "#0f1012", "#1a1b1e", "#2a2c30", "#4a4d53", "#7d828a", "#c4c7cc", "#f7f8f8"] },
+      "raised": { "role": "neutral", "displayName": "Raised Slate", "canonical": "#0f1012", "tonalRamp": ["#08090a", "#0f1012", "#151619", "#202226", "#3a3c41", "#6b6f76", "#b3b7bd", "#eef0f1"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "rgba(255, 255, 255, 0.08)", "tonalRamp": ["rgba(255,255,255,0.02)", "rgba(255,255,255,0.04)", "rgba(255,255,255,0.06)", "rgba(255,255,255,0.08)", "rgba(255,255,255,0.14)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0.3)", "rgba(255,255,255,0.4)"] },
+      "hairline-strong": { "role": "neutral", "displayName": "Strong Hairline", "canonical": "rgba(255, 255, 255, 0.14)", "tonalRamp": ["rgba(255,255,255,0.02)", "rgba(255,255,255,0.04)", "rgba(255,255,255,0.06)", "rgba(255,255,255,0.08)", "rgba(255,255,255,0.14)", "rgba(255,255,255,0.22)", "rgba(255,255,255,0.3)", "rgba(255,255,255,0.4)"] },
+      "text-primary": { "role": "neutral", "displayName": "Desk-Lamp White", "canonical": "#f7f8f8", "tonalRamp": ["#1a1b1d", "#33353a", "#4f5258", "#6d7178", "#8f939a", "#b4b8bd", "#d8dadd", "#f7f8f8"] },
+      "text-secondary": { "role": "neutral", "displayName": "Soft Graphite", "canonical": "#a1a6ae", "tonalRamp": ["#1b1d20", "#2f3237", "#474b52", "#61666e", "#7d828a", "#a1a6ae", "#c8cbd0", "#eceef0"] },
+      "text-tertiary": { "role": "neutral", "displayName": "Dim Graphite", "canonical": "#7d828a", "tonalRamp": ["#1b1d20", "#2f3237", "#474b52", "#61666e", "#7d828a", "#a1a6ae", "#c8cbd0", "#eceef0"] },
+      "lit-white": { "role": "neutral", "displayName": "Lit White", "canonical": "#ffffff", "tonalRamp": ["#1c1c1c", "#383838", "#555555", "#737373", "#949494", "#b8b8b8", "#dcdcdc", "#ffffff"] },
+      "accent": { "role": "primary", "displayName": "Battery-Cell Blue", "canonical": "#5ec4ff", "tonalRamp": ["#04243a", "#0a3d5e", "#125a87", "#1f7ab3", "#3a9fdb", "#5ec4ff", "#a2dcff", "#e3f4ff"] },
+      "verified": { "role": "tertiary", "displayName": "Verified Green", "canonical": "#6fd28a", "tonalRamp": ["#0b2a15", "#144524", "#1f6436", "#2f854a", "#4aab67", "#6fd28a", "#a9e6b9", "#e4f7e9"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The hero promise only." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles; the closing download headline steps up to clamp(32px, 4.6vw, 56px)." },
+      "title": { "displayName": "Title", "purpose": "Sub-section heads inside a section." },
+      "lead": { "displayName": "Lead", "purpose": "Section introductions in Soft Graphite, max 36em." },
+      "body": { "displayName": "Body", "purpose": "Running text; list descriptions and FAQ answers at 15.5px in Soft Graphite." },
+      "label": { "displayName": "Label", "purpose": "Captions, meta line, tags and footer in Dim Graphite (12.5 to 13.5px)." }
+    },
+    "shadows": [
+      { "name": "frame-float", "value": "0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px -20px rgba(0,0,0,0.8), 0 12px 32px -12px rgba(0,0,0,0.6)", "purpose": "Hero screenshot frame." },
+      { "name": "lit-top-edge", "value": "1px masked border: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.04) 30%, rgba(255,255,255,0) 60%)", "purpose": "The screenshot frame's top edge catching light." },
+      { "name": "card-float", "value": "0 0 0 1px rgba(255,255,255,0.08), 0 18px 40px -20px rgba(0,0,0,0.8)", "purpose": "Hover-card screenshots." },
+      { "name": "outline", "value": "0 0 0 1px rgba(255,255,255,0.14)", "purpose": "Tray-icon tiles and the real screenshot." },
+      { "name": "button-glow", "value": "0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 20px -6px rgba(255,255,255,0.25)", "purpose": "Primary button at rest." },
+      { "name": "button-glow-hover", "value": "0 1px 0 rgba(255,255,255,0.5) inset, 0 10px 28px -8px rgba(255,255,255,0.35)", "purpose": "Primary button on hover." },
+      { "name": "focus-ring", "value": "outline: 2px solid #5ec4ff; outline-offset: 3px; border-radius: 4px", "purpose": "Every :focus-visible." }
+    ],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Shared curve for all transitions and the hero settle." },
+      { "name": "state", "value": "0.2s", "purpose": "Hover, press and color transitions; 0.3s for nav border and FAQ chevron." },
+      { "name": "hero-settle", "value": "1.2s ease-out 0.15s both; from translateY(28px) scale(0.985) blur(6px) opacity 0.4 to rest", "purpose": "The single authored motion, hero screenshot only, under prefers-reduced-motion: no-preference." }
+    ],
+    "breakpoints": [
+      { "name": "narrow", "value": "720px" },
+      { "name": "tablet", "value": "960px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one white download action per group, with a soft inner glow.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\"><svg viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" aria-hidden=\"true\"><path d=\"M8 2v8m0 0 3.5-3.5M8 10 4.5 6.5M3 13.5h10\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>下载 Windows 版</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; height: 44px; padding: 0 20px; border-radius: 10px; background: #f7f8f8; color: #08090a; font: 600 15px/1 \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; text-decoration: none; box-shadow: 0 1px 0 rgba(255,255,255,0.4) inset, 0 6px 20px -6px rgba(255,255,255,0.25); transition: background-color .2s cubic-bezier(0.16,1,0.3,1), box-shadow .2s cubic-bezier(0.16,1,0.3,1), transform .2s cubic-bezier(0.16,1,0.3,1); } .ds-btn-primary:hover { background: #ffffff; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset, 0 10px 28px -8px rgba(255,255,255,0.35); } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: 2px solid #5ec4ff; outline-offset: 3px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action beside the primary (GitHub, all releases).",
+      "html": "<a class=\"ds-btn-ghost\" href=\"#\">在 GitHub 查看</a>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; height: 44px; padding: 0 20px; border-radius: 10px; background: rgba(255,255,255,0.02); color: #f7f8f8; border: 1px solid rgba(255,255,255,0.14); font: 600 15px/1 \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; text-decoration: none; transition: background-color .2s cubic-bezier(0.16,1,0.3,1), border-color .2s cubic-bezier(0.16,1,0.3,1), transform .2s cubic-bezier(0.16,1,0.3,1); } .ds-btn-ghost:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.22); } .ds-btn-ghost:active { transform: translateY(1px); } .ds-btn-ghost:focus-visible { outline: 2px solid #5ec4ff; outline-offset: 3px; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav",
+      "description": "Sticky 60px bar: battery-cell wordmark, quiet links, small white download.",
+      "html": "<header class=\"ds-nav\"><a class=\"ds-wordmark\" href=\"#\"><svg viewBox=\"0 0 20 12\" width=\"20\" height=\"12\" aria-hidden=\"true\"><rect x=\"0\" width=\"4\" height=\"12\" rx=\"1\" fill=\"#f7f8f8\"/><rect x=\"5.33\" width=\"4\" height=\"12\" rx=\"1\" fill=\"#f7f8f8\"/><rect x=\"10.66\" width=\"4\" height=\"12\" rx=\"1\" fill=\"#f7f8f8\"/><rect x=\"16\" width=\"4\" height=\"12\" rx=\"1\" fill=\"#3a3c41\"/></svg>几格</a><nav class=\"ds-nav-links\"><a href=\"#\">原理</a><a href=\"#\">界面</a><a href=\"#\">设备</a><a href=\"#\">常见问题</a></nav><a class=\"ds-btn-small\" href=\"#\">下载</a></header>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 32px; height: 60px; padding: 0 24px; background: rgba(8,9,10,0.96); border-bottom: 1px solid rgba(255,255,255,0.08); font-family: \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; } .ds-wordmark { display: inline-flex; align-items: center; gap: 10px; color: #f7f8f8; text-decoration: none; font-weight: 700; font-size: 17px; letter-spacing: 0.02em; } .ds-nav-links { display: flex; gap: 26px; margin-right: auto; font-size: 14px; } .ds-nav-links a { color: #a1a6ae; text-decoration: none; transition: color .2s; } .ds-nav-links a:hover { color: #f7f8f8; } .ds-nav a:focus-visible { outline: 2px solid #5ec4ff; outline-offset: 3px; border-radius: 4px; } .ds-btn-small { display: inline-flex; align-items: center; height: 34px; padding: 0 14px; border-radius: 8px; background: #f7f8f8; color: #08090a; font-size: 14px; font-weight: 600; text-decoration: none; } .ds-btn-small:hover { background: #ffffff; }"
+    },
+    {
+      "name": "Status Tag",
+      "kind": "chip",
+      "refersTo": "tag",
+      "description": "Device verification level; green only for real-device verification.",
+      "html": "<span class=\"ds-tag ds-tag-verified\">已实机验证</span> <span class=\"ds-tag\">按资料适配</span>",
+      "css": ".ds-tag { display: inline-block; white-space: nowrap; font-size: 12.5px; line-height: 1.4; color: #7d828a; padding: 4px 12px; border: 1px solid rgba(255,255,255,0.14); border-radius: 999px; font-family: \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; } .ds-tag-verified { color: #6fd28a; border-color: rgba(111,210,138,0.35); background: rgba(111,210,138,0.07); }"
+    },
+    {
+      "name": "Hairline Row List",
+      "kind": "custom",
+      "refersTo": "spacing.row",
+      "description": "The signature container: open rows with hairlines instead of cards.",
+      "html": "<ul class=\"ds-rows\"><li><span class=\"ds-row-lead\">Sony INZONE</span><span class=\"ds-row-desc\">INZONE H9 一代，PC 档接收器</span></li><li><span class=\"ds-row-lead\">罗技 Logitech</span><span class=\"ds-row-desc\">Bolt、Unifying、LIGHTSPEED 接收器</span></li></ul>",
+      "css": ".ds-rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(255,255,255,0.08); font-family: \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; font-variant-numeric: tabular-nums; } .ds-rows li { display: grid; grid-template-columns: 11em minmax(0,1fr); gap: 24px; align-items: baseline; padding: 20px 0; border-bottom: 1px solid rgba(255,255,255,0.08); } .ds-row-lead { color: #f7f8f8; font-weight: 600; } .ds-row-desc { color: #a1a6ae; font-size: 15px; }"
+    },
+    {
+      "name": "Screenshot Frame",
+      "kind": "card",
+      "refersTo": "screenshot-frame",
+      "description": "Real-interface screenshot on raised slate with float shadow, lit top edge and a provenance caption.",
+      "html": "<figure class=\"ds-shot\"><div class=\"ds-frame\"><div class=\"ds-frame-img\"></div></div><figcaption class=\"ds-note\">界面原型，设备名和电量为演示数据。</figcaption></figure>",
+      "css": ".ds-shot { margin: 0; max-width: 360px; } .ds-frame { position: relative; border-radius: 12px; overflow: hidden; background: #0f1012; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 30px 80px -20px rgba(0,0,0,0.8), 0 12px 32px -12px rgba(0,0,0,0.6); } .ds-frame::after { content: \"\"; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; padding: 1px; background: linear-gradient(180deg, rgba(255,255,255,0.24), rgba(255,255,255,0.04) 30%, rgba(255,255,255,0) 60%); mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; -webkit-mask-composite: xor; } .ds-frame-img { aspect-ratio: 650 / 599; background: #0f1012; } .ds-note { margin-top: 12px; font-size: 12.5px; color: #7d828a; font-family: \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; }"
+    },
+    {
+      "name": "More Link",
+      "kind": "custom",
+      "refersTo": "colors.accent",
+      "description": "Standalone link in the one accent, arrow nudges on hover.",
+      "html": "<a class=\"ds-more\" href=\"#\">完整设备清单<svg viewBox=\"0 0 16 16\" width=\"14\" height=\"14\" aria-hidden=\"true\"><path d=\"M3 8h10m0 0-4-4m4 4-4 4\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></a>",
+      "css": ".ds-more { display: inline-flex; align-items: center; gap: 6px; color: #5ec4ff; text-decoration: none; font-size: 15px; font-family: \"Segoe UI Variable Text\", \"Segoe UI\", -apple-system, \"PingFang SC\", \"Microsoft YaHei UI\", sans-serif; } .ds-more svg { transition: transform .2s cubic-bezier(0.16,1,0.3,1); } .ds-more:hover { text-decoration: underline; } .ds-more:hover svg { transform: translateX(2px); } .ds-more:focus-visible { outline: 2px solid #5ec4ff; outline-offset: 3px; border-radius: 4px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Desk",
+    "overview": "A dark desk at night with one lit object on it: the real 几格 interface. The site is the category-standard product page played straight at Linear's level of craft: one promise, one white download button, the real panel as the hero, and everything else quiet enough that the product's own battery colors are the only color that registers. The world is near-black and tonal, drawn with white hairlines instead of boxes, set in the visitor's own system CJK sans, and almost entirely still.\n\nDensity is calm and readable for non-programmers browsing in Chinese: generous section breathing room, short plain lines, lists that read as rows of facts rather than marketing tiles. Proof is never illustrated. Every image of the product is a crop of the UI prototype the app is drawn from, or a real Windows screenshot, and is captioned as such.",
+    "keyCharacteristics": [
+      "Dark-only; no light theme, `color-scheme: dark`.",
+      "Tonal layering (ground, raised) plus 8% / 14% white hairlines; no card grids.",
+      "One cool accent, reserved for links, focus and selection.",
+      "Battery state color (yellow, red, green) lives only inside product imagery.",
+      "System font stacks only; no hosted or third-party resources of any kind.",
+      "One authored motion: the hero screenshot settles in once."
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Battery-Cell Blue appears only on links, focus and selection. If it is filling an area or coloring a heading, it is wrong.", "section": "colors" },
+      { "name": "The Color Lives in the Product Rule", "body": "Yellow, red and green battery states appear only inside product screenshots. Site chrome never re-draws them as badges, charts or decoration. The only non-neutral chrome color besides the accent is Verified Green on the verification tag.", "section": "colors" },
+      { "name": "The System Voice Rule", "body": "No hosted fonts, no webfont files, no CDN. Type comes from the visitor's OS stack; Microsoft YaHei UI is the expected Windows CJK face.", "section": "typography" },
+      { "name": "The Unbroken Phrase Rule", "body": "Chinese sublines are split into phrase spans that don't break internally, and headings use balanced wrapping, so a line never ends on an orphaned character.", "section": "typography" },
+      { "name": "The Native Size Rule", "body": "Product screenshots are shown at native size or larger (2x WebP sources), never shrunk until their text is unreadable. On narrow screens crop, don't scale down.", "section": "layout" },
+      { "name": "The Only Lit Object Rule", "body": "Only product screenshots float and catch light. Text blocks, lists and sections never get shadows or raised panels.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep the page dark-only on Night Ground with Raised Slate as the only surface step.",
+      "Do separate content with 8% white hairlines and open rows; reach for a list before a card.",
+      "Do use Battery-Cell Blue only for links, the focus ring and selection.",
+      "Do show the product only as the real interface: crops of design/ui-claude.html rendered at 2x, or real Windows screenshots, each captioned 界面原型 / 演示数据 or 实机截图, each raster carrying a provenance sidecar JSON.",
+      "Do frame product screenshots with the 12px frame, float shadow and lit top edge.",
+      "Do use system CJK font stacks and tabular numerals.",
+      "Do keep the hero settle as the single authored motion; state transitions stay at 0.2 to 0.3s and respect reduced motion.",
+      "Do keep every script and style in self-hosted files so the strict CSP holds (`script-src 'self'`, `style-src 'self'`)."
+    ],
+    "donts": [
+      "Don't draw or mock up UI, icons-as-product or fake panels; if it isn't a crop of the prototype or a real screenshot, it doesn't ship.",
+      "Don't use battery yellow, red or green in site chrome, badges or illustrations.",
+      "Don't build equal icon-card rows or feature-tile grids.",
+      "Don't load hosted fonts, CDNs, analytics, embeds or any third-party resource; visitors are in China.",
+      "Don't write inline `<script>`, inline `style` attributes or `<style>` blocks.",
+      "Don't add a second animated element, scroll-triggered reveals or parallax.",
+      "Don't shrink screenshots below native size to fit a layout; crop instead."
+    ]
+  }
+}
