@@ -67,6 +67,7 @@ internal sealed partial class PopupScene
             {
                 SettingRow.GameSilent => PopupAction.GameSilent,
                 SettingRow.Autostart => PopupAction.Autostart,
+                SettingRow.AutoUpdate => PopupAction.AutoUpdate,
                 SettingRow.Bluetooth => PopupAction.ShowBluetooth,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
@@ -88,16 +89,18 @@ internal sealed partial class PopupScene
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
                 SettingRow.Bluetooth => "显示蓝牙设备",
+                SettingRow.AutoUpdate => "自动检查更新",
                 _ => "开机自启"
             };
             canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
 
-            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.Bluetooth)
+            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.Bluetooth)
             {
                 DrawSwitch(canvas, SwitchRect(rect), row switch
                 {
                     SettingRow.GameSilent => settings.GameSilent,
                     SettingRow.Autostart => settings.StartWithWindows,
+                    SettingRow.AutoUpdate => settings.AutoUpdateEnabled,
                     _ => settings.ShowBluetoothDevices
                 });
                 continue;
@@ -321,6 +324,12 @@ internal sealed partial class PopupScene
                 Line(3.5f, 3.5f, 12.5f, 10.5f);
                 Line(12.5f, 10.5f, 8, 14.5f);
                 break;
+            case SettingRow.AutoUpdate:
+                // 带箭头的环形刷新符号。
+                canvas.Arc(x + 8, y + 8, 5.6f, -MathF.PI * .35f, MathF.PI * 1.35f, ink, 1.3f);
+                Line(10.5f, 3f, 9.3f, .3f);
+                Line(10.5f, 3f, 7.6f, 3.7f);
+                break;
             case SettingRow.Autostart:
                 Line(8, 2, 8, 7.5f);
                 canvas.Arc(x + 8, y + 8.13f, 5.2f, -.856f, MathF.PI + .856f, ink, 1.3f);
@@ -344,6 +353,7 @@ internal sealed partial class PopupScene
         UpdateThumb(ref gameThumb, ref gameMotion, SwitchRect(Settings!.RowRect(SettingRow.GameSilent)), settings.GameSilent);
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
         UpdateThumb(ref bluetoothThumb, ref bluetoothMotion, SwitchRect(Settings.RowRect(SettingRow.Bluetooth)), settings.ShowBluetoothDevices);
+        UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion, SwitchRect(Settings.RowRect(SettingRow.AutoUpdate)), settings.AutoUpdateEnabled);
     }
 
     private void UpdateThumb(ref Composition.Layer? thumb, ref ThumbMotion? motion, PanelRect track, bool enabled)
@@ -586,7 +596,8 @@ internal sealed partial class PopupScene
                 canvas.Text("已是最新版本", 24, 122, 296, 22, 14.5f, colors.Ink, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
                 canvas.Text($"当前版本 {updateState.CurrentVersionLabel}", 24, 146, 296, 20, 12.5f, colors.Secondary,
                     align: DWRITE_TEXT_ALIGNMENT_CENTER, ellipsis: true);
-                canvas.Text("正式版通道 · 仅手动检查时联网", 24, 169, 296, 18, 11.5f, colors.Muted,
+                canvas.Text(model.Settings.AutoUpdateEnabled ? "正式版通道 · 每天自动检查" : "正式版通道 · 仅手动检查时联网",
+                    24, 169, 296, 18, 11.5f, colors.Muted,
                     align: DWRITE_TEXT_ALIGNMENT_CENTER);
                 DrawActionButton(canvas, new(PopupAction.CheckUpdatesAgain, 12, buttonY, 156, 34), "重新检查", primary: false);
                 DrawActionButton(canvas, new(new PopupTarget(PopupAction.Back, 1), 176, buttonY, 156, 34), "返回", primary: false);
@@ -643,8 +654,12 @@ internal sealed partial class PopupScene
         canvas.Stroke(12.5f, 54.5f, 319, 55, 6.5f, colors.LayerStroke);
         canvas.Fill(22, 65, 34, 34, 7, colors.AccentSoft);
         DrawUpdateArrowGlyph(canvas, 39, 82, colors.Accent, downward: false);
-        canvas.Text($"发现新版本 v{update.Version}", 66, 62, 254, 20, 14, colors.Ink, 600, ellipsis: true);
-        canvas.Text($"{updateState.CurrentVersionLabel} → v{update.Version} · {UpdateProgress.FormatBytes(update.Installer.Size)}",
+        bool ready = updateState.IsReady;
+        canvas.Text(ready ? $"新版本 v{update.Version} 已就绪" : $"发现新版本 v{update.Version}",
+            66, 62, 254, 20, 14, colors.Ink, 600, ellipsis: true);
+        canvas.Text(ready
+                ? $"{updateState.CurrentVersionLabel} → v{update.Version} · 已下载并通过校验"
+                : $"{updateState.CurrentVersionLabel} → v{update.Version} · {UpdateProgress.FormatBytes(update.Installer.Size)}",
             66, 83, 254, 18, 12, colors.Muted, ellipsis: true);
 
         // 更新说明卡片（支持滚轮与方向键滚动）
@@ -727,7 +742,8 @@ internal sealed partial class PopupScene
         else
         {
             DrawActionButton(canvas, new(PopupAction.OpenReleasePage, 12, buttonY, 134, 34), "查看 Release", primary: false);
-            DrawActionButton(canvas, new(PopupAction.InstallUpdate, 154, buttonY, 178, 34), "下载并安装", primary: true);
+            DrawActionButton(canvas, new(PopupAction.InstallUpdate, 154, buttonY, 178, 34),
+                ready ? "重启并升级" : "下载并安装", primary: true);
         }
     }
 

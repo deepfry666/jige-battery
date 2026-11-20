@@ -10,7 +10,7 @@ public sealed class PanelPagesTests
     [InlineData((int)PanelPage.Main, 0, 700, 157, 0)]
     [InlineData((int)PanelPage.Main, 1, 700, 247, 0)]
     [InlineData((int)PanelPage.Main, 30, 400, 391, 3)]
-    [InlineData((int)PanelPage.Settings, 40, 700, 455, 0)]
+    [InlineData((int)PanelPage.Settings, 40, 700, 499, 0)]
     [InlineData((int)PanelPage.Devices, 0, 700, 153, 0)]
     [InlineData((int)PanelPage.Devices, 5, 700, 425, 5)]
     [InlineData((int)PanelPage.Devices, 40, 424, 370, 4)]
@@ -42,14 +42,14 @@ public sealed class PanelPagesTests
         Assert.Equal(PanelLayout.SettingsHeight - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
 
         panel.Toggle(SettingRow.Threshold, 0, animate: false, selectedIndex: 1);
-        Assert.Equal(591 + extra, panel.Height);
-        Assert.Equal(591 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+        Assert.Equal(635 + extra, panel.Height);
+        Assert.Equal(635 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
     }
 
     [Theory]
-    [InlineData(0, 0, 455)]
-    [InlineData(50, 0.7944, 563)]
-    [InlineData(250, 1, 591)]
+    [InlineData(0, 0, 499)]
+    [InlineData(50, 0.7944, 607)]
+    [InlineData(250, 1, 635)]
     public void ResizeUsesPrototypeCurveAndKeepsBottomAgainstTray(int elapsed, double expected, int expectedHeight)
     {
         double eased = PanelLayout.Ease(elapsed / 250d);
@@ -67,12 +67,12 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData(null, 52, 96, 140, 184, 228, 455)]
-    [InlineData((int)SettingRow.DisplayLocation, 52, 96, 140, 184, 228, 523)]
-    [InlineData((int)SettingRow.Theme, 52, 96, 140, 184, 228, 557)]
-    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 523)]
-    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 591)]
-    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 557)]
+    [InlineData(null, 52, 96, 140, 184, 228, 499)]
+    [InlineData((int)SettingRow.DisplayLocation, 52, 96, 140, 184, 228, 567)]
+    [InlineData((int)SettingRow.Theme, 52, 96, 140, 184, 228, 601)]
+    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 567)]
+    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 635)]
+    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 601)]
     public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int trayMode, int threshold,
         int game, int poll, int autostart, int height)
     {
@@ -80,8 +80,8 @@ public sealed class PanelPagesTests
         if (expanded is int expandedRow)
             Assert.True(panel.Toggle((SettingRow)expandedRow, 0, animate: false, selectedIndex: 0));
 
-        int theme = autostart + 132 + (expanded == (int)SettingRow.DisplayLocation ? 68 : 0);
-        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44, autostart + 88, theme];
+        int theme = autostart + 176 + (expanded == (int)SettingRow.DisplayLocation ? 68 : 0);
+        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44, autostart + 88, autostart + 132, theme];
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = panel.RowRect(row);
@@ -115,7 +115,7 @@ public sealed class PanelPagesTests
         panel.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         panel.Advance(50);
         float beforeSwitch = panel.Height;
-        Assert.InRange(beforeSwitch, 559, 565);
+        Assert.InRange(beforeSwitch, 603, 609);
         Assert.True(panel.OptionHitRect(SettingRow.Threshold, 3).Height is > 0 and < 34);
 
         panel.Toggle(SettingRow.PollInterval, 50, animate: true, selectedIndex: 1);
@@ -123,17 +123,17 @@ public sealed class PanelPagesTests
         Assert.Equal(beforeSwitch, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.Threshold, 0).Height);
         panel.Advance(300);
-        Assert.Equal(557, panel.Height);
+        Assert.Equal(601, panel.Height);
         Assert.Equal(0, panel.VisibleHeight(SettingRow.Threshold));
         Assert.Equal(34, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         Assert.False(panel.Animating);
 
         Assert.True(panel.Collapse(300, animate: true));
         Assert.False(panel.Collapse(301, animate: true));
-        Assert.Equal(557, panel.Height);
+        Assert.Equal(601, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         panel.Advance(550);
-        Assert.Equal(455, panel.Height);
+        Assert.Equal(499, panel.Height);
     }
 
     [Theory]
@@ -157,7 +157,7 @@ public sealed class PanelPagesTests
             Assert.True(panel.Select(target, model, 1, animate: false, Save));
             bool isTrayMode = (SettingRow)row == SettingRow.TrayMode;
             Assert.Equal(isTrayMode ? SettingRow.TrayMode : (SettingRow?)null, panel.Expanded);
-            Assert.Equal(isTrayMode ? 523 : 455, panel.Height);
+            Assert.Equal(isTrayMode ? 567 : 499, panel.Height);
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);

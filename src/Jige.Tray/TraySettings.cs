@@ -33,6 +33,14 @@ internal sealed record TraySettings
     public bool GameSilent { get; init; } = true;
     public bool ShowBluetoothDevices { get; init; } = true;
     public bool StartWithWindows { get; init; } = true;
+    /// <summary>
+    /// 后台每天检查一次正式版并预先下载、校验；安装仍需用户点击。
+    /// 用可空值保存：源生成反序列化不会保留 init 属性的初始值，旧配置缺少此项时为 null，按开启处理。
+    /// </summary>
+    public bool? AutoCheckUpdates { get; init; }
+
+    [JsonIgnore]
+    public bool AutoUpdateEnabled => AutoCheckUpdates != false;
     public bool? WelcomeShown { get; init; }
     public string[] GameProcessNames { get; init; } = [];
     public Dictionary<string, string> DeviceAliases { get; init; } = [];
@@ -96,6 +104,7 @@ internal sealed record TraySettings
                 ? TrayDisplayLocation.TrayIcons : TrayDisplayLocation.Taskbar,
             Theme = Theme is ThemeMode.Light or ThemeMode.Dark ? Theme : ThemeMode.Auto,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
+            AutoCheckUpdates = AutoUpdateEnabled,
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
             DeviceAliases = aliases,

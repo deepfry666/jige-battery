@@ -7,7 +7,7 @@ namespace Jige.Tray.Windows;
 internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
-    GameSilent, Autostart, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
+    GameSilent, Autostart, AutoUpdate, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
     CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme
 }
@@ -76,8 +76,9 @@ internal sealed partial class PopupScene : IDisposable
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
     private Composition.Layer? bluetoothThumb;
+    private Composition.Layer? autoUpdateThumb;
     private Composition.Layer? updatePulse;
-    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion;
+    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion, autoUpdateMotion;
     private string? error;
     private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
@@ -159,7 +160,8 @@ internal sealed partial class PopupScene : IDisposable
         _ => 0
     };
 
-    private HitBox Box(HitBox item) => item.Action == PopupAction.Manage
+    // 主面板底栏按钮（「管理设备」和左侧的「新版已就绪」）随面板高度贴底。
+    private HitBox Box(HitBox item) => Page == PanelPage.Main && item.Action is PopupAction.Manage or PopupAction.InstallUpdate
         ? item with { Rect = item.Rect with { Y = height - 37 } }
         : item;
 
@@ -254,6 +256,8 @@ internal sealed partial class PopupScene : IDisposable
         mainButtons.AddRange(PanelButtons);
         if (diagnosticPreviewPending)
             mainButtons.Add(new(PopupAction.OpenDiagnostics, 80, 12, 172, 32));
+        if (updateState.IsReady)
+            mainButtons.Add(new(PopupAction.InstallUpdate, 6, 0, 254, 37));
         for (int i = 0; i < rows.Length; i++)
         {
             if (offset + i < mainEntries.Length && mainEntries[offset + i].IsOfflineToggle)
@@ -439,6 +443,12 @@ internal sealed partial class PopupScene : IDisposable
         int footer = height - 37;
         canvas.Line(0, footer + .5f, Width, footer + .5f, colors.Border);
         canvas.Text("管理设备", 268, footer + 1, 64, 34, 12, colors.Accent, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        if (updateState is { IsReady: true, Available: { } ready })
+        {
+            canvas.Dot(19, footer + 18.5f, 3, colors.Accent);
+            canvas.Text($"新版 v{ready.Version} 已就绪 · 点此重启升级", 28, footer + 1, 228, 34, 12, colors.Accent,
+                ellipsis: true);
+        }
 
         if (MaxOffset > 0 && rows.Length > 0)
         {
@@ -668,6 +678,7 @@ internal sealed partial class PopupScene : IDisposable
         gameThumb?.Dispose();
         autostartThumb?.Dispose();
         bluetoothThumb?.Dispose();
+        autoUpdateThumb?.Dispose();
         updatePulse?.Dispose();
         frame.Dispose();
     }
