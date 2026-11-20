@@ -9,7 +9,7 @@ public sealed class PresentationTests
     [InlineData(31, false, (int)BatteryTone.Normal, 0x1b1b1bu)]
     [InlineData(30, false, (int)BatteryTone.Warning, 0x9d5d00u)]
     [InlineData(16, true, (int)BatteryTone.Warning, 0xfce100u)]
-    [InlineData(15, true, (int)BatteryTone.Warning, 0xfce100u)]
+    [InlineData(15, true, (int)BatteryTone.Low, 0xff99a4u)]
     [InlineData(14, true, (int)BatteryTone.Low, 0xff99a4u)]
     [InlineData(0, false, (int)BatteryTone.Low, 0xc42b1cu)]
     public void TrayColorsFollowPrototype(int percent, bool dark, int tone, uint rgb)
@@ -21,7 +21,8 @@ public sealed class PresentationTests
 
     [Theory]
     [InlineData(29, 30, (int)BatteryTone.Low, "电量低，该充电了")]
-    [InlineData(30, 30, (int)BatteryTone.Warning, "电量偏低")]
+    [InlineData(30, 30, (int)BatteryTone.Low, "电量低，该充电了")]
+    [InlineData(31, 30, (int)BatteryTone.Warning, "电量偏低")]
     [InlineData(45, 30, (int)BatteryTone.Warning, "电量偏低")]
     [InlineData(46, 30, (int)BatteryTone.Normal, "2.4G 已连接")]
     [InlineData(12, 10, (int)BatteryTone.Warning, "电量偏低")]

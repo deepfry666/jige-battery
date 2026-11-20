@@ -67,7 +67,7 @@ internal sealed class TrayModel
         foreach (var (id, reminder) in saved.Reminders ?? [])
         {
             if (reminder is not null && devices.TryGetValue(id, out var device) &&
-                device.Percentage < Settings.LowBatteryThreshold)
+                device.Percentage <= Settings.LowBatteryThreshold)
                 reminders[id] = reminder;
         }
 
@@ -301,7 +301,7 @@ internal sealed class TrayModel
 
         foreach (var device in devices.Values)
         {
-            if (device.Percentage >= settings.LowBatteryThreshold)
+            if (device.Percentage > settings.LowBatteryThreshold)
                 reminders.Remove(device.Device.Id);
             else if (device.Fresh)
                 UpdateReminder(device, now);
@@ -768,7 +768,7 @@ internal sealed class TrayModel
 
     private bool UpdateReminder(DeviceStatus device, DateTimeOffset now)
     {
-        if (device.Percentage < Settings.LowBatteryThreshold && !device.IsCharging && !device.IsFull)
+        if (device.Percentage <= Settings.LowBatteryThreshold && !device.IsCharging && !device.IsFull)
             return reminders.TryAdd(device.Device.Id, new(now));
         return reminders.Remove(device.Device.Id);
     }
@@ -787,7 +787,7 @@ internal sealed class TrayModel
 
     private bool CanRemind(DeviceStatus device, DateTimeOffset now) =>
         device is { Fresh: true, Link: LinkState.Online, IsCharging: false, IsFull: false, Last: { } last } &&
-        last.Percentage < Settings.LowBatteryThreshold &&
+        last.Percentage <= Settings.LowBatteryThreshold &&
         !IsExpired(last, now);
 
     private bool IsExpired(SavedBattery last, DateTimeOffset now) =>
