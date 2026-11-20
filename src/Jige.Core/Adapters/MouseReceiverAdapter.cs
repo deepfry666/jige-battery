@@ -7,7 +7,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var group in inventory.Hid
-            .Where(hid => MouseReceiverCatalog.IsVendor(hid.VendorId))
+            .Where(hid => MouseReceiverCatalog.IsVendor(hid.VendorId, hid.ProductId))
             .GroupBy(hid => hid.ReceiverId, StringComparer.OrdinalIgnoreCase))
         {
             var groupHids = group.ToArray();
@@ -82,7 +82,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             }
 
             // Compx-OUT 允许被动只读监听同接收器的其他厂商输入集合（如 FF05、FF06），以排查和接收跨集合回复。
-            HidInterface[] siblings = selectedRow.Family == MouseFamily.CompxOut
+            HidInterface[] siblings = selectedRow.Family == MouseFamily.CompxOut && !selectedRow.ExactCollectionOnly
                 ? groupHids.Where(hid => hid != selectedEndpoint &&
                     hid.MetadataIssue == ReadIssue.None && hid.UsagePage is >= 0xFF00 && hid.InputLength is > 0).ToArray()
                 : [];
@@ -94,7 +94,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             string sourceLabel = selectedEndpoint.VendorId switch
             {
                 0x33E4 => "游狼无线接收器",
-                0x373B => "ATK 无线接收器",
+                0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
                 _ => "无线接收器"
             };
             yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
@@ -136,7 +136,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
-        using var session = transport.OpenHid(endpoint, cancellationToken);
+        using var session = transport.OpenHid(QueryEndpoint(endpoint, route), cancellationToken);
         var result = await QueryAsync(session, endpoint, route, false, target.SiblingInputHids, transport, trace, cancellationToken)
             .ConfigureAwait(false);
         if (result.Asleep)
@@ -178,7 +178,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             AllowedRoute(endpoint) is not { } route || gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
-        using var session = transport.OpenHid(endpoint, cancellationToken);
+        using var session = transport.OpenHid(QueryEndpoint(endpoint, route), cancellationToken);
         if (route.Family == MouseFamily.CompxOut)
         {
             // R1：优先发轻量的 Compx 0x03 在线查询：
@@ -207,6 +207,15 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             : result.Asleep || result.Issue == ReadIssue.Timeout ? LinkState.Asleep
             : LinkState.Unknown;
         return new(endpoint.ReceiverId, null, target.Device.Id, link, result.Level.HasValue ? ReadIssue.None : result.Issue);
+    }
+
+    private static HidInterface QueryEndpoint(HidInterface endpoint, MouseReceiver route)
+    {
+        if (!route.ExactCollectionOnly)
+            return endpoint;
+        return route.Shape!.Channel == MouseChannel.Feature
+            ? endpoint with { FeatureOnly = true, RequiredFeatureReportId = route.Shape.ReportId }
+            : endpoint with { RequiredInputReportId = route.Shape.ReportId, RequiredOutputReportId = route.Shape.ReportId };
     }
 
     private readonly record struct Reply(
@@ -329,7 +338,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 pending = session.ReadInputAsync(report, token).AsTask();
                 if (pending.IsFaulted || pending.IsCanceled)
                     await pending.ConfigureAwait(false);
-                if (route.Family == MouseFamily.CompxOut && siblingInputs.Count > 0)
+                if (route.Family == MouseFamily.CompxOut && !route.ExactCollectionOnly && siblingInputs.Count > 0)
                 {
                     foreach (var sibling in siblingInputs)
                     {

@@ -82,6 +82,16 @@ public static partial class DiagnosticPrivacy
             case AsusHidAdapter:
                 CopyAsusKeyboard(hid.ProductId, raw, result);
                 return result;
+            case MchoseMouseAdapter:
+                if (MchoseMouseProtocol.Allows(request) &&
+                    MchoseMouseProtocol.TryDecode(raw, request[0], out _, out _))
+                {
+                    // 保留重放所需的 VID、连接位域、电量与充电。型号、固件和尾部全部遮蔽。
+                    result.AsSpan().Fill(0xFF);
+                    raw[..4].CopyTo(result);
+                    raw[10..13].CopyTo(result.AsSpan(10));
+                }
+                return result;
             case MchoseKbAdapter:
                 CopyMchoseKb(raw, result);
                 return result;
@@ -289,8 +299,10 @@ public static partial class DiagnosticPrivacy
         0x361D => "Finalmouse",
         0x054C => "Sony",
         0x0B05 => "ASUS",
-        0x41E4 => "MCHOSE",
-        0x3554 => "Compx",
+        0x41E4 or 0x2023 or 0x5253 or 0x3837 => "MCHOSE",
+        0x3554 => "Compx（VXE / VGN / Scyrox / Lamzu 等）",
+        0x36A7 or 0x3710 => "WLmouse",
+        0x373E => "Lamzu",
         0x093A => "PixArt",
         0x1038 => "SteelSeries",
         0x1B1C => "Corsair",
@@ -299,7 +311,6 @@ public static partial class DiagnosticPrivacy
         0x31E3 => "Wooting",
         0x24AE => "Rapoo",
         0x260D => "Darmoshark",
-        0x3710 => "WLMouse",
         0x320F => "Evision",
         0x25A7 => "Areson/Compx",
         0x3537 => "VGN/ATK",

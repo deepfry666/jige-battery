@@ -17,12 +17,17 @@ internal sealed record MouseProtocolShape(ushort UsagePage, ushort? Usage, ushor
 internal sealed record MouseReceiver(
     string Model, ushort VendorId, ushort? ProductId, MouseFamily Family, MouseEvidence Evidence,
     bool Enabled = false, BitMouseReply BitReply = BitMouseReply.WithoutChecksum,
-    bool ResolveModelByCidMid = false, bool IsGeneric = false)
+    bool ResolveModelByCidMid = false, bool IsGeneric = false,
+    byte? InterfaceNumber = null, bool ExactCollectionOnly = false)
 {
     public MouseProtocolShape? Shape => MouseReceiverCatalog.Shape(Family, VendorId);
+    // 游狼的既有 XVI 路径要求 MI_02，新厂商可按型号单独指定。
+    private byte? RequiredInterface => InterfaceNumber ??
+        (VendorId == MouseReceiverCatalog.GWolves && Family is (MouseFamily.XviOld or MouseFamily.XviNew) ? (byte)2 : null);
+
     public bool Matches(HidInterface hid) => (IsGeneric || ProductId.HasValue && hid.ProductId == ProductId) &&
         hid.VendorId == VendorId && Shape?.Matches(hid) == true &&
-        (Family is not (MouseFamily.XviOld or MouseFamily.XviNew) || hid.InterfaceNumber == 2);
+        (RequiredInterface is null || hid.InterfaceNumber == RequiredInterface);
 }
 
 internal static class MouseReceiverCatalog
@@ -45,6 +50,42 @@ internal static class MouseReceiverCatalog
     // 游狼 XVI 两代共享 FFFF:0000 65B Feature 特征，属于一对多冲突，不开放通用识别，依赖官方型号表。
     private static readonly MouseFamily[] GenericCandidateFamilies =
         [MouseFamily.CompxOut, MouseFamily.BitMouse, MouseFamily.XviOld, MouseFamily.XviNew];
+
+    internal static IReadOnlyList<(MouseReceiver Receiver, string Source)> DomesticModels { get; } =
+    [
+        (Compx("VXE R1 系列", 0x3554, 0xF58A, MouseEvidence.MultipleSources), "atk-control / HaloBattery"),
+        (Compx("VXE / VGN 鼠标", 0x3554, 0xF505, MouseEvidence.MultipleSources), "atk-control / HaloBattery / VGN HUB"),
+        (Compx("VXE 鼠标", 0x3554, 0xF58E), "mouse_tray 接收器记录"),
+        (Compx("MAD 鼠标", Atk, 0x1040, MouseEvidence.MultipleSources), "ATK HUB / HaloBattery"),
+        (Compx("VXE R1 SE+", Atk, 0x1085), "HaloBattery"),
+        (Compx("Scyrox V8", 0x3554, 0xF5F7, MouseEvidence.MultipleSources), "Scyrox S-center / HaloBattery"),
+        (Compx("Scyrox 鼠标", 0x3554, 0xF5F4), "Scyrox S-center"),
+        (Compx("Compx 方案鼠标", 0x3554, 0xF517, MouseEvidence.MultipleSources), "Scyrox S-center / Control HUB / OpenMouse"),
+        (Compx("VGN F2 Master", 0x3554, 0xFB56), "VGN HUB"),
+        (Compx("VGN Y2 Ultra", 0x3554, 0xFB3E), "VGN HUB"),
+        (Compx("VGN Y2 Master", 0x3554, 0xFB52), "VGN HUB"),
+        (Compx("VGN Y2 Pro Max", 0x3554, 0xFB54), "VGN HUB"),
+        (Compx("VGN Dragonfly 3 Master", 0x3554, 0xFB58), "VGN HUB"),
+        (Compx("VGN 鼠标", 0x3554, 0xF503), "VGN HUB"),
+        (Compx("VGN 鼠标", 0x3554, 0xF50B), "VGN HUB"),
+        (Compx("Compx 方案鼠标", 0x3554, 0xF50D, MouseEvidence.MultipleSources), "Lamzu Aurora / Control HUB"),
+
+        (Xvi("Lamzu Maya X 8K", 0x373E, 0x001E, MouseEvidence.MultipleSources, 2), "Lamzu Aurora / HaloBattery"),
+        (Xvi("Lamzu Maya X 1K", 0x373E, 0x001D, MouseEvidence.SingleSource, 2), "Lamzu Aurora"),
+        (Xvi("WLmouse Beast X Max", 0x36A7, 0xA880, MouseEvidence.MultipleSources), "WL MOUSE HUB / HaloBattery"),
+        (Xvi("WLmouse Beast X Mini Pro", 0x36A7, 0xA868, MouseEvidence.SingleSource), "WL MOUSE HUB"),
+        (Xvi("WLmouse Beast X", 0x36A7, 0xA883, MouseEvidence.SingleSource), "WL MOUSE HUB"),
+        (Xvi("WLmouse Beast X 接收器", 0x36A7, 0xA887, MouseEvidence.SingleSource), "HaloBattery"),
+        (Xvi("WLmouse 鼠标", 0x36A7, 0xA882, MouseEvidence.SingleSource), "WL MOUSE HUB"),
+        (Xvi("MCHOSE A5 Pro Max 1K", 0x2023, 0xF013, MouseEvidence.MultipleSources), "HaloBattery / mchose-macos"),
+        (Xvi("MCHOSE A5 Pro Max 4K", 0x2023, 0xF015, MouseEvidence.MultipleSources), "HaloBattery / mchose-macos")
+    ];
+
+    private static MouseReceiver Compx(string model, ushort vid, ushort pid, MouseEvidence evidence = MouseEvidence.SingleSource) =>
+        new(model, vid, pid, MouseFamily.CompxOut, evidence, Enabled: true, ExactCollectionOnly: true);
+
+    private static MouseReceiver Xvi(string model, ushort vid, ushort pid, MouseEvidence evidence, byte? mi = null) =>
+        new(model, vid, pid, MouseFamily.XviNew, evidence, Enabled: true, InterfaceNumber: mi, ExactCollectionOnly: true);
 
     private static readonly MouseReceiver[] Models =
     [
@@ -119,10 +160,11 @@ internal static class MouseReceiverCatalog
         new("G-Wolves HTS Plus ACE", GWolves, 0x5403, MouseFamily.XviOld, MouseEvidence.SingleSource, true),
         new("G-Wolves HTX ACE", GWolves, 0x5703, MouseFamily.XviOld, MouseEvidence.SingleSource, true),
         new("G-Wolves HSK Plus ACE", GWolves, 0x5903, MouseFamily.XviOld, MouseEvidence.SingleSource, true),
-        new("G-Wolves HSK Plus ACE-2", GWolves, null, MouseFamily.XviOld, MouseEvidence.Unverified)
+        new("G-Wolves HSK Plus ACE-2", GWolves, null, MouseFamily.XviOld, MouseEvidence.Unverified),
+        .. DomesticModels.Select(model => model.Receiver)
     ];
 
-    public static bool IsVendor(ushort? vid) => vid is Atk or GWolves;
+    public static bool IsVendor(ushort? vid, ushort? pid) => vid is Atk or GWolves || IsListed(vid, pid);
     public static bool IsListed(ushort? vid, ushort? pid) =>
         pid.HasValue && Models.Any(row => row.VendorId == vid && row.ProductId == pid);
 
@@ -132,7 +174,7 @@ internal static class MouseReceiverCatalog
     /// <summary>按厂商和接口特征列出所有可能匹配的协议家族（用于安全门 ① 唯一性检查）。</summary>
     public static IEnumerable<MouseFamily> MatchingGenericFamilies(HidInterface hid)
     {
-        if (hid.MetadataIssue != ReadIssue.None || hid.VendorId is not ushort vid || !IsVendor(vid))
+        if (hid.MetadataIssue != ReadIssue.None || hid.VendorId is not ushort vid || vid is not (Atk or GWolves))
             yield break;
 
         foreach (var family in GenericCandidateFamilies)

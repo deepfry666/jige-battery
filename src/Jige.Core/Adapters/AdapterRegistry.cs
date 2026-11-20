@@ -36,7 +36,7 @@ public sealed class AdapterRegistry
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
             new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates, savedLogitechSlots), new LogitechHeadsetAdapter(),
             new RazerFeatureAdapter(), new RazerHeadsetAdapter(gates: gates),
-            new AsusHidAdapter(gates), new MchoseKbAdapter(gates));
+            new AsusHidAdapter(gates), new MchoseKbAdapter(gates), new MchoseMouseAdapter(gates));
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
@@ -46,7 +46,8 @@ public sealed class AdapterRegistry
         vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null ||
             pid is 0x0565 or 0x057A or 0x0577 or RazerHeadsetProtocol.BlackShark2020Pid) ||
         vid == AsusHidProtocol.VendorId && AsusHidProtocol.FindKeyboard(pid) is not null ||
-        vid == MchoseKbProtocol.VendorId && pid == MchoseKbProtocol.K87ReceiverPid;
+        vid == MchoseKbProtocol.VendorId && pid == MchoseKbProtocol.K87ReceiverPid ||
+        MchoseMouseAdapter.Find(vid, pid) is not null;
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory)

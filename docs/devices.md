@@ -54,6 +54,40 @@
 | ATK A9 Pro Max 2.0 NK | `373B:11DC` / `373B:11DB` | BitMouse（`FF05:0001` 64/64） | 仅按资料 | `research/device-catalog.md` |
 | 未收录的 `373B` 接收器（通用适配） | `373B:*` | Compx-OUT / BitMouse（三道安全门） | 仅按资料 | 接口特征唯一匹配时尝试 |
 
+### 国产无线鼠标第一批
+
+按接收器 VID:PID 和 HID 集合精确匹配。共享接收器显示通用名称，详细证据和暂未启用的 PID 见[交付记录](../research/delivery-0.2.15.md)。
+
+| 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| VXE R1 系列 | `3554:F58A` | Compx-OUT | 仅按资料 | atk-control / HaloBattery |
+| VXE / VGN 鼠标 | `3554:F505` | Compx-OUT | 仅按资料 | atk-control / HaloBattery / VGN HUB |
+| VXE 鼠标 | `3554:F58E` | Compx-OUT | 仅按资料 | mouse_tray 接收器记录 |
+| MAD 鼠标 | `373B:1040` | Compx-OUT | 仅按资料 | ATK HUB / HaloBattery |
+| VXE R1 SE+ | `373B:1085` | Compx-OUT | 仅按资料 | HaloBattery |
+| Scyrox V8 | `3554:F5F7` | Compx-OUT | 仅按资料 | Scyrox S-center / HaloBattery |
+| Scyrox 鼠标 | `3554:F5F4` | Compx-OUT | 仅按资料 | Scyrox S-center |
+| Compx 方案鼠标 | `3554:F517` | Compx-OUT | 仅按资料 | Scyrox S-center / Control HUB / OpenMouse |
+| VGN F2 Master | `3554:FB56` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN Y2 Ultra | `3554:FB3E` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN Y2 Master | `3554:FB52` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN Y2 Pro Max | `3554:FB54` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN Dragonfly 3 Master | `3554:FB58` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN 鼠标 | `3554:F503` | Compx-OUT | 仅按资料 | VGN HUB |
+| VGN 鼠标 | `3554:F50B` | Compx-OUT | 仅按资料 | VGN HUB |
+| Compx 方案鼠标 | `3554:F50D` | Compx-OUT | 仅按资料 | Lamzu Aurora / Control HUB |
+| Lamzu Maya X 8K | `373E:001E` | XVI-NEW | 仅按资料 | Lamzu Aurora / HaloBattery |
+| Lamzu Maya X 1K | `373E:001D` | XVI-NEW | 仅按资料 | Lamzu Aurora |
+| WLmouse Beast X Max | `36A7:A880` | XVI-NEW | 仅按资料 | WL MOUSE HUB / HaloBattery |
+| WLmouse Beast X Mini Pro | `36A7:A868` | XVI-NEW | 仅按资料 | WL MOUSE HUB |
+| WLmouse Beast X | `36A7:A883` | XVI-NEW | 仅按资料 | WL MOUSE HUB |
+| WLmouse Beast X 接收器 | `36A7:A887` | XVI-NEW | 仅按资料 | HaloBattery |
+| WLmouse 鼠标 | `36A7:A882` | XVI-NEW | 仅按资料 | WL MOUSE HUB |
+| MCHOSE A5 Pro Max 1K | `2023:F013` | XVI-NEW | 仅按资料 | HaloBattery / mchose-macos |
+| MCHOSE A5 Pro Max 4K | `2023:F015` | XVI-NEW | 仅按资料 | HaloBattery / mchose-macos |
+| MCHOSE 鼠标 | `5253:1020` | MCHOSE 反码 Feature | 仅按资料 | mchose-linux / HaloBattery（MIT）；M7 Ultra、L7 Pro 共用接收器 |
+| MCHOSE A7 V2 Ultra | `3837:100B` | MCHOSE 反码 Feature | 仅按资料 | HaloBattery #4 描述符 / mchose-linux（MIT）；候选，要求 MI_02 |
+
 ### 游狼 G-Wolves XVI-OLD
 
 十六进制命令与 XVI-NEW 不同，且尚未在实机上验证过任意一台 XVI-OLD 型号，因此统一标为「仅按资料」：

@@ -5,7 +5,7 @@
 几格在 Windows 任务栏上显示无线鼠标、键盘和耳机的电量：不用打开厂商驱动，看一眼就知道「还剩几格电」。电量低时提醒你充电，打游戏时不打扰。
 
 - 官网：**https://jige.imfourj.cn**（国内直接访问，下载按钮自动指向最新版）
-- 最新正式版：**v0.2.14**（[更新记录](CHANGELOG.md)）
+- 最新正式版：**v0.2.15**（[更新记录](CHANGELOG.md)）
 - 系统要求：Windows 10 22H2 或 Windows 11，64 位
 - 只读：只查询电量和状态，不改任何设备设置
 - 开源：[MIT 许可证](LICENSE)
@@ -14,7 +14,7 @@
 
 | 渠道 | 安装包 | 校验文件 |
 | --- | --- | --- |
-| **国内镜像**（无需代理） | [Jige-Setup-0.2.14-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.14/Jige-Setup-0.2.14-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.14/SHA256SUMS.txt) |
+| **国内镜像**（无需代理） | [Jige-Setup-0.2.15-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.15/Jige-Setup-0.2.15-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.15/SHA256SUMS.txt) |
 | GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) | 同页附带 |
 
 国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，在几格里点「检查更新」即可升级，不用再来这里下载。
@@ -22,7 +22,7 @@
 下载后可以在 PowerShell 核对散列，结果应与 `SHA256SUMS.txt` 里的一致：
 
 ```powershell
-Get-FileHash .\Jige-Setup-0.2.14-x64.exe -Algorithm SHA256
+Get-FileHash .\Jige-Setup-0.2.15-x64.exe -Algorithm SHA256
 ```
 
 ## 界面预览
@@ -99,6 +99,13 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | ATK Compx-OUT | `373B:1031`（F1 Ultimate）、共用接收器 `373B:101A/11D9/1278`（默认「ATK 鼠标」，协议返回 CID/MID 时显示具体型号），以及同家族 `373B` + `FF02:0002`（17/17）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
 | ATK BitMouse | ATK ZERO `373B:1155`（`FF05:0001`），以及同家族 `373B` + `FF05:0001`（64/64）通用识别 | 多方开源实现一致 / 通用适配 | 仅按资料 |
 | 游狼 XVI-OLD | 从官方网页驱动型号表导入 21 款 `XVI=1` 旧协议型号（如 HTX Mini 8K `33E4:2717`、VUK `33E4:3917`、HT-S2 / HTS Plus / HSK Pro 等），`MI_02 / FFFF:0000` | 依据官方网页驱动型号表 | 仅按资料 |
+| VXE R1 系列 / MAD | `3554:F58A`、`3554:F505`、`3554:F58E`、`373B:1040`、`373B:1085`，Compx-OUT | atk-control / HaloBattery / mouse_tray | 仅按资料 |
+| Scyrox / Compx 共享接收器 | `3554:F5F7`、`3554:F5F4`、`3554:F517`、`3554:F50D`，Compx-OUT | Scyrox S-center / HaloBattery / Lamzu Aurora / Control HUB | 仅按资料 |
+| VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master | `3554:F503`、`3554:F50B`、`3554:F505`、`3554:FB56`、`3554:FB3E`、`3554:FB52`、`3554:FB54`、`3554:FB58`，Compx-OUT | VGN HUB | 仅按资料 |
+| Lamzu Maya X | `373E:001D`（1K）、`373E:001E`（8K），XVI-NEW | Lamzu Aurora / HaloBattery | 仅按资料 |
+| WLmouse Beast X 系列 | `36A7:A880`、`36A7:A868`、`36A7:A883`、`36A7:A887`、`36A7:A882`，XVI-NEW | WL MOUSE HUB / HaloBattery | 仅按资料 |
+| MCHOSE A5 Pro Max 初代 | `2023:F013`（1K）、`2023:F015`（4K），XVI-NEW | HaloBattery / mchose-macos | 仅按资料 |
+| MCHOSE M7 Ultra / L7 Pro、A7 V2 Ultra | `5253:1020`（共享）、`3837:100B`（候选），反码 Feature | mchose-linux / HaloBattery | 仅按资料 |
 | [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
 | [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |

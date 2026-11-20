@@ -63,6 +63,18 @@ BitMouse 请求的校验为 ID 和校验槽之后的字节和取低 8 位。回�
 
 XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做有限次 GetFeature。两代分别校验自己的回复头和电量范围。旧协议可识别休眠状态，超时和乱码不会生成新读数。旧协议测试用实机验证实现公布的帧布局和合成百分比，新协议测试使用公开的 60% 实机记录。设备缓存可能返回旧回复，单次成功无法证明无线端仍在线。[XVI-OLD 实机验证实现](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/drivers/gwolves/xvi-hid.ts) · [XVI-NEW 实机记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#3-response-frame)
 
+## 国产鼠标第一批
+
+[设备清单](devices.md#国产无线鼠标第一批)中的 27 个接收器标为「仅按资料」。逐个匹配 VID:PID 和唯一厂商集合，打开查询句柄时再用 HID 描述符校验报告 ID。共享接收器采用通用名称。Compx-OUT 与 XVI-NEW 复用上节的完整查询帧。
+
+| 家族 | 使用页与报告 | 查询及响应 |
+| --- | --- | --- |
+| Compx-OUT | `FF02:0002`，Input / Output 都是 17 字节、ID `08` | 仅查询匹配的集合。按整帧白名单发送电量 `04` 和在线 `03`。新接收器使用目录显示名，CID/MID `10` 用于已登记的 ATK 型号。回包 `[6]` 为百分比，`[7]` 为充电，`[8..9]` 为大端毫伏值。 |
+| XVI-NEW | `FFFF:0000`，Feature 65 字节、ID `00`。Lamzu Maya X 要求 `MI_02` | 只发送 `00 00 00 02 02 00 83` 加 58 字节零填充。接收 `00 A1/A2 00 02 02 00 83` 头，随后是充电状态和 0–100 的百分比。BitMouse 另有白名单，其中 `83` 是忘记配对指令。 |
+| MCHOSE 反码 Feature | `FF01:0001`，按 HID caps 长度选择 21 字节 ID `11` 或 65 字节 ID `12`。A7 V2 Ultra 要求 `MI_02` | 只发送只读状态查询 `06`（线上为 `11 F9 FF×19` 或 `12 F9 FF×63`）。每次 GetFeature 前发送一次 SetFeature，最多四轮。回包需同 ID、`F9` 回显和有效的机身 VID；还原反码后 `[2..5]` 为 VID/型号，`[10]` 为连接位域，`[11]` 为百分比，`[12]` 为充电。过滤占位和回显，静默时沿用已有休眠逻辑。 |
+
+六个新 VID 仅按目录启用，同 VID 的其他接口不会参与查询。若超时，Compx 可在原集合从在线状态查询回退为电量查询，MCHOSE 可在当前 Feature 报告上重试。各接收器始终使用同一个协议。配置、配对、固件更新和非电量 Feature 指令均未加入白名单。资料来源见[调研报告](../research/domestic-mice-webdriver.md)。
+
 ## 罗技 HID++ 1.0 与 2.0
 
 本节适配属于「仅按资料」。几格通过离线回放检查读取流程，Windows 11 实机表现待确认。
