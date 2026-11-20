@@ -44,7 +44,10 @@ internal static unsafe class Desktop
 
     public static Palette PanelPalette(bool dark)
     {
-        // AccentColorMenu 是 Windows 为当前菜单外观选择的强调色，注册表值采用 ABGR。
+        // AccentColorMenu 是 Windows 为当前系统外观选择的强调色（注册表值采用 ABGR）；
+        // 当用户手动覆写了与系统相反的明暗模式时，使用该极性下的默认强调色以保证对比度。
+        if (dark != DarkApps)
+            return Palette.Create(dark);
         var accent = GetRegistry(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentColorMenu");
         if (accent is not int value)
             return Palette.Create(dark);

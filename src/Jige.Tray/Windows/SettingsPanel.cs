@@ -1,6 +1,6 @@
 namespace Jige.Tray.Windows;
 
-internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart, Bluetooth, DisplayLocation }
+internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart, Bluetooth, DisplayLocation, Theme }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
@@ -8,12 +8,12 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
 {
     public const int CardX = 9, CardY = 51, CardWidth = PanelLayout.Width - 18;
     public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
-    public const int CollapsedCardHeight = 7 * RowHeight + 2;
+    public const int CollapsedCardHeight = 8 * RowHeight + 2;
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
         [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart,
-            SettingRow.Bluetooth, SettingRow.DisplayLocation];
+            SettingRow.Bluetooth, SettingRow.DisplayLocation, SettingRow.Theme];
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
@@ -25,6 +25,13 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     [
         new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.Taskbar), "任务栏（推荐）"),
         new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.TrayIcons), "托盘图标")
+    ];
+
+    public static readonly SettingChoice[] ThemeChoices =
+    [
+        new(new(PopupAction.Theme, (int)ThemeMode.Auto), "自动切换（跟随系统）"),
+        new(new(PopupAction.Theme, (int)ThemeMode.Light), "明亮模式"),
+        new(new(PopupAction.Theme, (int)ThemeMode.Dark), "深色模式")
     ];
 
     public static string DisplayLocationLabel(TrayDisplayLocation location, string? fallbackReason = null) =>
@@ -67,7 +74,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     private int Capacity => Math.Clamp((availableHeight - BaseHeight) / OptionHeight, 1, MaxVisibleOptions);
     public int SurfaceHeight => BaseHeight + Capacity * OptionHeight;
     public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
-        VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation);
+        VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation) +
+        VisibleHeight(SettingRow.Theme);
     public float Height => BaseHeight + ExtraHeight;
 
     public void UpdateTrayChoices(TrayModel model, IReadOnlyList<DeviceStatus> devices)
@@ -83,6 +91,7 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     {
         SettingRow.TrayMode => trayChoices,
         SettingRow.DisplayLocation => DisplayLocationChoices,
+        SettingRow.Theme => ThemeChoices,
         SettingRow.Threshold => ThresholdChoices,
         SettingRow.PollInterval => PollChoices,
         _ => []
@@ -212,6 +221,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
                 settings with { TrayMode = (TrayDisplayMode)target.Value },
             (SettingRow.DisplayLocation, PopupAction.DisplayLocation) when DisplayLocationChoices.Any(choice => choice.Target == target) =>
                 settings with { DisplayLocation = (TrayDisplayLocation)target.Value },
+            (SettingRow.Theme, PopupAction.Theme) when ThemeChoices.Any(choice => choice.Target == target) =>
+                settings with { Theme = (ThemeMode)target.Value },
             (SettingRow.Threshold, PopupAction.Threshold) when ThresholdChoices.Any(choice => choice.Target == target) =>
                 settings with { LowBatteryThreshold = target.Value },
             (SettingRow.PollInterval, PopupAction.PollInterval) when PollChoices.Any(choice => choice.Target == target) =>

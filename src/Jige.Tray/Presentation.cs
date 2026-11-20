@@ -163,6 +163,20 @@ internal static class Presentation
         _ => "自定义"
     };
 
+    public static bool ResolveDark(ThemeMode mode, bool systemDark) => mode switch
+    {
+        ThemeMode.Dark => true,
+        ThemeMode.Light => false,
+        _ => systemDark
+    };
+
+    public static string ThemeModeLabel(ThemeMode mode) => mode switch
+    {
+        ThemeMode.Light => "明亮模式",
+        ThemeMode.Dark => "深色模式",
+        _ => "自动切换"
+    };
+
     /// <summary>单设备独立托盘图标的悬停提示。</summary>
     public static string DeviceTooltip(TrayModel model, DeviceStatus device)
     {

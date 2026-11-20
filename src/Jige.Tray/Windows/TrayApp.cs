@@ -1049,6 +1049,7 @@ internal sealed partial class TrayApp : IDisposable
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
+        bool themeChanged = settings.Theme != model.Settings.Theme;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
         if (remove is not null)
             model.RemoveOffline(remove);
@@ -1068,8 +1069,8 @@ internal sealed partial class TrayApp : IDisposable
         }
         SaveState();
         RefreshIcon();
-        RenderPopup();
-        RenderHoverCard();
+        RenderPopup(reset: themeChanged);
+        RenderHoverCard(reset: themeChanged);
         ProcessWork();
         return true;
     }
@@ -1143,7 +1144,7 @@ internal sealed partial class TrayApp : IDisposable
             {
                 var extra = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
                 HWND window = MakeWindow(HoverCardClass, extra, WS_POPUP | WS_THICKFRAME);
-                hoverCard = new HoverCardWindow(window);
+                hoverCard = new HoverCardWindow(window, model);
             }
             // 已显示（含刚离开、正在淡出）时原地换内容；已隐藏时复用原窗口重新显示。
             hoverCard.Show(content, anchor);
@@ -1480,7 +1481,7 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation:
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme:
                 active.SelectSetting(target, ChangeSettings);
                 break;
             case PopupAction.GameSilent:
@@ -1624,7 +1625,7 @@ internal sealed partial class TrayApp : IDisposable
             var extra = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
             HWND window = MakeWindow(MenuClass, extra, WS_POPUP | WS_THICKFRAME);
             var anchor = Anchor(point is { X: -1, Y: -1 } ? null : point);
-            menu = new TrayMenuWindow(window);
+            menu = new TrayMenuWindow(window, model);
             menu.Show(anchor);
         }
         catch (Exception error)

@@ -22,7 +22,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private Bounds? position;
     private int backgroundCapacity;
     private float scale, displayedHeight;
-    private bool tracking, animations, acrylic;
+    private bool tracking, animations, acrylic, darkTheme;
     private Palette colors = null!;
     private PopupTarget down;
     private RECT anchor = anchor;
@@ -93,13 +93,14 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         if (newScale <= 0)
             throw new InvalidOperationException("找不到弹窗显示器的工作区");
 
-        if (reset || composition is null || monitor != screen || scale != newScale)
+        bool dark = Presentation.ResolveDark(model.Settings.Theme, Desktop.DarkApps);
+        if (reset || composition is null || monitor != screen || scale != newScale || darkTheme != dark)
         {
             DisposeGraphics();
             monitor = screen;
             scale = newScale;
             animations = Desktop.Animations();
-            bool dark = Desktop.DarkApps;
+            darkTheme = dark;
             acrylic = Desktop.Backdrop(Handle, dark);
             colors = Desktop.PanelPalette(dark);
             composition = new(Handle, scale);

@@ -9,7 +9,7 @@ internal enum PopupAction
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
     GameSilent, Autostart, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
-    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation
+    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -22,8 +22,8 @@ internal sealed partial class PopupScene : IDisposable
 {
     private readonly record struct HitBox(PopupTarget Target, PanelRect Rect)
     {
-        public HitBox(PopupAction action, float x, float y, float width, float height)
-            : this(action, new PanelRect(x, y, width, height)) { }
+        public HitBox(PopupTarget target, float x, float y, float width, float height)
+            : this(target, new PanelRect(x, y, width, height)) { }
 
         public PopupAction Action => Target.Action;
         public float X => Rect.X;
@@ -644,13 +644,7 @@ internal sealed partial class PopupScene : IDisposable
     private void DrawSettings(Canvas canvas)
     {
         var ink = hover.Action == PopupAction.Settings ? colors.Ink : colors.Secondary;
-        canvas.Ring(316, 28, 2.2f, ink, 1.3f);
-        for (int i = 0; i < 8; i++)
-        {
-            float angle = i * MathF.PI / 4;
-            float x = MathF.Cos(angle), y = MathF.Sin(angle);
-            canvas.Line(316 + x * 4.9f, 28 + y * 4.9f, 316 + x * 6.5f, 28 + y * 6.5f, ink, 1.3f);
-        }
+        canvas.SettingsGear(316, 28, ink);
     }
 
     private void DrawRefresh(Canvas canvas)

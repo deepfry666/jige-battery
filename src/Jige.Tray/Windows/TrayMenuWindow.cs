@@ -12,7 +12,7 @@ namespace Jige.Tray.Windows;
 /// 复用 DirectComposition + Direct2D + 系统深浅色与强调色，支持键鼠操作、平滑渐显/渐隐与防失焦闪退。
 /// </summary>
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed unsafe class TrayMenuWindow(HWND hwnd) : IDisposable
+internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDisposable
 {
     public const int FadeInMs = 120;
     public const int FadeOutMs = 100;
@@ -21,7 +21,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd) : IDisposable
     private Composition.Layer? surface;
     private HMONITOR monitor;
     private float scale;
-    private bool animations, acrylic, shown, tracking, reclaimed;
+    private bool animations, acrylic, darkTheme, shown, tracking, reclaimed;
     private long shownAt;
     private Palette colors = null!;
     private Bounds? position;
@@ -205,14 +205,15 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd) : IDisposable
         if (newScale <= 0)
             throw new InvalidOperationException("找不到菜单显示器的工作区");
 
-        bool rebuilt = reset || composition is null || monitor != screen || MathF.Abs(scale - newScale) > 0.001f;
+        bool dark = Presentation.ResolveDark(model.Settings.Theme, Desktop.DarkApps);
+        bool rebuilt = reset || composition is null || monitor != screen || MathF.Abs(scale - newScale) > 0.001f || darkTheme != dark;
         if (rebuilt)
         {
             DisposeGraphics();
             monitor = screen;
             scale = newScale;
             animations = Desktop.Animations();
-            bool dark = Desktop.DarkApps;
+            darkTheme = dark;
             acrylic = Desktop.Backdrop(Handle, dark);
             colors = Desktop.PanelPalette(dark);
             composition = new(Handle, scale);
@@ -285,13 +286,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd) : IDisposable
                 break;
 
             case TrayMenuCommand.Settings:
-                canvas.Ring(cx, cy, 2.1f, ink, 1.25f);
-                for (int i = 0; i < 8; i++)
-                {
-                    float angle = i * MathF.PI / 4;
-                    float dx = MathF.Cos(angle), dy = MathF.Sin(angle);
-                    canvas.Line(cx + dx * 4.5f, cy + dy * 4.5f, cx + dx * 6.0f, cy + dy * 6.0f, ink, 1.25f);
-                }
+                canvas.SettingsGear(cx, cy, ink, scale: 0.92f, thickness: 1.25f);
                 break;
 
             case TrayMenuCommand.Updates:

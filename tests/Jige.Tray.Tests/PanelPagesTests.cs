@@ -10,7 +10,7 @@ public sealed class PanelPagesTests
     [InlineData((int)PanelPage.Main, 0, 700, 157, 0)]
     [InlineData((int)PanelPage.Main, 1, 700, 247, 0)]
     [InlineData((int)PanelPage.Main, 30, 400, 391, 3)]
-    [InlineData((int)PanelPage.Settings, 40, 700, 411, 0)]
+    [InlineData((int)PanelPage.Settings, 40, 700, 455, 0)]
     [InlineData((int)PanelPage.Devices, 0, 700, 153, 0)]
     [InlineData((int)PanelPage.Devices, 5, 700, 425, 5)]
     [InlineData((int)PanelPage.Devices, 40, 424, 370, 4)]
@@ -38,18 +38,18 @@ public sealed class PanelPagesTests
         Assert.True(panel.HasDiagnosticFooter);
         Assert.Equal(PanelLayout.DiagnosticFooterHeight, panel.FooterHeight);
         Assert.Equal(PanelLayout.SettingsHeight + extra, panel.Height);
-        // 卡片底部与底部分割线间距在有无诊断报告时保持一致（369 - 361 = 8px）。
+        // 卡片底部与底部分割线间距在有无诊断报告时保持一致（413 - 405 = 8px）。
         Assert.Equal(PanelLayout.SettingsHeight - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
 
         panel.Toggle(SettingRow.Threshold, 0, animate: false, selectedIndex: 1);
-        Assert.Equal(547 + extra, panel.Height);
-        Assert.Equal(547 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+        Assert.Equal(591 + extra, panel.Height);
+        Assert.Equal(591 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
     }
 
     [Theory]
-    [InlineData(0, 0, 411)]
-    [InlineData(50, 0.7944, 519)]
-    [InlineData(250, 1, 547)]
+    [InlineData(0, 0, 455)]
+    [InlineData(50, 0.7944, 563)]
+    [InlineData(250, 1, 591)]
     public void ResizeUsesPrototypeCurveAndKeepsBottomAgainstTray(int elapsed, double expected, int expectedHeight)
     {
         double eased = PanelLayout.Ease(elapsed / 250d);
@@ -67,11 +67,12 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData(null, 52, 96, 140, 184, 228, 411)]
-    [InlineData((int)SettingRow.DisplayLocation, 52, 96, 140, 184, 228, 479)]
-    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 479)]
-    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 547)]
-    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 513)]
+    [InlineData(null, 52, 96, 140, 184, 228, 455)]
+    [InlineData((int)SettingRow.DisplayLocation, 52, 96, 140, 184, 228, 523)]
+    [InlineData((int)SettingRow.Theme, 52, 96, 140, 184, 228, 557)]
+    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 523)]
+    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 591)]
+    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 557)]
     public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int trayMode, int threshold,
         int game, int poll, int autostart, int height)
     {
@@ -79,7 +80,8 @@ public sealed class PanelPagesTests
         if (expanded is int expandedRow)
             Assert.True(panel.Toggle((SettingRow)expandedRow, 0, animate: false, selectedIndex: 0));
 
-        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44, autostart + 88];
+        int theme = autostart + 132 + (expanded == (int)SettingRow.DisplayLocation ? 68 : 0);
+        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44, autostart + 88, theme];
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = panel.RowRect(row);
@@ -113,7 +115,7 @@ public sealed class PanelPagesTests
         panel.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         panel.Advance(50);
         float beforeSwitch = panel.Height;
-        Assert.InRange(beforeSwitch, 515, 521);
+        Assert.InRange(beforeSwitch, 559, 565);
         Assert.True(panel.OptionHitRect(SettingRow.Threshold, 3).Height is > 0 and < 34);
 
         panel.Toggle(SettingRow.PollInterval, 50, animate: true, selectedIndex: 1);
@@ -121,17 +123,17 @@ public sealed class PanelPagesTests
         Assert.Equal(beforeSwitch, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.Threshold, 0).Height);
         panel.Advance(300);
-        Assert.Equal(513, panel.Height);
+        Assert.Equal(557, panel.Height);
         Assert.Equal(0, panel.VisibleHeight(SettingRow.Threshold));
         Assert.Equal(34, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         Assert.False(panel.Animating);
 
         Assert.True(panel.Collapse(300, animate: true));
         Assert.False(panel.Collapse(301, animate: true));
-        Assert.Equal(513, panel.Height);
+        Assert.Equal(557, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         panel.Advance(550);
-        Assert.Equal(411, panel.Height);
+        Assert.Equal(455, panel.Height);
     }
 
     [Theory]
@@ -155,7 +157,7 @@ public sealed class PanelPagesTests
             Assert.True(panel.Select(target, model, 1, animate: false, Save));
             bool isTrayMode = (SettingRow)row == SettingRow.TrayMode;
             Assert.Equal(isTrayMode ? SettingRow.TrayMode : (SettingRow?)null, panel.Expanded);
-            Assert.Equal(isTrayMode ? 479 : 411, panel.Height);
+            Assert.Equal(isTrayMode ? 523 : 455, panel.Height);
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);
@@ -185,7 +187,7 @@ public sealed class PanelPagesTests
             new(keyboard, 83, false, ChargingState.NotCharging, LinkState.Online, time)
         ], false, time);
         model.ApplyPresence([new("", null, keyboard.Id, LinkState.Offline)], time);
-        var panel = new SettingsPanel(514);
+        var panel = new SettingsPanel(PanelLayout.SettingsHeight + 3 * SettingsPanel.OptionHeight + 1);
         panel.UpdateTrayChoices(model, model.OrderedForManagement());
         panel.Toggle(SettingRow.TrayMode, 0, animate: false, selectedIndex: 0);
         Assert.Equal(2, panel.Choices(SettingRow.TrayMode).Length);
@@ -244,5 +246,67 @@ public sealed class PanelPagesTests
     {
         var identity = new DeviceIdentity(id, name, (DeviceKind)kind, (AdaptationSource)source);
         Assert.Equal(expectedLabel, DeviceVerification.Label(identity));
+    }
+
+    [Fact]
+    public void ThemeModeResolvesAgainstSystemAndRoundTripsInSettings()
+    {
+        Assert.True(Presentation.ResolveDark(ThemeMode.Auto, systemDark: true));
+        Assert.False(Presentation.ResolveDark(ThemeMode.Auto, systemDark: false));
+        Assert.False(Presentation.ResolveDark(ThemeMode.Light, systemDark: true));
+        Assert.False(Presentation.ResolveDark(ThemeMode.Light, systemDark: false));
+        Assert.True(Presentation.ResolveDark(ThemeMode.Dark, systemDark: true));
+        Assert.True(Presentation.ResolveDark(ThemeMode.Dark, systemDark: false));
+
+        Assert.Equal("自动切换", Presentation.ThemeModeLabel(ThemeMode.Auto));
+        Assert.Equal("明亮模式", Presentation.ThemeModeLabel(ThemeMode.Light));
+        Assert.Equal("深色模式", Presentation.ThemeModeLabel(ThemeMode.Dark));
+
+        var normalized = (new TraySettings { Theme = (ThemeMode)99 }).Normalize();
+        Assert.Equal(ThemeMode.Auto, normalized.Theme);
+
+        var directory = Directory.CreateTempSubdirectory("jige-theme-test-");
+        try
+        {
+            var files = new TrayFiles(directory.FullName);
+            const string legacy = """{"trayMode":"Custom","pollSeconds":60}""";
+            File.WriteAllText(files.ConfigPath, legacy);
+            Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Equal(ThemeMode.Auto, loaded.Theme);
+            Assert.Equal(legacy, File.ReadAllText(files.ConfigPath));
+
+            var model = new TrayModel(loaded, new());
+            var panel = new SettingsPanel(700);
+            Assert.Equal(3, panel.Choices(SettingRow.Theme).Length);
+
+            foreach (var mode in new[] { ThemeMode.Light, ThemeMode.Dark, ThemeMode.Auto })
+            {
+                Assert.True(panel.Toggle(SettingRow.Theme, 0, animate: false, selectedIndex: 0));
+                Assert.True(panel.Select(new(PopupAction.Theme, (int)mode), model, 1, animate: false, Save));
+                Assert.Null(panel.Expanded);
+                Assert.True(files.TryLoadSettings(out var persisted));
+                Assert.Equal(mode, persisted.Theme);
+            }
+
+            void Save(TraySettings settings)
+            {
+                files.SaveSettings(settings.Normalize());
+                model.ApplySettings(settings, DateTimeOffset.UnixEpoch);
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BackButtonTargetsStayDistinctByValue()
+    {
+        PopupTarget headerBack = PopupAction.Back;
+        var footerBack = new PopupTarget(PopupAction.Back, 1);
+        Assert.NotEqual(headerBack, footerBack);
+        Assert.Equal(PopupAction.Back, headerBack.Action);
+        Assert.Equal(PopupAction.Back, footerBack.Action);
     }
 }
