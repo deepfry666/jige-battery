@@ -14,7 +14,7 @@ internal static class PanelLayout
     public const int Width = 344;
     public const int NoticeHeight = 144;
     public const int MainRowHeight = 48;
-    public const int SettingsHeight = 367;
+    public const int SettingsHeight = 411;
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
     public const int DeviceRowsTop = 99;

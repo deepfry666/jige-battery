@@ -9,7 +9,7 @@ internal enum PopupAction
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
     GameSilent, Autostart, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
-    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate
+    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)

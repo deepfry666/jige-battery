@@ -115,6 +115,9 @@ internal static unsafe class Desktop
         return Jige.Tray.GameMode.Evaluate(notificationState, foregroundGame, settings.GameSilent);
     }
 
+    public static bool IsFullscreen(HWND foreground) =>
+        IsGameWindow(foreground, [], fullscreenOnly: true) == ForegroundGame.Fullscreen;
+
     private static ForegroundGame IsGameWindow(HWND foreground, string[] gameProcessNames, bool fullscreenOnly)
     {
         var kind = Classify(foreground, out uint processId);

@@ -1,6 +1,6 @@
 namespace Jige.Tray.Windows;
 
-internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart, Bluetooth }
+internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart, Bluetooth, DisplayLocation }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
@@ -8,17 +8,27 @@ internal sealed class SettingsPanel(int availableHeight)
 {
     public const int CardX = 9, CardY = 51, CardWidth = PanelLayout.Width - 18;
     public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
-    public const int CollapsedCardHeight = 6 * RowHeight + 2;
+    public const int CollapsedCardHeight = 7 * RowHeight + 2;
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart, SettingRow.Bluetooth];
+        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart,
+            SettingRow.Bluetooth, SettingRow.DisplayLocation];
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
         new(new(PopupAction.TrayMode, (int)TrayDisplayMode.LowestBattery), "只显示电量最低的一台"),
         new(new(PopupAction.TrayMode, (int)TrayDisplayMode.Custom), "自定义")
     ];
+
+    public static readonly SettingChoice[] DisplayLocationChoices =
+    [
+        new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.Taskbar), "任务栏（推荐）"),
+        new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.TrayIcons), "托盘图标")
+    ];
+
+    public static string DisplayLocationLabel(TrayDisplayLocation location) =>
+        DisplayLocationChoices[location == TrayDisplayLocation.TrayIcons ? 1 : 0].Label;
 
     public static readonly SettingChoice[] ThresholdChoices =
     [
@@ -45,7 +55,7 @@ internal sealed class SettingsPanel(int availableHeight)
     private int Capacity => Math.Clamp((availableHeight - PanelLayout.SettingsHeight) / OptionHeight, 1, MaxVisibleOptions);
     public int SurfaceHeight => PanelLayout.SettingsHeight + Capacity * OptionHeight;
     public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
-        VisibleHeight(SettingRow.PollInterval);
+        VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation);
     public float Height => PanelLayout.SettingsHeight + ExtraHeight;
 
     public void UpdateTrayChoices(TrayModel model, IReadOnlyList<DeviceStatus> devices)
@@ -60,6 +70,7 @@ internal sealed class SettingsPanel(int availableHeight)
     public SettingChoice[] Choices(SettingRow row) => row switch
     {
         SettingRow.TrayMode => trayChoices,
+        SettingRow.DisplayLocation => DisplayLocationChoices,
         SettingRow.Threshold => ThresholdChoices,
         SettingRow.PollInterval => PollChoices,
         _ => []
@@ -187,6 +198,8 @@ internal sealed class SettingsPanel(int availableHeight)
         {
             (SettingRow.TrayMode, PopupAction.TrayMode) when TrayModeChoices.Any(choice => choice.Target == target) =>
                 settings with { TrayMode = (TrayDisplayMode)target.Value },
+            (SettingRow.DisplayLocation, PopupAction.DisplayLocation) when DisplayLocationChoices.Any(choice => choice.Target == target) =>
+                settings with { DisplayLocation = (TrayDisplayLocation)target.Value },
             (SettingRow.Threshold, PopupAction.Threshold) when ThresholdChoices.Any(choice => choice.Target == target) =>
                 settings with { LowBatteryThreshold = target.Value },
             (SettingRow.PollInterval, PopupAction.PollInterval) when PollChoices.Any(choice => choice.Target == target) =>

@@ -14,10 +14,14 @@ internal enum TrayDisplayMode
     LegacyPerDevice
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<TrayDisplayLocation>))]
+internal enum TrayDisplayLocation { Taskbar, TrayIcons }
+
 internal sealed record TraySettings
 {
     public static IReadOnlyList<int> PollIntervals { get; } = Array.AsReadOnly<int>([30, 60, 120]);
 
+    public TrayDisplayLocation DisplayLocation { get; init; } = TrayDisplayLocation.Taskbar;
     public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.Custom;
     public int LowBatteryThreshold { get; init; } = 15;
     public int PollSeconds { get; init; } = 60;
@@ -84,6 +88,8 @@ internal sealed record TraySettings
         return this with
         {
             TrayMode = mode,
+            DisplayLocation = DisplayLocation == TrayDisplayLocation.TrayIcons
+                ? TrayDisplayLocation.TrayIcons : TrayDisplayLocation.Taskbar,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
@@ -103,7 +109,11 @@ internal sealed record TraySettings
     }
 }
 
-internal sealed record SavedBattery(DeviceIdentity Device, int Percentage, bool IsEstimated, DateTimeOffset ReadAt);
+internal sealed record SavedBattery(DeviceIdentity Device, int Percentage, bool IsEstimated, DateTimeOffset ReadAt)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool WasChargingOrFull { get; init; }
+}
 internal sealed record SavedReminder(DateTimeOffset? Due);
 internal sealed record SavedHistorySample(DateTimeOffset At, int Percentage, bool IsEstimated, ChargingState Charging);
 internal sealed record SavedDeviceHistory(
@@ -143,7 +153,8 @@ internal sealed class TrayFiles(string folder)
                 loaded = JsonSerializer.Deserialize(stream, TrayJsonContext.Default.TraySettings)
                     ?? throw new JsonException("配置缺少根对象");
             settings = loaded.Normalize();
-            if (settings.PollSeconds != loaded.PollSeconds || settings.TrayMode != loaded.TrayMode)
+            if (settings.PollSeconds != loaded.PollSeconds || settings.TrayMode != loaded.TrayMode ||
+                settings.DisplayLocation != loaded.DisplayLocation)
                 SaveMigratedSettings(settings, log);
             return true;
         }

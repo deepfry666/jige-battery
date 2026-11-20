@@ -11,6 +11,21 @@ public sealed class DiagnosticTests
     private static readonly UsbSerialPort Sony = new("sony", "sony", "COM7", [@"USB\VID_054C&PID_0E53&REV_0100&MI_06"]);
 
     [Fact]
+    public async Task DisplayLocationAndFallbackReasonAppearInSettingsSummary()
+    {
+        var settings = new DiagnosticSettingsSummary("自定义", 15, 60, 300, 8, 30, true, 0, true, 0)
+        {
+            ActualDisplayLocation = "托盘图标",
+            DisplayLocationReason = "通知区左侧空间不足"
+        };
+        var report = await DiagnosticReport.GenerateAsync(new([], [], []), new FakeReceiverTransport(),
+            context: new(SettingsSummary: settings));
+        int summary = report.IndexOf("# 当前设置摘要", StringComparison.Ordinal);
+        int location = report.IndexOf("当前显示位置：托盘图标（通知区左侧空间不足）", StringComparison.Ordinal);
+        Assert.True(summary >= 0 && location > summary);
+    }
+
+    [Fact]
     public async Task ExportHidesIdentifiersAndPaddingAndCanBeReplayed()
     {
         var hid = Compx with

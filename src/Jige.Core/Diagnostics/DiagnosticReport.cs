@@ -23,7 +23,11 @@ public sealed record DiagnosticProcessMetrics(
 public sealed record DiagnosticSettingsSummary(
     string TrayMode, int LowBatteryThreshold, int PollSeconds, int GamePollSeconds,
     int HeartbeatSeconds, int GameHeartbeatSeconds, bool GameSilent, int CustomGameProcessCount,
-    bool StartWithWindows, int BlockedReceiverCount, bool ShowBluetoothDevices = true);
+    bool StartWithWindows, int BlockedReceiverCount, bool ShowBluetoothDevices = true)
+{
+    public string? ActualDisplayLocation { get; init; }
+    public string? DisplayLocationReason { get; init; }
+}
 
 public enum GameDetectionReason { None, D3dFullscreen, Presentation, BusyFullscreen, ForegroundGeometry, ProcessName }
 
@@ -292,6 +296,8 @@ public static class DiagnosticReport
             report.AppendLine("# 当前设置摘要");
             report.AppendLine(FormattableString.Invariant(
                 $"设置|托盘模式={DiagnosticPrivacy.SanitizeText(summary.TrayMode)}|低电量阈值={summary.LowBatteryThreshold}%|查询间隔={summary.PollSeconds}s/游戏中{summary.GamePollSeconds}s|心跳={summary.HeartbeatSeconds}s/游戏中{summary.GameHeartbeatSeconds}s|游戏中不打扰={(summary.GameSilent ? "开" : "关")}|自定义游戏进程数={summary.CustomGameProcessCount}|开机自启={(summary.StartWithWindows ? "开" : "关")}|显示蓝牙设备={(summary.ShowBluetoothDevices ? "开" : "关")}|安全门拦截数={summary.BlockedReceiverCount}"));
+            if (summary.ActualDisplayLocation is { } location)
+                report.AppendLine($"当前显示位置：{DiagnosticPrivacy.SanitizeText(location)}（{DiagnosticPrivacy.SanitizeText(summary.DisplayLocationReason ?? "")}）");
         }
 
         if (context.GameState is { } game)

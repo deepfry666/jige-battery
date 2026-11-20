@@ -1,0 +1,348 @@
+using System.Runtime.CompilerServices;
+
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using Windows.Win32;
+using Windows.Win32.Foundation;
+using Windows.Win32.System.Com;
+using Windows.Win32.System.Variant;
+using Windows.Win32.UI.Accessibility;
+using static Windows.Win32.UI.Accessibility.UIA_PROPERTY_ID;
+
+namespace Jige.Tray.Windows;
+
+/// <summary>Reads and observes the taskbar's accessibility tree on a windowless MTA thread.</summary>
+[SupportedOSPlatform("windows10.0.17763")]
+internal sealed unsafe class TaskbarStripAutomation : IDisposable
+{
+    private static readonly Guid AutomationClass = new("e22ad333-b25f-460c-83d0-0581107395c9"); // CUIAutomation8
+    private readonly HWND host;
+    private readonly uint message;
+    private readonly object sync = new();
+    private readonly AutoResetEvent changed = new(false);
+    private HWND requested;
+    private TaskbarStripGeometry? pending, lastPublished;
+    private bool posted, disposed, reconnect;
+
+    public TaskbarStripAutomation(HWND host, uint message)
+    {
+        this.host = host;
+        this.message = message;
+        new Thread(Run) { IsBackground = true, Name = "Jige taskbar UI Automation" }.Start();
+    }
+
+    public void Request(HWND owner, bool reset = false)
+    {
+        lock (sync)
+        {
+            if (disposed)
+                return;
+            if (requested != owner || reset)
+            {
+                pending = lastPublished = null;
+                requested = owner;
+                reconnect = true;
+            }
+            changed.Set();
+        }
+    }
+
+    public TaskbarStripGeometry? Take()
+    {
+        lock (sync)
+        {
+            posted = false;
+            var snapshot = pending;
+            pending = null;
+            return snapshot;
+        }
+    }
+
+    private void Signal()
+    {
+        lock (sync)
+        {
+            if (!disposed)
+                changed.Set();
+        }
+    }
+
+    private void Publish(HWND owner, TaskbarStripGeometry geometry)
+    {
+        lock (sync)
+        {
+            if (disposed || reconnect || requested != owner || lastPublished == geometry)
+                return;
+            pending = geometry;
+            if (!posted)
+                posted = PInvoke.PostMessage(host, message, default, default);
+            if (posted)
+                lastPublished = geometry;
+        }
+    }
+
+    private void Run()
+    {
+        var initialized = PInvoke.CoInitializeEx(COINIT.COINIT_MULTITHREADED);
+        IUIAutomation2* automation = null;
+        IUIAutomationElement* root = null;
+        try
+        {
+            while (changed.WaitOne())
+            {
+                HWND owner;
+                bool reset;
+                lock (sync)
+                {
+                    if (disposed)
+                        return;
+                    owner = requested;
+                    reset = reconnect;
+                    reconnect = false;
+                }
+
+                if (reset)
+                    Disconnect(automation, ref root);
+                if (owner.IsNull)
+                    continue;
+
+                TaskbarStripGeometry geometry = default;
+                try
+                {
+                    if (!TaskbarStripShell.TryRead(owner, out geometry, out var nativeTray))
+                        continue;
+                    if (nativeTray is not null)
+                        geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, []) };
+                    Graphics.Check(initialized, "初始化任务栏 UI Automation");
+                    if (automation == null)
+                        automation = ConnectAutomation();
+                    if (root == null)
+                        root = Observe(automation, owner);
+                    var controls = ReadControls(automation, root);
+                    geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, controls) };
+                }
+                catch (Exception error) when (error is ExternalException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    // Explorer may be restarting or have an unavailable provider. The
+                    // next Shell or UI Automation notification can supply fresh bounds.
+                }
+                finally
+                {
+                    Publish(owner, geometry);
+                }
+            }
+        }
+        finally
+        {
+            Disconnect(automation, ref root);
+            Graphics.Release(automation);
+            if (initialized.Succeeded)
+                PInvoke.CoUninitialize();
+            lock (sync)
+                changed.Dispose();
+        }
+    }
+
+    private static IUIAutomation2* ConnectAutomation()
+    {
+        var clsid = AutomationClass;
+        var iid = IUIAutomation2.IID_Guid;
+        IUIAutomation2* automation = null;
+        Graphics.Check(PInvoke.CoCreateInstance(&clsid, null, CLSCTX.CLSCTX_INPROC_SERVER, &iid,
+            (void**)&automation), "连接任务栏 UI Automation");
+        try
+        {
+            automation->ConnectionTimeout = 500;
+            automation->TransactionTimeout = 750;
+            return automation;
+        }
+        catch
+        {
+            Graphics.Release(automation);
+            throw;
+        }
+    }
+
+    private IUIAutomationElement* Observe(IUIAutomation2* automation, HWND owner)
+    {
+        var root = automation->ElementFromHandle(owner);
+        if (root == null)
+            throw new COMException();
+        try
+        {
+            var sink = (IUnknown*)EventComWrappers.Instance.GetOrCreateComInterfaceForObject(
+                new EventSink(Signal), CreateComInterfaceFlags.None);
+            IUIAutomationStructureChangedEventHandler* structure = null;
+            IUIAutomationPropertyChangedEventHandler* property = null;
+            try
+            {
+                Graphics.Check(sink->QueryInterface(out structure), "注册任务栏结构变更");
+                Graphics.Check(sink->QueryInterface(out property), "注册任务栏位置变更");
+                automation->AddStructureChangedEventHandler(root, TreeScope.TreeScope_Subtree, null, structure);
+                UIA_PROPERTY_ID* properties = stackalloc UIA_PROPERTY_ID[]
+                {
+                    UIA_BoundingRectanglePropertyId, UIA_IsOffscreenPropertyId
+                };
+                automation->AddPropertyChangedEventHandlerNativeArray(root, TreeScope.TreeScope_Subtree,
+                    null, property, properties, 2);
+                return root;
+            }
+            finally
+            {
+                Graphics.Release(property);
+                Graphics.Release(structure);
+                Graphics.Release(sink);
+            }
+        }
+        catch
+        {
+            Disconnect(automation, ref root);
+            throw;
+        }
+    }
+
+    private static void Disconnect(IUIAutomation2* automation, ref IUIAutomationElement* root)
+    {
+        if (root == null)
+            return;
+        try { automation->RemoveAllEventHandlers(); }
+        catch (Exception error) when (error is ExternalException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            // Explorer can destroy the provider first.
+        }
+        Graphics.Release(root);
+        root = null;
+    }
+
+    private static TaskbarControl[] ReadControls(IUIAutomation2* automation, IUIAutomationElement* root)
+    {
+        var cache = automation->CreateCacheRequest();
+        IUIAutomationCondition* condition = null;
+        IUIAutomationElementArray* elements = null;
+        try
+        {
+            cache->AutomationElementMode = AutomationElementMode.AutomationElementMode_None;
+            cache->AddProperty(UIA_BoundingRectanglePropertyId);
+            cache->AddProperty(UIA_IsOffscreenPropertyId);
+            cache->AddProperty(UIA_ClassNamePropertyId);
+            cache->AddProperty(UIA_AutomationIdPropertyId);
+            cache->AddProperty(UIA_ControlTypePropertyId);
+            cache->AddProperty(UIA_ProcessIdPropertyId);
+            // Include XAML containers outside Control View. Only this HWND subtree
+            // is read, and Name/Value (including application titles) are never queried.
+            condition = automation->CreateTrueCondition();
+            cache->TreeFilter = condition;
+            elements = root->FindAllBuildCache(TreeScope.TreeScope_Descendants, condition, cache);
+            int count = elements == null ? 0 : elements->Length;
+            List<TaskbarControl> controls = new(count);
+            for (int i = 0; i < count; i++)
+            {
+                var element = elements->GetElement(i);
+                if (element == null)
+                    continue;
+                try
+                {
+                    if (element->CachedIsOffscreen || element->CachedProcessId == Environment.ProcessId)
+                        continue;
+                    var bounds = TaskbarStripShell.ToBounds(element->CachedBoundingRectangle);
+                    if (bounds.Width <= 0 || bounds.Height <= 0)
+                        continue;
+                    var type = element->CachedControlType;
+                    bool button = type is UIA_CONTROLTYPE_ID.UIA_ButtonControlTypeId or
+                        UIA_CONTROLTYPE_ID.UIA_SplitButtonControlTypeId or UIA_CONTROLTYPE_ID.UIA_MenuItemControlTypeId;
+                    controls.Add(new(bounds, ReadId(element->CachedAutomationId),
+                        ReadId(element->CachedClassName), button));
+                }
+                finally
+                {
+                    Graphics.Release(element);
+                }
+            }
+            return controls.ToArray();
+        }
+        finally
+        {
+            Graphics.Release(elements);
+            Graphics.Release(condition);
+            Graphics.Release(cache);
+        }
+    }
+
+    private static string ReadId(BSTR value)
+    {
+        try { return value.ToString() ?? ""; }
+        finally { Marshal.FreeBSTR(value); }
+    }
+
+    public void Dispose()
+    {
+        // Do not join an accessibility thread from a UI thread. Explorer can still
+        // be answering a request. Run removes the subscriptions before releasing COM.
+        lock (sync)
+        {
+            if (disposed)
+                return;
+            disposed = true;
+            changed.Set();
+        }
+    }
+
+    private sealed class EventSink(Action changed) : IUIAutomationStructureChangedEventHandler.Interface,
+        IUIAutomationPropertyChangedEventHandler.Interface
+    {
+        public HRESULT HandleStructureChangedEvent(IUIAutomationElement* sender, StructureChangeType changeType,
+            SAFEARRAY* runtimeId)
+        {
+            changed();
+            return HRESULT.S_OK;
+        }
+
+        public HRESULT HandlePropertyChangedEvent(IUIAutomationElement* sender, UIA_PROPERTY_ID propertyId, VARIANT value)
+        {
+            changed();
+            return HRESULT.S_OK;
+        }
+    }
+
+    private sealed class EventComWrappers : ComWrappers
+    {
+        public static readonly EventComWrappers Instance = new();
+        private static readonly ComInterfaceEntry* Entries = CreateEntries();
+
+        private static ComInterfaceEntry* CreateEntries()
+        {
+            GetIUnknownImpl(out nint query, out nint addRef, out nint release);
+            var entries = (ComInterfaceEntry*)RuntimeHelpers.AllocateTypeAssociatedMemory(
+                typeof(EventComWrappers), 2 * sizeof(ComInterfaceEntry));
+            var structure = (IUIAutomationStructureChangedEventHandler.Vtbl*)Vtable();
+            IUIAutomationStructureChangedEventHandler.PopulateVTable(structure);
+            var property = (IUIAutomationPropertyChangedEventHandler.Vtbl*)Vtable();
+            IUIAutomationPropertyChangedEventHandler.PopulateVTable(property);
+            entries[0] = new() { IID = IUIAutomationStructureChangedEventHandler.IID_Guid, Vtable = (nint)structure };
+            entries[1] = new() { IID = IUIAutomationPropertyChangedEventHandler.IID_Guid, Vtable = (nint)property };
+            return entries;
+
+            nint Vtable()
+            {
+                nint table = RuntimeHelpers.AllocateTypeAssociatedMemory(typeof(EventComWrappers), 4 * sizeof(nint));
+                var slots = (nint*)table;
+                slots[0] = query;
+                slots[1] = addRef;
+                slots[2] = release;
+                return table;
+            }
+        }
+
+        protected override ComInterfaceEntry* ComputeVtables(object obj, CreateComInterfaceFlags flags, out int count)
+        {
+            count = 2;
+            return Entries;
+        }
+
+        protected override object CreateObject(nint externalComObject, CreateObjectFlags flags) =>
+            throw new NotSupportedException();
+
+        protected override void ReleaseObjects(System.Collections.IEnumerable objects) =>
+            throw new NotSupportedException();
+    }
+}
