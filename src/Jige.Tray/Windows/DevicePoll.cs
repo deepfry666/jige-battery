@@ -71,8 +71,9 @@ internal sealed class DevicePoll
         }
     }
 
-    /// <summary>轻量在线心跳（B1）：不重新枚举，仅对支持心跳的非罗技/非 H9 设备发状态查询。</summary>
-    public async Task<PresenceUpdate[]> RunHeartbeatAsync(CancellationToken token)
+    /// <summary>轻量在线心跳（B1 / R3）：不重新枚举，仅对支持心跳的非罗技/非 H9 设备发状态查询；可按集合仅查休眠设备。</summary>
+    public async Task<PresenceUpdate[]> RunHeartbeatAsync(
+        CancellationToken token, IReadOnlySet<string>? onlyDeviceIds = null)
     {
         try
         {
@@ -83,6 +84,8 @@ internal sealed class DevicePoll
             {
                 token.ThrowIfCancellationRequested();
                 if (device.PresenceKind != PresenceProbeKind.Heartbeat)
+                    continue;
+                if (onlyDeviceIds is not null && !onlyDeviceIds.Contains(device.Target.Device.Id))
                     continue;
                 var update = await registry.CheckPresenceAsync(device, transport, token).ConfigureAwait(false);
                 if (update is not null)

@@ -41,7 +41,9 @@ internal sealed unsafe class InlineEdit
                 LAYERED_WINDOW_ATTRIBUTES_FLAGS.LWA_ALPHA))
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "无法创建改名输入框");
 
-            fixed (char* face = "Segoe UI Variable Text")
+            string fontFace = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)
+                ? "Segoe UI Variable Text" : "Segoe UI";
+            fixed (char* face = fontFace)
                 font = PInvoke.CreateFont(-Math.Max(1, fontSize), 0, 0, 0, 400, 0, 0, 0,
                     FONT_CHARSET.DEFAULT_CHARSET, 0, 0, FONT_QUALITY.ANTIALIASED_QUALITY, 0, new PCWSTR(face));
             background = PInvoke.CreateSolidBrush(ColorRef(colors.Solid));

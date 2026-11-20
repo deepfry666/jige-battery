@@ -153,7 +153,7 @@ internal static class MouseReceiverCatalog
 
     public static MouseReceiver? GenericRoute(HidInterface hid)
     {
-        if (hid.VendorId != Atk || hid.ProductId is null)
+        if (hid.VendorId != Atk || hid.ProductId is null || DeviceCatalog.IsDisabledPath(hid, out _))
             return null;
         // 若目录里明确登记了该 PID 且处于禁用/特殊布局（如 1216 带校验位或 111A Compx-FEAT），不绕过目录强制通用匹配。
         var listed = Candidates(hid.VendorId, hid.ProductId).ToArray();

@@ -245,7 +245,8 @@ public sealed class DiagnosticTests
 
     [Theory]
     [InlineData(2, ReadIssue.None, LinkState.Online)]
-    [InlineData(1, ReadIssue.Busy, LinkState.Busy)]
+    // D4（#19）：雷蛇协议状态 01 为无线事务忙，重试 3 次后归为 Timeout/Unknown，不误报为 Busy（被其他程序占用）。
+    [InlineData(1, ReadIssue.Timeout, LinkState.Unknown)]
     [InlineData(4, ReadIssue.None, LinkState.Offline)]
     public async Task Razer90BReportRetainsStatusAndRecalculatesItsChecksum(int status, ReadIssue issue, LinkState link)
     {

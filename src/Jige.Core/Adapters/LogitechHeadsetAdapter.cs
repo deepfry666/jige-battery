@@ -8,7 +8,10 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
         DeviceTarget target, IReceiverTransport transport, CancellationToken token)
     {
         var reading = await ReadAsync(target, transport, null, token).ConfigureAwait(false);
-        var link = reading.Link == LinkState.Online ? LinkState.Online : LinkState.Offline;
+        var link = reading.Link == LinkState.Online ? LinkState.Online
+            : reading.Issue == ReadIssue.Timeout ? LinkState.Asleep
+            : reading.Issue == ReadIssue.Disconnected ? LinkState.Offline
+            : reading.Link;
         return new(target.Endpoint.ReceiverId, null, target.Device.Id, link, reading.Issue);
     }
     private static string? Model(ushort? pid) => pid switch

@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 贡献与设备反馈指南（CONTRIBUTING.md）
+    url: https://github.com/deepfry666/jige-battery/blob/main/CONTRIBUTING.md
+    about: 了解提交前的准备工作、测试版下载方式以及协议贡献规范
+  - name: 已支持设备与验证状态清单（docs/devices.md）
+    url: https://github.com/deepfry666/jige-battery/blob/main/docs/devices.md
+    about: 查看当前支持哪些设备、验证分级以及暂未启用的路径原因
+  - name: Wireshark + USBPcap 抓包教程（docs/capture-guide.md）
+    url: https://github.com/deepfry666/jige-battery/blob/main/docs/capture-guide.md
+    about: 当公开资料缺少该设备协议时，按步骤抓取官方软件读电量的过程
+  - name: 诊断信息与隐私说明（PRIVACY.md）
+    url: https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md
+    about: 查看诊断报告包含哪些字段、脱敏规则与联网边界

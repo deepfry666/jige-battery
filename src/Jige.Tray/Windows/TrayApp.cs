@@ -34,7 +34,7 @@ internal sealed class TrayApp : IDisposable
     private const uint ForegroundEvent = 0x0003;
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
-        IconRetryTimer = 5, DeviceChangeTimer = 6;
+        IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -49,6 +49,7 @@ internal sealed class TrayApp : IDisposable
     private readonly TrayEventTracker events = new(Desktop.Log);
     private readonly DiagnosticExport diagnostics;
     private readonly PollSchedule schedule = new(Environment.TickCount64);
+    private readonly DesktopRefreshDebouncer desktopRefresh = new();
     private readonly DevicePoll poll;
     private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets)> results = new();
     private readonly ConcurrentQueue<PresenceUpdate[]> heartbeatResults = new();
@@ -68,6 +69,7 @@ internal sealed class TrayApp : IDisposable
     private bool iconRetryArmed;
     private int iconFailures;
     private bool hasHeartbeatDevices;
+    private bool hadAsleepDevices;
     private DetectedDevice[] currentPushTargets = [];
     private CancellationTokenSource? pushCancellation;
     private Task pushTask = Task.CompletedTask;
@@ -369,6 +371,11 @@ internal sealed class TrayApp : IDisposable
                     ProcessWork();
                     return true;
                 }
+                if (wParam.Value == DesktopRefreshTimer)
+                {
+                    FlushDesktopRefresh();
+                    return true;
+                }
                 if (wParam.Value == IconRetryTimer)
                 {
                     iconRetryArmed = false;
@@ -378,12 +385,17 @@ internal sealed class TrayApp : IDisposable
                     DestroyPopup();
                 ProcessWork();
                 return true;
-            case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED
-                RefreshDesktop();
+            case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
+                ScheduleDesktopRefresh(resetPopup: false);
                 return true;
-            case 0x001A or 0x031A or 0x031E or 0x0320:
-                // 系统设置、主题、DWM 合成和强调色变化。
-                RefreshDesktop(resetPopup: true);
+            case 0x001A: // WM_SETTINGCHANGE（D3：仅响应与界面外观/工作区相关的系统设置，并加防抖合并重建）
+                string? area = lParam.Value == 0 ? null : Marshal.PtrToStringUni(lParam.Value);
+                if (DesktopRefreshDebouncer.IsRelevantSettingChange(wParam.Value, area))
+                    ScheduleDesktopRefresh(resetPopup: true);
+                return true;
+            case 0x031A or 0x031E or 0x0320:
+                // 主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
+                ScheduleDesktopRefresh(resetPopup: true);
                 return true;
             case 0x001E: // WM_TIMECHANGE：调度使用单调时钟，仅刷新展示时间与提醒检查。
                 RenderPopup();
@@ -405,6 +417,19 @@ internal sealed class TrayApp : IDisposable
         }
     }
 
+    private void ScheduleDesktopRefresh(bool resetPopup)
+    {
+        desktopRefresh.Request(Environment.TickCount64, resetPopup);
+        ArmTimer(DesktopRefreshTimer, DesktopRefreshDebouncer.DebounceMs);
+    }
+
+    private void FlushDesktopRefresh()
+    {
+        if (!desktopRefresh.TryConsume(Environment.TickCount64, popup?.Editing == true, out bool resetPopup))
+            return;
+        RefreshDesktop(resetPopup);
+    }
+
     private void RefreshDesktop(bool resetPopup = false)
     {
         ReadGameMode();
@@ -412,7 +437,12 @@ internal sealed class TrayApp : IDisposable
         RefreshIcon();
         if (popup is { } active)
         {
-            CompleteEdit(active, save: true);
+            // D3（#22）：正在行内改名时不强制提交未完成的别名，延后到改名结束后再重建外观。
+            if (active.Editing)
+            {
+                ScheduleDesktopRefresh(resetPopup);
+                return;
+            }
             active.SetAnchor(Anchor(null));
             RenderPopup(reset: resetPopup);
         }
@@ -473,15 +503,29 @@ internal sealed class TrayApp : IDisposable
         ReadGameMode();
         var now = DateTimeOffset.UtcNow;
         long nowTick = Environment.TickCount64;
-        if (model.ExpireReadings(now))
+        bool expired = model.ExpireReadings(now);
+        // R2：连续休眠超过 10 分钟仍无回复的设备转为离线显示。
+        bool sleepTimedOut = model.AdvanceSleepTimeouts(now, events.LogDeviceLinkChange);
+        if (expired || sleepTimedOut)
         {
+            if (sleepTimedOut)
+                SaveState();
             RefreshIcon();
             RenderPopup();
         }
+
+        // R3：当设备首次进入休眠态时记录 GetLastInputInfo 基线，之后仅在有新键鼠输入时给休眠设备补发心跳（最多每 2 秒一次）。
+        bool hasAsleep = hasHeartbeatDevices && model.HasAsleepDevices;
+        if (hasAsleep && !hadAsleepDevices)
+            schedule.SyncLastInputTick(Desktop.LastInputTick());
+        hadAsleepDevices = hasAsleep;
+
         if (schedule.Due(model.Settings, nowTick, game.Game) <= nowTick)
             StartPoll(nowTick);
         else if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) <= nowTick)
             StartHeartbeat(nowTick);
+        else if (hasAsleep && schedule.ShouldWakeHeartbeatOnInput(Desktop.LastInputTick(), nowTick, true, game.Game))
+            StartHeartbeat(nowTick, model.AsleepDeviceIds(), inputWake: true);
 
         events.FlushReadFailuresIfDue(nowTick);
         if (textDue <= now)
@@ -508,8 +552,10 @@ internal sealed class TrayApp : IDisposable
             dueMs = Math.Max(0, pollTick - nowTick);
         if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) is long hbTick)
             dueMs = EarlierMs(dueMs, Math.Max(0, hbTick - nowTick));
+        if (hasHeartbeatDevices && model.HasAsleepDevices && !game.Game && !schedule.Running && !schedule.HeartbeatRunning)
+            dueMs = EarlierMs(dueMs, PollSchedule.InputCheckIntervalMs);
 
-        DateTimeOffset? wallDue = null;
+        DateTimeOffset? wallDue = model.NextSleepTimeout(now);
         if (popup?.NoticeId is { } id)
             wallDue = Earlier(wallDue, model.ReminderExpires(id));
         if (popup is null && !menuOpen && updateDialog is null)
@@ -621,9 +667,9 @@ internal sealed class TrayApp : IDisposable
         ProcessWork();
     }
 
-    private void StartHeartbeat(long nowTick)
+    private void StartHeartbeat(long nowTick, IReadOnlySet<string>? onlyDeviceIds = null, bool inputWake = false)
     {
-        schedule.StartHeartbeat(nowTick);
+        schedule.StartHeartbeat(nowTick, inputWake);
         var source = new CancellationTokenSource();
         heartbeatCancellation = source;
         var token = source.Token;
@@ -633,7 +679,7 @@ internal sealed class TrayApp : IDisposable
             PresenceUpdate[] updates;
             try
             {
-                updates = await poll.RunHeartbeatAsync(token).ConfigureAwait(false);
+                updates = await poll.RunHeartbeatAsync(token, onlyDeviceIds).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -1108,6 +1154,9 @@ internal sealed class TrayApp : IDisposable
                 OpenDiagnostics();
                 RenderPopup();
                 break;
+            case PopupAction.CopyAndFeedback:
+                CopyAndOpenFeedback();
+                break;
             case PopupAction.Updates:
                 DestroyPopup();
                 ShowUpdates();
@@ -1136,10 +1185,15 @@ internal sealed class TrayApp : IDisposable
             if (settings != model.Settings)
             {
                 ChangeSettings(settings);
+                if (desktopRefresh.HasPending)
+                    FlushDesktopRefresh();
                 return;
             }
         }
-        RenderPopup();
+        if (desktopRefresh.HasPending)
+            FlushDesktopRefresh();
+        else
+            RenderPopup();
     }
 
     private void ClosePopup()
@@ -1176,6 +1230,8 @@ internal sealed class TrayApp : IDisposable
         textDue = null;
         welcomeExpires = null;
         previous?.Dispose();
+        if (desktopRefresh.HasPending && !host.IsNull)
+            ArmTimer(DesktopRefreshTimer, DesktopRefreshDebouncer.DebounceMs);
     }
 
     private unsafe void ShowMenu(Point point)
@@ -1366,6 +1422,38 @@ internal sealed class TrayApp : IDisposable
             diagnostics.EditorFailed();
             Desktop.Log("打开诊断报告失败", error);
         }
+    }
+
+    /// <summary>A4 / G4：仅在用户点击时复制报告全文到剪贴板并打开无参数的设备报告 Issue 页面。</summary>
+    private void CopyAndOpenFeedback()
+    {
+        try
+        {
+            if (!File.Exists(files.DiagnosticsPath))
+            {
+                diagnostics.FeedbackFailed();
+                RenderPopup();
+                return;
+            }
+            string report = File.ReadAllText(files.DiagnosticsPath);
+            if (!Desktop.SetClipboardText(host, report))
+            {
+                diagnostics.FeedbackFailed();
+                Desktop.Log("复制诊断报告到剪贴板失败");
+                RenderPopup();
+                return;
+            }
+            using var browser = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                DiagnosticExport.DeviceReportIssueUrl) { UseShellExecute = true });
+            diagnostics.FeedbackCopied();
+            Desktop.Log("已复制诊断报告并打开反馈页");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+        {
+            diagnostics.FeedbackFailed();
+            Desktop.Log("复制报告并打开反馈页失败", error);
+        }
+        RenderPopup();
     }
 
     private static void OpenTaskbarSettings()

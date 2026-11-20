@@ -1,0 +1,41 @@
+name: 问题反馈
+description: 报告程序崩溃、界面显示、托盘图标、游戏静默或检查更新等问题
+title: "[问题] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        如果你要反馈设备识别或电量读数问题，请返回上一页选择「设备电量报告」模板。
+  - type: input
+    id: version
+    attributes:
+      label: 几格版本
+      description: 可在「设置」页底部或诊断报告开头查看；如果是测试版，请写明 7 位提交号。
+      placeholder: 例如：0.2.3 或 0.2.3 测试版（abc1234）
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Windows 版本与缩放设置
+      description: 涉及托盘或面板显示问题时，请写明屏幕分辨率、DPI 缩放和是否多屏。
+      placeholder: 例如：Windows 11 24H2，主屏 2560×1440 150%，副屏 1080p 100%
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述与复现步骤
+      description: 写清楚发生了什么、怎么一步步触发、期望看到什么结果。
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 诊断报告或日志（可选）
+      description: 托盘导出诊断会附带最近 80 行已脱敏日志。请先在记事本完整检查，再决定是否粘贴。
+      render: text
+    validations:
+      required: false

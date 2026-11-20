@@ -91,3 +91,12 @@ UnregisterDeviceNotification
 DEV_BROADCAST_DEVICEINTERFACE_W
 GetGuiResources
 GetCurrentProcess
+GetLastInputInfo
+OpenClipboard
+CloseClipboard
+EmptyClipboard
+SetClipboardData
+GlobalAlloc
+GlobalLock
+GlobalUnlock
+GlobalFree

@@ -195,7 +195,11 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         }
 
         transition = new(Environment.TickCount64, displayedHeight, size.Height, incomingPose, previousPose, direction);
-        if (PInvoke.SetTimer(Handle, AnimationTimer, 15, null) == 0)
+        // D2（#14）：若切页高度不变，横向滑入与透明渐显完全由 DirectComposition 合成器在 GPU 执行，
+        // 只需一次性定时收尾，不再每 15 ms 唤醒重绘。
+        uint tickMs = MathF.Abs(displayedHeight - size.Height) < .5f
+            ? (uint)PanelLayout.TransitionMilliseconds : 15u;
+        if (PInvoke.SetTimer(Handle, AnimationTimer, tickMs, null) == 0)
             FinishTransition();
     }
 
@@ -206,17 +210,22 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         {
             double progress = motion.Progress(time);
             if (progress >= 1)
+            {
                 FinishTransition();
-            else
-                Resize(motion.FromHeight + (motion.ToHeight - motion.FromHeight) * (float)PanelLayout.Ease(progress));
-            composition!.Commit();
+                composition!.Commit();
+            }
+            else if (Resize(motion.FromHeight + (motion.ToHeight - motion.FromHeight) * (float)PanelLayout.Ease(progress)))
+            {
+                composition!.Commit();
+            }
         }
         else if (scene?.Settings is { Animating: true } settings)
         {
-            settings.Advance(time);
+            bool changed = settings.Advance(time, scale);
             if (!settings.Animating)
                 PInvoke.KillTimer(Handle, AnimationTimer);
-            RedrawSettings();
+            if (changed)
+                RedrawSettings();
         }
     }
 
@@ -265,13 +274,13 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         Resize(scene.DisplayHeight);
     }
 
-    private void Resize(float height)
+    private bool Resize(float height)
     {
         displayedHeight = height;
         var next = PopupPlacement.Place(iconBounds, screenBounds, work, Pixels(PanelLayout.Width),
             Pixels(height), Pixels(12), IsNotice && !IsWelcome);
         if (position == next && background is not null)
-            return;
+            return false;
 
         if (background is null || backgroundCapacity < height)
         {
@@ -289,6 +298,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER))
             throw new InvalidOperationException("无法定位弹窗");
         position = next;
+        return true;
     }
 
     private int Pixels(float dip) => (int)MathF.Round(dip * scale, MidpointRounding.AwayFromZero);

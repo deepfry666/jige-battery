@@ -17,12 +17,19 @@ namespace Jige.Tray.Windows;
 [SupportedOSPlatform("windows10.0.17763")]
 internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) : IDisposable
 {
-    // 复用主 STA 线程上的 WIC/D2D/DirectWrite 工厂，避免高 DPI 下多图标每次刷新重复创建与释放 COM 工厂（C3）。
+    // D2（#14）：复用主 STA 线程上的 WIC/D2D/DirectWrite 工厂以及按尺寸缓存的位图与渲染目标，
+    // 高 DPI 更新托盘数字时不再每次重建图形工厂和渲染表面。
     private sealed class ScalableFactories : IDisposable
     {
+        private static readonly Guid BgraPixelFormat = new("6fddc324-4e03-4bfe-b185-3d77768dc910");
+
         public IWICImagingFactory* Wic;
         public ID2D1Factory* D2D;
         public TextFactory Fonts;
+        private IWICBitmap* bitmap;
+        private ID2D1RenderTarget* renderTarget;
+        private Canvas? canvas;
+        private int surfaceSize;
 
         public ScalableFactories()
         {
@@ -49,8 +56,66 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             }
         }
 
+        public void AcquireSurface(int size, out IWICBitmap* outBitmap, out ID2D1RenderTarget* outTarget, out Canvas outCanvas)
+        {
+            if (surfaceSize == size && bitmap != null && renderTarget != null && canvas is not null)
+            {
+                outBitmap = bitmap;
+                outTarget = renderTarget;
+                outCanvas = canvas;
+                return;
+            }
+
+            ReleaseSurface();
+            IWICBitmap* nextBitmap = null;
+            ID2D1RenderTarget* nextTarget = null;
+            try
+            {
+                Wic->CreateBitmap((uint)size, (uint)size, BgraPixelFormat,
+                    WICBitmapCreateCacheOption.WICBitmapCacheOnLoad, &nextBitmap);
+                var properties = new D2D1_RENDER_TARGET_PROPERTIES
+                {
+                    dpiX = 96, dpiY = 96,
+                    pixelFormat = new()
+                    {
+                        format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
+                        alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED
+                    }
+                };
+                D2D->CreateWicBitmapRenderTarget(nextBitmap, in properties, &nextTarget);
+                var nextCanvas = new Canvas(nextTarget, Fonts);
+                bitmap = nextBitmap;
+                renderTarget = nextTarget;
+                canvas = nextCanvas;
+                surfaceSize = size;
+                outBitmap = bitmap;
+                outTarget = renderTarget;
+                outCanvas = canvas;
+            }
+            catch
+            {
+                Graphics.Release(nextTarget);
+                Graphics.Release(nextBitmap);
+                throw;
+            }
+        }
+
+        public void InvalidateSurface() => ReleaseSurface();
+
+        private void ReleaseSurface()
+        {
+            canvas?.Dispose();
+            canvas = null;
+            Graphics.Release(renderTarget);
+            renderTarget = null;
+            Graphics.Release(bitmap);
+            bitmap = null;
+            surfaceSize = 0;
+        }
+
         public void Dispose()
         {
+            ReleaseSurface();
             Fonts.Dispose();
             Graphics.Release(D2D);
             D2D = null;
@@ -200,24 +265,9 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
     private static void DrawScalable(Span<byte> pixels, int size, IconAppearance icon)
     {
         sharedFactories ??= new ScalableFactories();
-        var factories = sharedFactories;
-        var pixelFormat = new Guid("6fddc324-4e03-4bfe-b185-3d77768dc910");
-        IWICBitmap* image = null;
-        ID2D1RenderTarget* render = null;
+        sharedFactories.AcquireSurface(size, out var image, out var render, out var canvas);
         try
         {
-            factories.Wic->CreateBitmap((uint)size, (uint)size, pixelFormat, WICBitmapCreateCacheOption.WICBitmapCacheOnLoad, &image);
-            var properties = new D2D1_RENDER_TARGET_PROPERTIES
-            {
-                dpiX = 96, dpiY = 96,
-                pixelFormat = new()
-                {
-                    format = DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM,
-                    alphaMode = D2D1_ALPHA_MODE.D2D1_ALPHA_MODE_PREMULTIPLIED
-                }
-            };
-            factories.D2D->CreateWicBitmapRenderTarget(image, in properties, &render);
-            using var canvas = new Canvas(render, factories.Fonts);
             render->BeginDraw();
             try
             {
@@ -240,10 +290,10 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             }
             image->CopyPixels(null, (uint)(size * 4), pixels);
         }
-        finally
+        catch
         {
-            Graphics.Release(render);
-            Graphics.Release(image);
+            sharedFactories.InvalidateSurface();
+            throw;
         }
     }
 

@@ -9,20 +9,21 @@ internal sealed class RazerHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
         DeviceTarget target, IReceiverTransport transport, CancellationToken token)
     {
-        if (target.Endpoint is not HidInterface endpoint || !Matches(endpoint))
+        if (target.Endpoint is not HidInterface endpoint || DeviceCatalog.IsDisabledPath(endpoint, out _) || !Matches(endpoint))
             return null;
         using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 2, RequiredOutputReportId = 2 }, token);
         var sequence = (byte)(Interlocked.Increment(ref nextSequence) & 0x1F);
         var request = RazerHeadsetProtocol.EncodeMediaTek(0x0565, RazerHeadsetQuery.Link, sequence);
         var frame = await HidQuery.OutputAsync(session, session, request, RazerHeadsetProtocol.ReportLength,
             packet => RazerHeadsetProtocol.TryMediaTek(packet, request, 0x0565, out _), null, token).ConfigureAwait(false);
+        // R1：查询超时一律算休眠；仅链路字节明确返回 0 时才判定离线。
         if (frame is null || !RazerHeadsetProtocol.TryMediaTek(frame, request, 0x0565, out byte linkValue))
-            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline, ReadIssue.Timeout);
+            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Asleep, ReadIssue.Timeout);
         return new(endpoint.ReceiverId, null, target.Device.Id, linkValue == 0 ? LinkState.Offline : LinkState.Online);
     }
 
     // PA 需切换远程模式，V3 系列冷启动有会话与断链风险。只注册 V2 HyperSpeed 纯查询路径。
-    private static bool Matches(HidInterface hid) => hid is
+    private static bool Matches(HidInterface hid) => !DeviceCatalog.IsDisabledPath(hid, out _) && hid is
     {
         VendorId: 0x1532, ProductId: 0x0565, UsagePage: 0xFF14, Usage: 1, InterfaceNumber: 3,
         InputLength: RazerHeadsetProtocol.ReportLength, OutputLength: RazerHeadsetProtocol.ReportLength,
@@ -32,8 +33,11 @@ internal sealed class RazerHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
-            yield return new(new($"razer-headset:{endpoint.ReceiverId}", "Razer BlackShark V2 HyperSpeed", DeviceKind.Headset),
-                endpoint, "0");
+        {
+            var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
+            yield return new(new($"razer-headset:{endpoint.ReceiverId}", "Razer BlackShark V2 HyperSpeed",
+                DeviceKind.Headset, AdaptationSource.Catalog, tier), endpoint, "0");
+        }
     }
 
     public async ValueTask<BatteryReading> ReadAsync(DeviceTarget target, IReceiverTransport transport,

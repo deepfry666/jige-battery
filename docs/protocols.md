@@ -105,7 +105,7 @@ G325 跳过 ACK，用实机状态帧 `50 23 0B 00 03 10 00 06 00 07 0A` 的字�
 
 ## Razer 90B Feature
 
-仅匹配 VID `1532`、下表无线 PID 与 MI、厂商 usage page、唯一的 91 字节 Feature 集合。打开设备时由 Windows HID 描述符验证 Report ID `00`。Win32 的首字节为 Report ID，另有 90 字节协议体。只允许 `07:80` 读电量以及表中支持的 `07:84` 读充电。请求使用型号规定的 TID、单帧、数据长 2、零参数以及协议体字节 2–87 的 XOR。以 SetFeature 发送该查询，再 GetFeature 收取同一报告。回复需匹配 Report ID、事务、类、命令、长度和校验。状态 `02` 取第二个参数，电量按 0–255 四舍五入到 0–100%，充电只识别 `00/01`。电量回复状态 `04` 显示离线。其它 PID、命令和 TID 无主动探测。
+仅匹配 VID `1532`、下表无线 PID 与 MI、厂商 usage page、唯一的 91 字节 Feature 集合。打开设备时由 Windows HID 描述符验证 Report ID `00`。Win32 的首字节为 Report ID，另有 90 字节协议体。只允许 `07:80` 读电量以及表中支持的 `07:84` 读充电。请求使用型号规定的 TID、单帧、数据长 2、零参数以及协议体字节 2–87 的 XOR。以 SetFeature 发送该查询，再等待 60 ms 后 GetFeature 收取同一报告。回复需匹配 Report ID、事务、类、命令、长度和校验。状态 `02` 取第二个参数，电量按 0–255 四舍五入到 0–100%，充电只识别 `00/01`。电量回复状态 `04` 显示离线。状态 `01` 表示雷蛇无线协议事务正忙（不是被其他程序占用句柄），等待 80 ms 后重试，最多重试 3 次；重试仍未就绪时按查询超时（`Timeout`）结束，不报告为「接收器被占用」。其它 PID、命令和 TID 无主动探测。
 
 | 型号 | 接收器 PID / MI / TID | 充电 | 证据 | 验证 |
 | --- | --- | --- | --- | --- |
@@ -144,12 +144,30 @@ BlackShark V2 HyperSpeed 使用 64 字节 Input/Output、Report ID `02`。白名
 
 V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机的非电量回复以确认过滤，并按公开字段构造可接受回复验证 CRC 与事务。PA 测试回放 053A 的实机 34% 回复，并按公开字段构造 0555 应答。[BlackShark V3 抓包 #292](https://github.com/HeyOkay/HaloBattery/issues/292) · [V3 Pro 实机记录 #2838](https://github.com/openrazer/openrazer/issues/2838) · [V2 HyperSpeed 实机抓包 #2316](https://github.com/openrazer/openrazer/issues/2316) · [V2 HyperSpeed 协议与实测](https://github.com/bbesli/Synapse-for-Linux/blob/main/docs/PROTOCOL.md) · [Barracuda Pro 实机抓包 #10](https://github.com/HeyOkay/HaloBattery/issues/10) · [PA 查询字段](https://github.com/HeyOkay/HaloBattery/blob/main/providers/blackshark.py)
 
+## 在线状态、休眠与离线判定规则
+
+### 依据
+
+[HaloBattery（MIT）`providers/pulsar.py`](https://github.com/HeyOkay/HaloBattery/blob/main/providers/pulsar.py) 记录过 Compx 方案无线鼠标在停止移动几秒后，接收器就不再回复电量或状态查询，这属于正常的省电静默而非设备断线。如果把"查询超时"直接当成"离线"，用户只要几秒不动鼠标，托盘图标就会反复变灰显示「已断开」，一动又亮回来，造成明显闪烁。游狼（XVI-OLD / XVI-NEW）、Finalmouse ULX、ATK BitMouse 也存在类似静默或休眠期无法区分关机的情况。
+
+### 统一判定规则
+
+1. **明确离线**：仅在以下两种情况下立即判定为 `Offline`（托盘图标变灰，悬停显示「已断开 · 上次 xx%」）：
+   - 协议明确回复无线端未连接：例如 Compx `0x03` 在线标志为 `0`、Razer 90B 状态字节为 `0x04`、Razer BlackShark V2 HyperSpeed `0x20` 链路为 `0`、Logitech HID++ 推送 `0x41`（bit6=1）或 `0x40`；
+   - USB 接收器被物理拔出（传输层返回 `Disconnected`，或非失败枚举中接收器已消失）。
+2. **查询超时一律算休眠**：Compx、游狼（含 XVI-OLD 与 XVI-NEW）、ULX、BitMouse 等协议在查询超时且没有任何回复时（以及 XVI-OLD 休眠帧、ULX `0x24=0`），均归为 `Asleep`（休眠）：
+   - 保留上次有效电量读数；
+   - 托盘图标与面板**不变灰**，继续按上次读数对应正常/偏低/低电量色显示，且不把设备折叠进「离线设备」；
+   - 托盘悬停提示写明「休眠中 · 上次 xx%」；休眠期间不触发低电量提醒。
+3. **连续休眠 10 分钟转离线**：处于 `Asleep` 状态的设备若连续超过 `TrayModel.SleepToOfflineTimeout`（10 分钟）仍没有任何回复，则自动转为 `Offline` 并变灰；一旦进入 `Offline`，后续超时或休眠帧不再将其拉回 `Asleep`，只有收到明确的 `Online` 响应才会恢复在线。
+4. **动一下就刷新**：存在休眠中的心跳设备且当前不在游戏中时，几格通过 Win32 `GetLastInputInfo` 检查系统最后一次键鼠输入时间戳是否变化（不安装键盘/鼠标钩子、不读取也不记录任何输入内容）。一旦检测到新输入，立即对处于休眠状态的设备补发一次心跳（最多每 2 秒一次），恢复在线后立即刷新完整电量。
+
 ## Windows 传输约定
 
-`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
+`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。登记在路径开关表 `DeviceCatalog.DisabledPaths` 中、证据不足或存在写入风险的路径，在打开设备句柄之前就会被跳过，并在诊断报告里标注「已识别，暂未启用：原因」。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
 
 重叠读写取消时调用 `CancelIoEx`。同步的 SetupAPI、打开设备和 HID Feature 调用在工作线程上执行，外层有期限。驱动若迟迟未返回，调用者可先结束等待，工作线程在驱动返回后释放句柄和接收器锁。雷蛇 90B 使用 HID Feature 通道。罗技和雷蛇在打开已匹配的集合后，用 HID 描述符核对查询所需的报告 ID。[HID 报告 API 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/sending-hid-reports) · [串口句柄文档](https://learn.microsoft.com/en-us/windows/win32/devio/communications-resource-handles)
 
 ## 本阶段验收
 
-0.2.2 在 macOS 上通过托管构建（零警告）与 206 项离线单元测试，覆盖通用协议家族识别、三道安全门、ATK `373B:11D9` 共享命名与 CID/MID 识别、跨集合被动监听、游狼官方型号表、轻量在线心跳、罗技推送监听、H9 INZONE Hub 退让、设备拓扑缓存、单调时钟、托盘多图标与面板排序、诊断扩展字段及脱敏验证。Windows NativeAOT 产物、插拔与休眠唤醒实机表现、ATK F1 Ultimate 2.0 实机复测及长时间内存观测需在 Windows 11 实机验收。
+0.2.3 在 macOS 上通过托管构建（零警告）与离线单元测试，覆盖在线/休眠/离线三态语义与 10 分钟休眠转离线、`GetLastInputInfo` 唤醒节流、三级验证目录与文档一致性、路径开关打开句柄前跳过、诊断开头脱敏提示与反馈链接、测试版版本号格式与检查更新防降级、无变化跳过写 `state.json`、设置动画增量重绘、DPI/主题变化防抖与改名保护，以及雷蛇 90B 协议忙重试。所有 Windows 实机行为（Compx/游狼休眠唤醒、高 DPI 图标复用、DPI/主题防抖、剪贴板复制、测试版滚动发布工作流）均待 Windows 11 实机确认。完整设备清单与三级验证状态见 [设备支持清单](devices.md)。

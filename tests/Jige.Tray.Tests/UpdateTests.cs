@@ -22,7 +22,7 @@ public sealed class UpdateTests : IDisposable
     {
         Assert.True(ReleaseVersion.TryParse(text, out var candidate));
         Assert.Equal(newer, candidate > Current);
-        Assert.True(ReleaseVersion.TryParse(ReleaseVersion.Current, out _));
+        Assert.True(ReleaseVersion.TryParseInstalled(ReleaseVersion.Current, out _, out _, out _));
     }
 
     [Theory]

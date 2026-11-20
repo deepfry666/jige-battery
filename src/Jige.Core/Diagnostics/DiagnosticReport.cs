@@ -35,6 +35,8 @@ public sealed record DiagnosticContext(
 public static class DiagnosticReport
 {
     internal const string Header = "几格 / Jige Battery 诊断报告 v1";
+    internal const string PrivacyNotice =
+        "提示：这份报告可以直接附到 GitHub issue；序列号、实例 ID、用户名、计算机名和路径已经脱敏，提交前可先完整检查。";
 
     [SupportedOSPlatform("windows")]
     public static async Task<string> GenerateWindowsAsync(
@@ -85,16 +87,25 @@ public static class DiagnosticReport
                 product += " · HID++ Receiver"; // 回放所需的非识别性匹配标记。
             report.AppendLine(FormattableString.Invariant(
                 $"HID|{id}|{ReceiverAlias(endpoint)}|{endpoint.VendorId:X4}|{endpoint.ProductId:X4}|{endpoint.UsagePage:X4}|{endpoint.Usage:X4}|{endpoint.InputLength}|{endpoint.OutputLength}|{endpoint.FeatureLength}|{endpoint.InterfaceNumber:X2}|{product}"));
+            // B3：路径开关登记在禁用表中的设备，直接说明原因且不打开设备句柄。
+            if (DeviceCatalog.IsDisabledPath(endpoint, out var disabled))
+            {
+                report.AppendLine($"状态 {id} {disabled!.Model}（{disabled.ProtocolFamily}） 已识别，暂未启用：{disabled.Reason}（出处：{disabled.Source}）");
+                continue;
+            }
             var candidates = MouseReceiverCatalog.Candidates(endpoint.VendorId, endpoint.ProductId).ToArray();
+            string tierLabel = DeviceCatalog.TierLabel(DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId));
             foreach (var candidate in candidates)
             {
                 string status = candidate.Matches(endpoint) ? candidate.Enabled ? "描述符匹配" : "仅登记" : "描述符不匹配";
-                report.AppendLine($"候选 {id} {candidate.Model} {FamilyName(candidate.Family)} {EvidenceName(candidate.Evidence)} {status}");
+                report.AppendLine($"候选 {id} {candidate.Model} {FamilyName(candidate.Family)} {EvidenceName(candidate.Evidence)} 验证={tierLabel} {status}");
             }
             if (candidates.Length == 0 && MouseReceiverCatalog.GenericRoute(endpoint) is { } generic)
-                report.AppendLine($"候选 {id} {generic.Model} {FamilyName(generic.Family)} 通用适配 描述符匹配");
+                report.AppendLine($"候选 {id} {generic.Model} {FamilyName(generic.Family)} 通用适配 验证=仅按资料 描述符匹配");
             else if (FinalmouseAdapter.IsVendorCollection(endpoint) && !FinalmouseAdapter.IsCatalogPid(endpoint.ProductId))
-                report.AppendLine($"候选 {id} Finalmouse ULX ULX 通用适配 描述符匹配");
+                report.AppendLine($"候选 {id} Finalmouse ULX ULX 通用适配 验证=仅按资料 描述符匹配");
+            else if (candidates.Length == 0 && DeviceCatalog.FindEntry(endpoint.VendorId, endpoint.ProductId) is { } entry)
+                report.AppendLine($"候选 {id} {entry.Model} {entry.ProtocolFamily} 验证={DeviceCatalog.TierLabel(entry.Verification)}");
         }
 
         int serialIndex = 0;
@@ -128,18 +139,19 @@ public static class DiagnosticReport
                 string label = endpoint is HidInterface mouse && MouseReceiverAdapter.AllowedRoute(mouse) is { } route
                     ? FamilyName(route.Family) : name;
                 string genericTag = device.Target.Device.Source == AdaptationSource.Generic ? "（通用适配）" : "";
+                string verificationTag = $" 验证={DeviceCatalog.TierLabel(DeviceCatalog.GetVerification(device.Target.Device))}";
                 if (device.Target.ShortHid is { } shortHid && ids.TryGetValue(shortHid, out var shortId))
-                    report.AppendLine($"匹配 {label}{genericTag} {id}（长报告） {shortId}（短报告）");
+                    report.AppendLine($"匹配 {label}{genericTag} {id}（长报告） {shortId}（短报告）{verificationTag}");
                 else if (device.Target.SiblingInputHids.Count > 0)
                 {
                     var siblingIds = device.Target.SiblingInputHids
                         .Select(item => ids.TryGetValue(item, out var siblingId) ? siblingId : null)
                         .OfType<string>().ToArray();
                     string siblingText = siblingIds.Length > 0 ? $" 旁路监听 {string.Join(',', siblingIds)}" : "";
-                    report.AppendLine($"匹配 {label}{genericTag} {id}{siblingText}");
+                    report.AppendLine($"匹配 {label}{genericTag} {id}{siblingText}{verificationTag}");
                 }
                 else
-                    report.AppendLine($"匹配 {label}{genericTag} {id}");
+                    report.AppendLine($"匹配 {label}{genericTag} {id}{verificationTag}");
 
                 var capture = new DiagnosticTransport(transport, adapter);
                 long started = Stopwatch.GetTimestamp();
@@ -257,6 +269,7 @@ public static class DiagnosticReport
         var version = Environment.OSVersion.Version;
         string os = OperatingSystem.IsWindows() ? $"{version.Major}.{version.Minor}.{version.Build}" : "非 Windows";
         return new StringBuilder().AppendLine(Header)
+            .AppendLine(PrivacyNotice)
             .AppendLine($"几格版本 {BuildVersion.Value}")
             .AppendLine($"Windows {os}")
             .AppendLine($"CPU 架构 {RuntimeInformation.OSArchitecture}")

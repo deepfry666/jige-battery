@@ -1,5 +1,11 @@
 ﻿#ifndef AppVersion
-  #define AppVersion "0.2.2"
+  #define AppVersion "0.2.3"
+#endif
+#ifndef FileVersion
+  #define FileVersion AppVersion + ".0"
+#endif
+#ifndef OutputVersion
+  #define OutputVersion AppVersion
 #endif
 #define TrayMutex "Local\Jige.Battery.Tray"
 #define SetupGate "Local\Jige.Battery.Setup"
@@ -15,7 +21,7 @@ AppVersion={#AppVersion}
 AppPublisher=FourJ
 AppPublisherURL=https://github.com/deepfry666/jige-battery
 AppUpdatesURL=https://github.com/deepfry666/jige-battery/releases/latest
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#FileVersion}
 DefaultDirName={#InstallDir}
 DisableDirPage=yes
 UsePreviousAppDir=no
@@ -33,7 +39,7 @@ UninstallLogMode=overwrite
 UsePreviousTasks=no
 SetupIconFile=..\assets\jige.ico
 OutputDir=..\artifacts\release
-OutputBaseFilename=Jige-Setup-{#AppVersion}-x64
+OutputBaseFilename=Jige-Setup-{#OutputVersion}-x64
 Compression=lzma2
 SolidCompression=yes
 

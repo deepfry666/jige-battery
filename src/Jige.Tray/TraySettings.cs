@@ -172,7 +172,26 @@ internal sealed class TrayFiles(string folder)
             throw new IOException("原设置尚未备份");
         Write(ConfigPath, settings, TrayJsonContext.Default.TraySettings);
     }
-    public void SaveState(TrayState state) => Write(StatePath, state, TrayJsonContext.Default.TrayState);
+
+    /// <summary>D1（#21）：写盘前先序列化并与现有 state.json 字节比较，内容完全一致时跳过写盘。</summary>
+    public bool SaveState(TrayState state)
+    {
+        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(state, TrayJsonContext.Default.TrayState);
+        if (File.Exists(StatePath))
+        {
+            try
+            {
+                if (File.ReadAllBytes(StatePath).AsSpan().SequenceEqual(payload))
+                    return false;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // 现有文件暂时不可读时回退为原子覆写。
+            }
+        }
+        WriteBytes(StatePath, payload);
+        return true;
+    }
 
     private static T? Read<T>(string path, JsonTypeInfo<T> type)
     {
@@ -187,14 +206,16 @@ internal sealed class TrayFiles(string folder)
         }
     }
 
-    private void Write<T>(string path, T value, JsonTypeInfo<T> type)
+    private void Write<T>(string path, T value, JsonTypeInfo<T> type) =>
+        WriteBytes(path, JsonSerializer.SerializeToUtf8Bytes(value, type));
+
+    private void WriteBytes(string path, byte[] payload)
     {
         Directory.CreateDirectory(folder);
         string temporary = path + ".tmp";
         try
         {
-            using (var stream = File.Create(temporary))
-                JsonSerializer.Serialize(stream, value, type);
+            File.WriteAllBytes(temporary, payload);
             File.Move(temporary, path, overwrite: true);
         }
         finally

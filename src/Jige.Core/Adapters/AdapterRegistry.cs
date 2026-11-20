@@ -35,23 +35,37 @@ public sealed class AdapterRegistry
         vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null || pid == 0x0565);
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
-        adapters.SelectMany(adapter => adapter.Detect(inventory).Select(target => new DetectedDevice(adapter, target)));
+        adapters.SelectMany(adapter => adapter.Detect(inventory)
+            .Where(target => !DeviceCatalog.IsDisabledPath(target.Endpoint, out _))
+            .Select(target => new DetectedDevice(adapter, target)));
 
     public Task<BatteryReading> ReadAsync(
         DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
-        => ReadWithDeadlineAsync(device, token => device.Adapter.ReadAsync(device.Target, transport, trace, token),
+    {
+        // B3：登记在路径开关表中的设备在打开句柄之前即跳过。
+        if (DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out var disabled))
+            return Task.FromResult(Failure(device.Target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}"));
+        return ReadWithDeadlineAsync(device, token => device.Adapter.ReadAsync(device.Target, transport, trace, token),
             issue => issue, cancellationToken);
+    }
 
     public Task<IReadOnlyList<BatteryReading>> ReadDevicesAsync(
-        DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken) =>
-        device.Adapter is IMultiDeviceAdapter multi
+        DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
+    {
+        if (DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out var disabled))
+            return Task.FromResult<IReadOnlyList<BatteryReading>>(
+                [Failure(device.Target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}")]);
+        return device.Adapter is IMultiDeviceAdapter multi
             ? ReadWithDeadlineAsync(device, token => multi.ReadDevicesAsync(device.Target, transport, trace, token),
                 issue => [issue], cancellationToken)
             : ReadSingleAsync(device, transport, trace, cancellationToken);
+    }
 
     public async Task<PresenceUpdate?> CheckPresenceAsync(
         DetectedDevice device, IReceiverTransport transport, CancellationToken cancellationToken)
     {
+        if (DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out _))
+            return null;
         if (device.Adapter is not IPresenceAdapter presence || presence.PresenceKind != PresenceProbeKind.Heartbeat)
             return null;
         try
@@ -63,7 +77,8 @@ public sealed class AdapterRegistry
         }
         catch (TimeoutException)
         {
-            return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, LinkState.Offline, ReadIssue.Timeout);
+            // R1：查询超时一律按休眠处理，仅协议明确返回未连接或接收器拔出才算离线。
+            return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, LinkState.Asleep, ReadIssue.Timeout);
         }
         catch (TransportException error)
         {
@@ -71,6 +86,7 @@ public sealed class AdapterRegistry
             {
                 ReadIssue.Busy => LinkState.Busy,
                 ReadIssue.Disconnected => LinkState.Offline,
+                ReadIssue.Timeout => LinkState.Asleep,
                 _ => LinkState.Unknown
             };
             return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, link, error.Issue);

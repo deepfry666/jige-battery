@@ -26,8 +26,10 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
         try
         {
             string current = ReleaseVersion.Current;
-            if (!ReleaseVersion.TryParse(current, out var version))
+            string display = ReleaseVersion.Display;
+            if (!ReleaseVersion.TryParseInstalled(current, out var version, out bool isPrerelease, out _))
                 throw new InvalidDataException($"无法识别当前版本 {current}。");
+            string currentLabel = isPrerelease ? display : $"v{display}";
 
             using var http = UpdateClient.CreateHttpClient();
             var client = new UpdateClient(http);
@@ -37,15 +39,15 @@ internal sealed class UpdateDialog(HWND owner, UpdateFiles files, Func<bool> inG
                 return false;
             if (update is null)
             {
-                logResult?.Invoke($"已是最新版本 v{current}");
-                Show("已是最新版本", $"当前版本 v{current}。");
+                logResult?.Invoke($"已是最新版本 {currentLabel}");
+                Show("已是最新版本", $"当前版本 {currentLabel}。");
                 return false;
             }
-            logResult?.Invoke($"发现新版本 v{update.Version}（当前 v{current}）");
+            logResult?.Invoke($"发现新版本 v{update.Version}（当前 {currentLabel}）");
 
             string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             bool installed = InstallPaths.IsInstalledExecutable(Environment.ProcessPath, local);
-            string content = $"当前版本 v{current}\n\n{update.Notes}";
+            string content = $"当前版本 {currentLabel}\n\n{update.Notes}";
             if (!installed)
                 content += "\n\n当前运行的是独立构建。请从 Release 获取正式安装器。";
 

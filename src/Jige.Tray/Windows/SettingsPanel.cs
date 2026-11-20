@@ -37,7 +37,9 @@ internal sealed class SettingsPanel(int availableHeight)
 
     private readonly float[] progress = new float[Rows.Length];
     private readonly float[] from = new float[Rows.Length];
+    private readonly float[] renderedProgress = new float[Rows.Length];
     private readonly int[] offsets = new int[Rows.Length];
+    private float renderedHeight = -1;
     private long started;
 
     public SettingRow? Expanded { get; private set; }
@@ -128,11 +130,16 @@ internal sealed class SettingsPanel(int availableHeight)
         Expanded = row;
         started = time;
         Animating = animate;
+        renderedHeight = -1;
         Advance(time);
     }
 
-    public void Advance(long time)
+    /// <summary>
+    /// D2（#14）：推进动画并返回画面是否发生可见变化；缓动尾段像素与箭头角度均未变化时返回 false，避免无效重绘。
+    /// </summary>
+    public bool Advance(long time, float scale = 1f)
     {
+        bool wasAnimating = Animating;
         double elapsed = (time - started) / (double)PanelLayout.TransitionMilliseconds;
         float eased = Animating ? (float)PanelLayout.Ease(elapsed) : 1;
         Animating &= elapsed < 1;
@@ -141,6 +148,27 @@ internal sealed class SettingsPanel(int availableHeight)
             float target = Expanded == row ? 1 : 0;
             progress[(int)row] = from[(int)row] + (target - from[(int)row]) * eased;
         }
+
+        bool finished = wasAnimating && !Animating;
+        float nextHeight = Height;
+        bool heightChanged = renderedHeight < 0 ||
+            MathF.Round(nextHeight * scale) != MathF.Round(renderedHeight * scale);
+        bool rowChanged = false;
+        for (int i = 0; i < progress.Length; i++)
+        {
+            if (MathF.Abs(progress[i] - renderedProgress[i]) >= 0.005f)
+            {
+                rowChanged = true;
+                break;
+            }
+        }
+
+        if (!finished && !heightChanged && !rowChanged)
+            return false;
+
+        renderedHeight = nextHeight;
+        progress.CopyTo(renderedProgress, 0);
+        return true;
     }
 
     public bool Select(PopupTarget target, TrayModel model, long time, bool animate, Action<TraySettings> save)

@@ -4,12 +4,14 @@ using Jige.Core.Diagnostics;
 namespace Jige.Tray;
 
 internal sealed record DeviceStatus(DeviceIdentity Device, LinkState Link, ReadIssue Issue,
-    ChargingState Charging, SavedBattery? Last, bool Fresh)
+    ChargingState Charging, SavedBattery? Last, bool Fresh, bool PendingRefresh = false)
 {
     public int? Percentage => Last?.Percentage;
     public bool IsCharging => Fresh && Charging == ChargingState.Charging;
     public bool IsFull => Fresh && (Charging == ChargingState.Full || Percentage == 100);
     public bool IsOnline => Link == LinkState.Online;
+    /// <summary>在线或短时休眠（未超时转离线）均视为活跃设备，避免鼠标静止数秒即跳入「离线设备」闪烁（R1）。</summary>
+    public bool IsActive => Link is LinkState.Online or LinkState.Asleep;
 }
 
 internal sealed record MainPanelPlan(
@@ -34,12 +36,20 @@ internal sealed class TrayModel
     public const int MaxHistoryDevices = 32;
     public const int MaxHistorySamples = 5;
 
+    /// <summary>
+    /// R2：连续休眠超过 10 分钟仍无任何回复才转为离线显示。
+    /// Compx 等无线鼠标静止数秒后接收器即停止应答查询（见 docs/protocols.md），短时无回复属于正常省电休眠；
+    /// 10 分钟足够覆盖日常看文档、看视频等短暂停顿而不误判离线，同时在设备真正关机或带离后能及时转为离线变灰。
+    /// </summary>
+    public static readonly TimeSpan SleepToOfflineTimeout = TimeSpan.FromMinutes(10);
+
     private readonly Dictionary<string, DeviceStatus> devices = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SavedReminder> reminders = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> removedOffline = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SavedDeviceHistory> history = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> blockedReceivers = new(StringComparer.OrdinalIgnoreCase);
-    private DateTimeOffset? lastPersistedAt;
+    private readonly Dictionary<string, DateTimeOffset> asleepSince = new(StringComparer.OrdinalIgnoreCase);
+    private bool hasSavedOnce;
 
     public TrayModel(TraySettings settings, TrayState saved)
     {
@@ -98,6 +108,66 @@ internal sealed class TrayModel
         return changed;
     }
 
+    public bool HasAsleepDevices => devices.Values.Any(item => item.Link == LinkState.Asleep);
+
+    public HashSet<string> AsleepDeviceIds() => devices.Values
+        .Where(item => item.Link == LinkState.Asleep)
+        .Select(item => item.Device.Id)
+        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>R2：返回最早一台休眠设备达到 10 分钟离线阈值的时间点，供主循环安排定时器唤醒。</summary>
+    public DateTimeOffset? NextSleepTimeout(DateTimeOffset now)
+    {
+        DateTimeOffset? earliest = null;
+        foreach (var (id, device) in devices)
+        {
+            if (device.Link != LinkState.Asleep)
+                continue;
+            if (!asleepSince.TryGetValue(id, out var since) || now < since)
+                since = now;
+            var due = since + SleepToOfflineTimeout;
+            if (earliest is null || due < earliest.Value)
+                earliest = due;
+        }
+        return earliest;
+    }
+
+    /// <summary>R2：检查连续休眠是否已超过 10 分钟，超时且仍无任何回复的设备转为离线显示。</summary>
+    public bool AdvanceSleepTimeouts(
+        DateTimeOffset now,
+        Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null)
+    {
+        bool changed = false;
+        foreach (var id in devices.Keys.ToArray())
+        {
+            var device = devices[id];
+            if (device.Link != LinkState.Asleep)
+            {
+                asleepSince.Remove(id);
+                continue;
+            }
+            if (!asleepSince.TryGetValue(id, out var since) || now < since)
+            {
+                asleepSince[id] = now;
+                continue;
+            }
+            if (now - since < SleepToOfflineTimeout)
+                continue;
+
+            asleepSince.Remove(id);
+            devices[id] = device with
+            {
+                Link = LinkState.Offline,
+                Fresh = false,
+                PendingRefresh = false,
+                Charging = ChargingState.Unknown
+            };
+            changed = true;
+            onLinkChanged?.Invoke(device.Device, LinkState.Asleep, LinkState.Offline);
+        }
+        return changed;
+    }
+
     public bool CanRemove(string id) => devices.TryGetValue(id, out var device) && device.Link == LinkState.Offline;
 
     public void RemoveOffline(string id)
@@ -107,20 +177,21 @@ internal sealed class TrayModel
             devices.Remove(id);
             reminders.Remove(id);
             history.Remove(id);
+            asleepSince.Remove(id);
             removedOffline.Add(id);
         }
     }
 
-    /// <summary>主面板自动排序规则（B7）：在线按电量低→高，顶部大卡片取最低在线设备，无在线时取最近一台离线设备。</summary>
+    /// <summary>主面板自动排序规则（B7 / R1）：活跃（在线或短时休眠）按电量低→高，顶部大卡片取最低活跃设备，全离线时取最近一台离线设备。</summary>
     public MainPanelPlan BuildMainPanel()
     {
         var visible = devices.Values.Where(item => !IsHidden(item.Device.Id)).ToArray();
-        var online = visible.Where(item => item.IsOnline)
+        var online = visible.Where(item => item.IsActive)
             .OrderBy(item => item.Percentage ?? int.MaxValue)
             .ThenBy(item => item.Device.Kind)
             .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
             .ToArray();
-        var offline = visible.Where(item => !item.IsOnline)
+        var offline = visible.Where(item => !item.IsActive)
             .OrderByDescending(item => item.Last?.ReadAt ?? history.GetValueOrDefault(item.Device.Id)?.LastOnline ?? DateTimeOffset.MinValue)
             .ThenBy(item => item.Device.Kind)
             .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
@@ -134,15 +205,15 @@ internal sealed class TrayModel
     }
 
     public DeviceStatus[] OrderedDevices() => devices.Values
-        .OrderByDescending(item => item.IsOnline)
-        .ThenBy(item => item.IsOnline ? (item.Percentage ?? int.MaxValue) : 0)
-        .ThenByDescending(item => item.IsOnline ? DateTimeOffset.MinValue : (item.Last?.ReadAt ?? DateTimeOffset.MinValue))
+        .OrderByDescending(item => item.IsActive)
+        .ThenBy(item => item.IsActive ? (item.Percentage ?? int.MaxValue) : 0)
+        .ThenByDescending(item => item.IsActive ? DateTimeOffset.MinValue : (item.Last?.ReadAt ?? DateTimeOffset.MinValue))
         .ThenBy(item => item.Device.Kind)
         .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
     public DeviceStatus[] OrderedForManagement() => devices.Values
-        .OrderByDescending(item => item.IsOnline)
+        .OrderByDescending(item => item.IsActive)
         .ThenBy(item => item.Device.Kind)
         .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
         .ToArray();
@@ -231,34 +302,37 @@ internal sealed class TrayModel
                 removedChanged |= removedOffline.Remove(device.Id);
             }
             var previous = devices.GetValueOrDefault(device.Id);
+            var resolvedLink = ResolveLinkForSleep(device.Id, previous?.Link, reading.Link, now);
             var last = previous?.Last;
-            bool fresh = reading is { Link: LinkState.Online, Percentage: not null };
+            bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null;
             if (fresh)
             {
                 anyFresh = true;
                 var nextLast = new SavedBattery(device, reading.Percentage!.Value, reading.IsEstimated, reading.ReadAt);
                 if (last is null || last.Percentage != nextLast.Percentage || last.IsEstimated != nextLast.IsEstimated ||
-                    previous?.Charging != reading.Charging || previous?.Device != device)
+                    previous?.Charging != reading.Charging || previous?.Device != device || previous?.Link != resolvedLink)
                     meaningfulChange = true;
                 last = nextLast;
             }
-            else if (previous is null || previous.Link != reading.Link)
+            else if (previous is null || previous.Link != resolvedLink)
             {
                 meaningfulChange = true;
             }
 
-            var status = new DeviceStatus(device, reading.Link, reading.Issue, reading.Charging, last, fresh);
+            var status = new DeviceStatus(device, resolvedLink, reading.Issue, reading.Charging, last, fresh);
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
-            if (fresh)
-                UpdateReminder(status, now);
+            if (fresh && UpdateReminder(status, now))
+                meaningfulChange = true;
         }
 
         foreach (var id in devices.Keys.Where(id => !seen.Contains(id)).ToArray())
         {
             var previous = devices[id];
+            // R1：接收器被拔出（非枚举失败且不在设备列表中）→ 立即离线。
             var nextLink = scanFailed ? LinkState.Unknown : LinkState.Offline;
+            asleepSince.Remove(id);
             if (previous.Link != nextLink || previous.Fresh)
                 meaningfulChange = true;
             devices[id] = previous with
@@ -266,6 +340,7 @@ internal sealed class TrayModel
                 Link = nextLink,
                 Issue = ReadIssue.None,
                 Fresh = false,
+                PendingRefresh = false,
                 Charging = ChargingState.Unknown
             };
             onLinkChanged?.Invoke(previous.Device, previous.Link, nextLink);
@@ -277,14 +352,14 @@ internal sealed class TrayModel
             removedChanged |= removedOffline.RemoveWhere(id => !seen.Contains(id)) > 0;
 
         TrimHistory();
-        bool periodicFlush = anyFresh && (lastPersistedAt is null || now - lastPersistedAt.Value >= TimeSpan.FromMinutes(5));
-        bool shouldSave = meaningfulChange || removedChanged || periodicFlush;
+        // D1（#21）：电量和状态都没有变化时不写 state.json（仅首次落盘或存在实质变更时返回 true）。
+        bool shouldSave = meaningfulChange || removedChanged || (anyFresh && !hasSavedOnce);
         if (shouldSave)
-            lastPersistedAt = now;
+            hasSavedOnce = true;
         return shouldSave;
     }
 
-    /// <summary>应用心跳或罗技接收器推送的在线状态变化（B1 / B2）。</summary>
+    /// <summary>应用心跳或罗技接收器推送的在线状态变化（B1 / B2 / R1 / R2）。</summary>
     public (bool UiChanged, bool NeedsBatteryRefresh) ApplyPresence(
         IReadOnlyList<PresenceUpdate> updates,
         DateTimeOffset now,
@@ -306,16 +381,20 @@ internal sealed class TrayModel
             foreach (string id in matches)
             {
                 var previous = devices[id];
-                if (previous.Link == update.Link && previous.Issue == update.Issue)
+                var resolvedLink = ResolveLinkForSleep(id, previous.Link, update.Link, now);
+                if (previous.Link == resolvedLink && previous.Issue == update.Issue)
                     continue;
 
-                bool becameOnline = !previous.IsOnline && update.Link == LinkState.Online;
-                bool lostLink = update.Link is LinkState.Offline or LinkState.Asleep;
+                bool becameOnline = !previous.IsOnline && resolvedLink == LinkState.Online;
+                bool lostLink = resolvedLink is LinkState.Offline or LinkState.Asleep;
+                // R1 / R3：从休眠唤醒到在线时，保留非灰显示直至完整电量刷新返回，避免图标闪灰。
+                bool pendingRefresh = becameOnline && previous.Link == LinkState.Asleep && previous.Last is not null;
                 var next = previous with
                 {
-                    Link = update.Link,
+                    Link = resolvedLink,
                     Issue = update.Issue,
                     Fresh = lostLink ? false : previous.Fresh,
+                    PendingRefresh = lostLink ? false : pendingRefresh || previous.PendingRefresh,
                     Charging = lostLink ? ChargingState.Unknown : previous.Charging
                 };
                 devices[id] = next;
@@ -329,6 +408,42 @@ internal sealed class TrayModel
             }
         }
         return (uiChanged, needsRefresh);
+    }
+
+    /// <summary>
+    /// R1 / R2 状态转移规则：
+    /// 1) 已处于 Offline 的设备不会因超时/休眠回复退回 Asleep，必须收到明确 Online 才恢复；
+    /// 2) 连续休眠达到 10 分钟仍无回复则转为 Offline。
+    /// </summary>
+    private LinkState ResolveLinkForSleep(string id, LinkState? previousLink, LinkState incoming, DateTimeOffset now)
+    {
+        if (incoming == LinkState.Online)
+        {
+            asleepSince.Remove(id);
+            return LinkState.Online;
+        }
+        if (incoming == LinkState.Asleep)
+        {
+            if (previousLink == LinkState.Offline)
+            {
+                asleepSince.Remove(id);
+                return LinkState.Offline;
+            }
+            if (!asleepSince.TryGetValue(id, out var since) || now < since)
+            {
+                asleepSince[id] = now;
+                return LinkState.Asleep;
+            }
+            if (now - since >= SleepToOfflineTimeout)
+            {
+                asleepSince.Remove(id);
+                return LinkState.Offline;
+            }
+            return LinkState.Asleep;
+        }
+
+        asleepSince.Remove(id);
+        return incoming;
     }
 
     private List<string> FindMatchingDeviceIds(PresenceUpdate update)
@@ -356,8 +471,8 @@ internal sealed class TrayModel
             var lastSample = samples.Length > 0 ? samples[^1] : null;
             bool record = lastSample is null ||
                 lastSample.Percentage != last.Percentage ||
-                lastSample.Charging != status.Charging ||
-                last.ReadAt - lastSample.At >= TimeSpan.FromMinutes(5);
+                lastSample.IsEstimated != last.IsEstimated ||
+                lastSample.Charging != status.Charging;
             if (record)
             {
                 var nextSample = new SavedHistorySample(last.ReadAt, last.Percentage, last.IsEstimated, status.Charging);
@@ -397,12 +512,11 @@ internal sealed class TrayModel
         return [.. list];
     }
 
-    private void UpdateReminder(DeviceStatus device, DateTimeOffset now)
+    private bool UpdateReminder(DeviceStatus device, DateTimeOffset now)
     {
         if (device.Percentage < Settings.LowBatteryThreshold && !device.IsCharging && !device.IsFull)
-            reminders.TryAdd(device.Device.Id, new(now));
-        else
-            reminders.Remove(device.Device.Id);
+            return reminders.TryAdd(device.Device.Id, new(now));
+        return reminders.Remove(device.Device.Id);
     }
 
     public DateTimeOffset? NextReminder(DateTimeOffset now) => devices.Values

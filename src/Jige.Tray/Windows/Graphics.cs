@@ -78,7 +78,10 @@ internal sealed unsafe class TextFactory : IDisposable
             return (IDWriteTextFormat*)existing;
 
         IDWriteTextFormat* format = null;
-        factory->CreateTextFormat(number ? "Segoe UI Variable Display" : "Segoe UI Variable Text", null,
+        string family = OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)
+            ? (number ? "Segoe UI Variable Display" : "Segoe UI Variable Text")
+            : "Segoe UI";
+        factory->CreateTextFormat(family, null,
             (DWRITE_FONT_WEIGHT)weight, DWRITE_FONT_STYLE.DWRITE_FONT_STYLE_NORMAL,
             DWRITE_FONT_STRETCH.DWRITE_FONT_STRETCH_NORMAL, size, "zh-CN", &format);
         try

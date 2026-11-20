@@ -98,9 +98,25 @@ internal sealed partial class PopupScene
             SettingsPanel.CardWidth - 1, cardHeight - 1, 6.5f, colors.LayerStroke);
 
         float footer = layout.Height - 42;
-        DrawAbout(canvas, footer, DiagnosticExport.Label(diagnosticStatus) ?? error ?? $"几格 {ReleaseVersion.Current}");
-        DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 10, 48, 20), "诊断信息");
-        DrawLink(canvas, new(PopupAction.Updates, 279, footer + 10, 48, 20), "检查更新");
+        if (HasDiagnosticReport)
+        {
+            canvas.Line(1, footer + .5f, Width - 1, footer + .5f, colors.Border);
+            canvas.Text(DiagnosticExport.Label(diagnosticStatus) ?? $"几格 {ReleaseVersion.Display}",
+                17, footer + 3, 186, 17, 11.5f,
+                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed or DiagnosticStatus.FeedbackFailed
+                    ? colors.Low : colors.Muted, ellipsis: true);
+            DrawLink(canvas, new(PopupAction.CopyAndFeedback, 211, footer + 2, 116, 18), "复制报告并去反馈");
+            canvas.Text($"几格 {ReleaseVersion.Display}", 17, footer + 21, 140, 17, 11.5f, colors.Muted, ellipsis: true);
+            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 165, footer + 21, 48, 18), "查看报告");
+            DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 21, 48, 18), "诊断信息");
+            DrawLink(canvas, new(PopupAction.Updates, 279, footer + 21, 48, 18), "检查更新");
+        }
+        else
+        {
+            DrawAbout(canvas, footer, DiagnosticExport.Label(diagnosticStatus) ?? error ?? $"几格 {ReleaseVersion.Display}");
+            DrawLink(canvas, new(PopupAction.Diagnostics, 221, footer + 10, 48, 20), "诊断信息");
+            DrawLink(canvas, new(PopupAction.Updates, 279, footer + 10, 48, 20), "检查更新");
+        }
     }
 
     public void ToggleSetting(SettingRow row, long time)
@@ -313,23 +329,36 @@ internal sealed partial class PopupScene
 
         string unidentified = model.UnknownReceivers > 0
             ? $"检测到 {model.UnknownReceivers} 个未识别接收器" : "没看到设备？";
-        float footerWidth = HasDiagnosticReport ? 120 : 172;
         string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
-        if (model.UnknownReceivers > 0 && feedback is not null)
+        if (HasDiagnosticReport)
         {
             canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
-            canvas.Text(unidentified, 17, DevicesFooter + 3, footerWidth, 18, 12, colors.Muted, ellipsis: true);
-            canvas.Text(feedback, 17, DevicesFooter + 21, footerWidth, 17, 11,
-                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed ? colors.Low : colors.Muted,
-                ellipsis: true);
+            canvas.Text(feedback ?? "诊断已导出", 17, DevicesFooter + 3, 186, 17, 11.5f,
+                diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed or DiagnosticStatus.FeedbackFailed
+                    ? colors.Low : colors.Muted, ellipsis: true);
+            DrawLink(canvas, new(PopupAction.CopyAndFeedback, 211, DevicesFooter + 2, 116, 18), "复制报告并去反馈");
+            canvas.Text(unidentified, 17, DevicesFooter + 21, 120, 17, 11.5f, colors.Muted, ellipsis: true);
+            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 143, DevicesFooter + 21, 48, 18), "查看报告");
+            DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 21, 48, 18), "重新检测");
+            DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 21, 72, 18), "导出诊断信息");
         }
         else
-            DrawAbout(canvas, DevicesFooter, feedback ?? unidentified, footerWidth);
+        {
+            const float footerWidth = 172;
+            if (model.UnknownReceivers > 0 && feedback is not null)
+            {
+                canvas.Line(1, DevicesFooter + .5f, Width - 1, DevicesFooter + .5f, colors.Border);
+                canvas.Text(unidentified, 17, DevicesFooter + 3, footerWidth, 18, 12, colors.Muted, ellipsis: true);
+                canvas.Text(feedback, 17, DevicesFooter + 21, footerWidth, 17, 11,
+                    diagnosticStatus is DiagnosticStatus.Failed or DiagnosticStatus.EditorFailed ? colors.Low : colors.Muted,
+                    ellipsis: true);
+            }
+            else
+                DrawAbout(canvas, DevicesFooter, feedback ?? unidentified, footerWidth);
 
-        if (HasDiagnosticReport)
-            DrawLink(canvas, new(PopupAction.OpenDiagnostics, 143, DevicesFooter + 9, 48, 20), "查看报告");
-        DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 9, 48, 20), "重新检测");
-        DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 9, 72, 20), "导出诊断信息");
+            DrawLink(canvas, new(PopupAction.Redetect, 199, DevicesFooter + 9, 48, 20), "重新检测");
+            DrawLink(canvas, new(PopupAction.Diagnostics, 255, DevicesFooter + 9, 72, 20), "导出诊断信息");
+        }
     }
 
     private void DrawDevice(Canvas canvas, int index, DeviceStatus device)

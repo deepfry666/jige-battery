@@ -43,6 +43,8 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             }
 
             var selected = candidates[0];
+            if (DeviceCatalog.IsDisabledPath(selected, out _))
+                continue;
             if (gates?.IsBlocked(selected, out var blockedReason) == true)
             {
                 gates.RecordRejection(selected, 3, $"已拦截（{blockedReason}）");
@@ -51,7 +53,10 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
 
             var source = IsCatalogPid(selected.ProductId) ? AdaptationSource.Catalog : AdaptationSource.Generic;
             string name = source == AdaptationSource.Catalog ? CatalogName : GenericName;
-            yield return new(new($"ulx:{group.Key}", name, DeviceKind.Mouse, source), selected, "0");
+            var tier = source == AdaptationSource.Catalog
+                ? DeviceCatalog.VerificationFor(selected.VendorId, selected.ProductId)
+                : VerificationTier.DocsOnly;
+            yield return new(new($"ulx:{group.Key}", name, DeviceKind.Mouse, source, tier), selected, "0");
         }
     }
 
@@ -63,6 +68,8 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             return AdapterRegistry.Failure(target, endpoint.MetadataIssue, endpoint.MetadataError ?? "无法读取 HID 描述符");
         if (!IsVendorCollection(endpoint))
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "未找到 FF00:0001、输入和输出均为 64 字节的 HID 集合");
+        if (DeviceCatalog.IsDisabledPath(endpoint, out var disabled))
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}");
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
@@ -77,7 +84,9 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
                     gates?.Block(endpoint, "ULX 链路状态查询回复格式不符合协议");
                 return AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "链路状态回复格式不符合 ULX 协议");
             }
-            return AdapterRegistry.Failure(target, ReadIssue.Timeout, "链路状态查询超时");
+            // R1：超时无回复一律视为休眠，仅接收器拔出或明确断开才算离线。
+            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow,
+                ReadIssue.Timeout, "链路状态查询超时，设备可能正在休眠");
         }
         if (link[0] == 0)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow,
@@ -113,6 +122,7 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
         DeviceTarget target, IReceiverTransport transport, CancellationToken cancellationToken)
     {
         if (target.Endpoint is not HidInterface endpoint || !IsVendorCollection(endpoint) ||
+            DeviceCatalog.IsDisabledPath(endpoint, out _) ||
             gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
@@ -122,7 +132,9 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
         {
             if (sawReply && target.Device.Source == AdaptationSource.Generic)
                 gates?.Block(endpoint, "ULX 心跳链路回复格式不符合协议");
-            return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline,
+            // R1：ULX 查询超时算休眠（不置离线），异常回复返回 Unknown。
+            return new(endpoint.ReceiverId, null, target.Device.Id,
+                sawReply ? LinkState.Unknown : LinkState.Asleep,
                 sawReply ? ReadIssue.InvalidResponse : ReadIssue.Timeout);
         }
         return new(endpoint.ReceiverId, null, target.Device.Id, link[0] == 0 ? LinkState.Asleep : LinkState.Online);

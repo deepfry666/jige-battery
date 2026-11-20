@@ -1,12 +1,18 @@
 namespace Jige.Tray;
 
-internal enum DiagnosticStatus { Idle, Working, Ready, Failed, EditorFailed }
+internal enum DiagnosticStatus { Idle, Working, Ready, Failed, EditorFailed, FeedbackCopied, FeedbackFailed }
 
 internal sealed class DiagnosticExport(string path)
 {
+    // A4 / G4：反馈链接不包含任何报告内容或设备信息，仅打开设备报告模板。
+    public const string DeviceReportIssueUrl =
+        "https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml";
+
     private Task<bool>? work;
     public DiagnosticStatus Status { get; private set; }
     public bool PreviewPending { get; private set; }
+    public bool HasReport => Status is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed
+        or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
 
     public bool Start(Func<Task<bool>> generate)
     {
@@ -38,6 +44,8 @@ internal sealed class DiagnosticExport(string path)
     }
 
     public void EditorFailed() => Status = DiagnosticStatus.EditorFailed;
+    public void FeedbackCopied() => Status = DiagnosticStatus.FeedbackCopied;
+    public void FeedbackFailed() => Status = DiagnosticStatus.FeedbackFailed;
 
     public static string? Label(DiagnosticStatus status) => status switch
     {
@@ -45,6 +53,8 @@ internal sealed class DiagnosticExport(string path)
         DiagnosticStatus.Ready => "诊断已导出",
         DiagnosticStatus.Failed => "诊断导出失败",
         DiagnosticStatus.EditorFailed => "报告已保存，打开失败",
+        DiagnosticStatus.FeedbackCopied => "已复制报告，请在浏览器粘贴",
+        DiagnosticStatus.FeedbackFailed => "复制或打开反馈页失败",
         _ => null
     };
 

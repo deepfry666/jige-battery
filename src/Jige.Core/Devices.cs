@@ -7,7 +7,21 @@ public enum ReadIssue { None, Timeout, AccessDenied, Busy, Disconnected, Invalid
 public enum AdaptationSource { Catalog, Generic }
 public enum PresenceProbeKind { Heartbeat, PushListener, FullPollOnly }
 
-public sealed record DeviceIdentity(string Id, string Name, DeviceKind Kind, AdaptationSource Source = AdaptationSource.Catalog);
+/// <summary>设备协议验证状态分级（B1）：严格区分实机已验证、同家族推定与仅按资料。</summary>
+public enum VerificationTier
+{
+    /// <summary>在 Windows 实机上实际看到过读数。</summary>
+    HardwareVerified,
+    /// <summary>与已实机验证设备同一协议家族，且来自同一份权威型号表。</summary>
+    FamilyInferred,
+    /// <summary>照公开开源实现或协议文档编写，尚未在实机上验证。</summary>
+    DocsOnly
+}
+
+public sealed record DeviceIdentity(
+    string Id, string Name, DeviceKind Kind,
+    AdaptationSource Source = AdaptationSource.Catalog,
+    VerificationTier Verification = VerificationTier.DocsOnly);
 
 public sealed record PresenceUpdate(
     string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None);

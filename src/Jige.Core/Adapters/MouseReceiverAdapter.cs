@@ -70,6 +70,10 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 selectedRow = genericRoute;
             }
 
+            // B3：路径开关登记在禁用表中的设备在打开句柄之前即跳过。
+            if (DeviceCatalog.IsDisabledPath(selectedEndpoint, out _))
+                continue;
+
             // 安全门 ③：此前回复格式不符合协议家族的接收器不再发送任何命令。
             if (gates?.IsBlocked(selectedEndpoint, out var blockedReason) == true)
             {
@@ -84,7 +88,10 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 : [];
 
             var source = selectedRow.IsGeneric ? AdaptationSource.Generic : AdaptationSource.Catalog;
-            yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source),
+            var tier = source == AdaptationSource.Generic
+                ? VerificationTier.DocsOnly
+                : DeviceCatalog.VerificationFor(selectedEndpoint.VendorId, selectedEndpoint.ProductId);
+            yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier),
                 selectedEndpoint, "0")
             {
                 SiblingInputHids = siblings
@@ -94,6 +101,8 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
 
     internal static MouseReceiver? AllowedRoute(HidInterface endpoint)
     {
+        if (DeviceCatalog.IsDisabledPath(endpoint, out _))
+            return null;
         var rows = MouseReceiverCatalog.Candidates(endpoint.VendorId, endpoint.ProductId)
             .Where(row => row.Matches(endpoint)).ToArray();
         if (rows.Length > 0)
@@ -109,7 +118,11 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
     public async ValueTask<BatteryReading> ReadAsync(DeviceTarget target, IReceiverTransport transport,
         FrameTrace? trace, CancellationToken cancellationToken)
     {
-        if (target.Endpoint is not HidInterface endpoint || AllowedRoute(endpoint) is not { } route)
+        if (target.Endpoint is not HidInterface endpoint)
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, "接收器未通过只读白名单");
+        if (DeviceCatalog.IsDisabledPath(endpoint, out var disabled))
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}");
+        if (AllowedRoute(endpoint) is not { } route)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "接收器未通过只读白名单");
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
@@ -121,6 +134,10 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow);
         if (result.Level is null)
         {
+            // R1 / D4：Compx、BitMouse、游狼（含 XVI-NEW）查询超时一律按休眠处理，仅协议明确断开或拔出算离线。
+            if (result.Issue == ReadIssue.Timeout)
+                return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep,
+                    DateTimeOffset.UtcNow, ReadIssue.Timeout, "接收器查询超时，设备可能正在休眠");
             // 安全门 ② / ③：首条无害状态查询收到格式不符的回复，立即停止并在通用模式下持久化拦截。
             if (result.Issue == ReadIssue.InvalidResponse && (route.IsGeneric || target.Device.Source == AdaptationSource.Generic))
                 gates?.Block(endpoint, "首条状态查询回复格式不符合协议家族");
@@ -148,14 +165,16 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
     public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
         DeviceTarget target, IReceiverTransport transport, CancellationToken cancellationToken)
     {
-        if (target.Endpoint is not HidInterface endpoint || AllowedRoute(endpoint) is not { } route ||
-            gates?.IsBlocked(endpoint, out _) == true)
+        if (target.Endpoint is not HidInterface endpoint || DeviceCatalog.IsDisabledPath(endpoint, out _) ||
+            AllowedRoute(endpoint) is not { } route || gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
         using var session = transport.OpenHid(endpoint, cancellationToken);
         if (route.Family == MouseFamily.CompxOut)
         {
-            // 优先发送轻量的 Compx 0x03 在线查询；若设备不支持 0x03 而超时，再回退到 0x04 判断是否在线。
+            // R1：优先发轻量的 Compx 0x03 在线查询：
+            // 1) 明确回复在线标志为 0 → 立即离线；明确回复 1 → 在线；
+            // 2) 无回复超时（如 Compx 静止几秒后不再应答，或固件不支持 0x03）→ 回退 0x04；若仍超时一律算休眠而非离线。
             var online = await QueryCompxOnlineAsync(session, endpoint, cancellationToken).ConfigureAwait(false);
             if (online is bool state)
                 return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Offline);
@@ -163,16 +182,21 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 .ConfigureAwait(false);
             if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric)
                 gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
-            return new(endpoint.ReceiverId, null, target.Device.Id,
-                battery.Level.HasValue ? LinkState.Online : battery.Asleep ? LinkState.Asleep : LinkState.Offline,
+            var compxLink = battery.Level.HasValue ? LinkState.Online
+                : battery.Asleep || battery.Issue == ReadIssue.Timeout ? LinkState.Asleep
+                : LinkState.Unknown;
+            return new(endpoint.ReceiverId, null, target.Device.Id, compxLink,
                 battery.Level.HasValue ? ReadIssue.None : battery.Issue);
         }
 
+        // R1 / D4：BitMouse 与游狼（XVI-OLD / XVI-NEW）查询超时一律算休眠，不误判离线。
         var result = await QueryAsync(session, endpoint, route, false, [], transport, null, cancellationToken)
             .ConfigureAwait(false);
         if (result.Issue == ReadIssue.InvalidResponse && route.IsGeneric)
             gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
-        var link = result.Level.HasValue ? LinkState.Online : result.Asleep ? LinkState.Asleep : LinkState.Offline;
+        var link = result.Level.HasValue ? LinkState.Online
+            : result.Asleep || result.Issue == ReadIssue.Timeout ? LinkState.Asleep
+            : LinkState.Unknown;
         return new(endpoint.ReceiverId, null, target.Device.Id, link, result.Level.HasValue ? ReadIssue.None : result.Issue);
     }
 

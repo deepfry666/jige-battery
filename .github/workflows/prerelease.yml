@@ -1,0 +1,151 @@
+name: 发布几格测试版
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: prerelease-build
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prerelease:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v7
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - name: 计算测试版版本号与合法四段文件版本
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$props = Get-Content Directory.Build.props -Raw -Encoding utf8
+          $base = ($props.Project.PropertyGroup.VersionPrefix | Select-Object -First 1).Trim()
+          if ($base -cnotmatch '\A(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') {
+            throw "Directory.Build.props 中的 VersionPrefix ($base) 不是合法的 X.Y.Z 格式"
+          }
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7).ToLowerInvariant()
+          $betaVersion = "$base-beta.$shortSha"
+          $fileVersion = "$base.0"
+          $displayTitle = "几格 $base 测试版（$shortSha）"
+          $lines = @(
+            '这是 `main` 分支的最新滚动测试版，每次推送到 `main` 自动重建并替换旧安装包（不累积旧附件）。',
+            '',
+            "- **版本**：$base 测试版（$shortSha）（$betaVersion）",
+            "- **提交**：$env:GITHUB_SHA",
+            '- **更新说明**：测试版不会通过几格的「检查更新」自动推送；装了测试版后，检查更新仍只对照正式版，不会提示降级到更低的正式版。',
+            "- **反馈问题**：请阅读 [CONTRIBUTING.md](https://github.com/$env:GITHUB_REPOSITORY/blob/main/CONTRIBUTING.md)，并在 issue 中注明提交号 $shortSha 与完整诊断报告。"
+          )
+          $lines -join "`n" | Set-Content prerelease-notes.md -Encoding utf8
+          "base=$base" >> $env:GITHUB_OUTPUT
+          "sha=$shortSha" >> $env:GITHUB_OUTPUT
+          "beta=$betaVersion" >> $env:GITHUB_OUTPUT
+          "file=$fileVersion" >> $env:GITHUB_OUTPUT
+          "title=$displayTitle" >> $env:GITHUB_OUTPUT
+      - name: 运行测试
+        shell: pwsh
+        env:
+          JIGE_BETA: ${{ steps.version.outputs.beta }}
+          JIGE_FILE: ${{ steps.version.outputs.file }}
+        run: dotnet test Jige.slnx -c Release "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE"
+      - name: 发布 win-x64 NativeAOT 托盘
+        shell: pwsh
+        env:
+          JIGE_BETA: ${{ steps.version.outputs.beta }}
+          JIGE_FILE: ${{ steps.version.outputs.file }}
+        run: dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAot=true "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE" -o artifacts/tray-win-x64
+      - name: 验证托盘自检与四段文件版本
+        shell: pwsh
+        env:
+          JIGE_BETA: ${{ steps.version.outputs.beta }}
+          JIGE_FILE: ${{ steps.version.outputs.file }}
+        run: |
+          $exe = Get-Item artifacts/tray-win-x64/Jige.exe
+          $expected = [version] $env:JIGE_FILE
+          $actual = [version] $exe.VersionInfo.FileVersion
+          if ($actual -ne $expected) { throw "Jige.exe 文件版本 $actual 与预期四段版本 $expected 不一致" }
+          if ($exe.VersionInfo.ProductVersion -notlike "$env:JIGE_BETA*") {
+            throw "Jige.exe 产品版本 $($exe.VersionInfo.ProductVersion) 未包含测试版标记 $env:JIGE_BETA"
+          }
+          $env:JIGE_CHECK_LOG = Join-Path $env:RUNNER_TEMP 'jige-check.txt'
+          $tray = Start-Process -FilePath $exe.FullName -ArgumentList '--check' -Wait -PassThru
+          if ($tray.ExitCode -ne 0 -and (Test-Path $env:JIGE_CHECK_LOG)) { Get-Content $env:JIGE_CHECK_LOG }
+          exit $tray.ExitCode
+      - name: 编译 Inno Setup 测试版安装包
+        shell: pwsh
+        env:
+          JIGE_BETA: ${{ steps.version.outputs.beta }}
+          JIGE_FILE: ${{ steps.version.outputs.file }}
+        run: |
+          function Find-Compiler {
+            $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($command) { return $command.Source }
+            foreach ($root in @(${env:ProgramFiles(x86)}, $env:ProgramFiles)) {
+              foreach ($major in @(7, 6)) {
+                $candidate = Join-Path $root "Inno Setup $major/ISCC.exe"
+                if (Test-Path $candidate) { return $candidate }
+              }
+            }
+          }
+
+          $compiler = Find-Compiler
+          if (-not $compiler) {
+            choco install innosetup --no-progress -y
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $compiler = Find-Compiler
+          }
+          if (-not $compiler) { throw "找不到 Inno Setup 编译器 ISCC.exe" }
+          & $compiler "/DAppVersion=$env:JIGE_BETA" "/DFileVersion=$env:JIGE_FILE" "/DOutputVersion=prerelease" 'installer/jige.iss'
+          exit $LASTEXITCODE
+      - name: 生成 SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $name = "Jige-Setup-prerelease-x64.exe"
+          $hash = (Get-FileHash "artifacts/release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $name" | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
+      - name: 更新滚动测试版 Release（prerelease-build）
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JIGE_TITLE: ${{ steps.version.outputs.title }}
+        run: |
+          $tag = 'prerelease-build'
+          $installer = 'artifacts/release/Jige-Setup-prerelease-x64.exe'
+          $checksums = 'artifacts/release/SHA256SUMS.txt'
+          $keep = @('Jige-Setup-prerelease-x64.exe', 'SHA256SUMS.txt')
+
+          # 将滚动标签指向当前 main 提交（不匹配 release.yml 的 v* 触发规则）。
+          git tag -f $tag $env:GITHUB_SHA
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push --force origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            # 删除旧附件，避免历史构建附件累积。
+            $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            foreach ($asset in $existing) {
+              if (-not [string]::IsNullOrWhiteSpace($asset) -and ($keep -notcontains $asset)) {
+                gh release delete-asset $tag $asset --repo $env:GITHUB_REPOSITORY --yes
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              }
+            }
+            gh release upload $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

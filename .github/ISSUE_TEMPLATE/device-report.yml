@@ -1,12 +1,40 @@
 name: 设备电量报告
-description: 反馈接收器识别、电量或充电状态的问题
+description: 反馈新设备适配、接收器识别、电量或充电状态不准的问题
 title: "[设备] "
+labels:
+  - device-report
 body:
+  - type: markdown
+    attributes:
+      value: |
+        提交前请先阅读 [贡献与反馈指南](https://github.com/deepfry666/jige-battery/blob/main/CONTRIBUTING.md)。
+        几格导出的诊断报告已经脱敏（不含序列号、实例 ID、用户名、计算机名和本地路径），但提交前仍请完整检查内容。
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提交前检查
+      description: 下面几项会直接影响诊断报告是否有效，请逐项确认。
+      options:
+        - label: 已彻底关闭该设备的官方驱动软件（含系统托盘右下角后台进程）
+          required: true
+        - label: 无线设备已开机并唤醒（鼠标已移动、耳机已开机，接收器已插好）
+          required: true
+        - label: 已完整查看导出的 diagnostics.txt，确认不含不想公开的内容
+          required: true
   - type: input
     id: model
     attributes:
       label: 设备型号
-      description: 如知道接收器型号和固件版本，也可以一并填写。
+      description: 请填写完整品牌与型号；如知道接收器型号（如 8K Dongle）和固件版本，请一并填写。
+      placeholder: 例如：ATK F1 Ultimate 2.0（8K 接收器）
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 几格版本
+      description: 可在「设置」页底部或诊断报告开头查看；如果是测试版，请带上 7 位提交号。
+      placeholder: 例如：0.2.3 或 0.2.3 测试版（abc1234）
     validations:
       required: true
   - type: dropdown
@@ -24,13 +52,26 @@ body:
   - type: textarea
     id: readings
     attributes:
-      label: 几格与官方驱动的读数
-      description: 填写两边的百分比和充电状态，以及是否一致。也可以写明设备未出现、查询报错或官方读数不可用。
+      label: 几格与官方驱动的读数对比
+      description: 写明导出前官方驱动显示的百分比和充电状态，以及几格里的表现（未识别、读数偏差、充电状态不对、休眠/离线异常等）。
+      placeholder: 例如：官方驱动显示 74%、未充电；几格显示「检测到 1 个未识别接收器」。
     validations:
       required: true
   - type: textarea
     id: diagnostics
     attributes:
-      label: 诊断信息
-      description: 在 Windows 运行 Jige.Probe.exe diag，先完整查看报告。愿意公开分享时再粘贴，提交前可再次检查内容。
+      label: 完整的 diagnostics.txt 诊断报告
+      description: |
+        在几格里点「诊断信息…」或「导出诊断信息」，在记事本确认后可点面板里的「复制报告并去反馈」一键复制；也可以运行 `Jige.Probe.exe diag`。请粘贴完整报告，不要只截几行。
       render: text
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: 参考开源项目或 USB 抓包（可选）
+      description: |
+        如果你知道哪个开源项目（例如 HaloBattery、OpenMouse、OpenRazer、Solaar、HeadsetControl 等）或官方网页驱动能读这台设备，请附上链接；如果按 [抓包教程](https://github.com/deepfry666/jige-battery/blob/main/docs/capture-guide.md) 抓了 `.pcapng`，也可以说明或上传。
+      placeholder: 例如：https://github.com/HeyOkay/HaloBattery/...
+    validations:
+      required: false

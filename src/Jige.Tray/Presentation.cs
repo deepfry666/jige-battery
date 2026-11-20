@@ -57,11 +57,18 @@ internal static class Presentation
 {
     public static BatteryTone Tone(DeviceStatus? device, int threshold) => device switch
     {
-        not { Fresh: true, Percentage: { } } => BatteryTone.Idle,
-        { IsFull: true } or { IsCharging: true } => BatteryTone.Charging,
-        { Percentage: { } percent } when percent < threshold => BatteryTone.Low,
-        { Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
-        _ => BatteryTone.Normal
+        { Fresh: true, Percentage: { } } when device.IsFull || device.IsCharging => BatteryTone.Charging,
+        { Fresh: true, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Fresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
+        { Fresh: true, Percentage: { } } => BatteryTone.Normal,
+        // R1 / R3：设备休眠（或刚从休眠唤醒等待刷新）时保留上次读数且图标不变灰，按上次读数着色（不显示充电态）。
+        { Link: LinkState.Asleep, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Link: LinkState.Asleep, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
+        { Link: LinkState.Asleep, Percentage: { } } => BatteryTone.Normal,
+        { Link: LinkState.Online, PendingRefresh: true, Percentage: { } percent } when percent < threshold => BatteryTone.Low,
+        { Link: LinkState.Online, PendingRefresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
+        { Link: LinkState.Online, PendingRefresh: true, Percentage: { } } => BatteryTone.Normal,
+        _ => BatteryTone.Idle
     };
 
     public static IconAppearance Icon(DeviceStatus? device, bool darkTaskbar, int threshold)
@@ -130,7 +137,7 @@ internal static class Presentation
         _ => "每台设备一个图标"
     };
 
-    /// <summary>单设备独立托盘图标的悬停提示（B5 / B6）：带设备名，断开后明确写「已断开 · 上次 xx%」。</summary>
+    /// <summary>单设备独立托盘图标的悬停提示（B5 / B6 / R1）：休眠写「休眠中 · 上次 xx%」，断开写「已断开 · 上次 xx%」。</summary>
     public static string DeviceTooltip(TrayModel model, DeviceStatus device)
     {
         const int limit = 127;
@@ -142,6 +149,9 @@ internal static class Presentation
 
     private static string DeviceTooltipSuffix(DeviceStatus device, int threshold)
     {
+        // R1：休眠状态保留上次读数，悬停明确写「休眠中 · 上次 xx%」。
+        if (device.Link == LinkState.Asleep)
+            return device.Last is not null ? $" · 休眠中 · 上次 {Value(device)}" : " · 休眠中";
         var tone = Tone(device, threshold);
         if (tone == BatteryTone.Idle)
             return device.Last is not null ? $" · 已断开 · 上次 {Value(device)}" : " · 已断开";

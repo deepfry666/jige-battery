@@ -12,6 +12,12 @@ internal static class ReleaseVersion
         typeof(ReleaseVersion).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
             .InformationalVersion.Split('+', 2)[0];
 
+    /// <summary>C2：面向界面展示的版本文本（正式版如「0.2.3」，测试版如「0.2.3 测试版（abc1234）」）。</summary>
+    public static string Display { get; } = FormatDisplay(Current);
+
+    public static bool IsPrerelease =>
+        TryParseInstalled(Current, out _, out bool prerelease, out _) && prerelease;
+
     // 正式通道仅接受语义化版本的三个数字段，拒绝预发行标签与前导零。
     public static bool TryParse(string? value, out Version version)
     {
@@ -24,6 +30,54 @@ internal static class ReleaseVersion
 
         version = new(0, 0, 0);
         return false;
+    }
+
+    /// <summary>
+    /// C2 / C3：解析本机已安装版本，兼容正式版（0.2.3）与带提交号的测试版（0.2.3-beta.abc1234）。
+    /// 返回基础三段版本号以便与 GitHub 正式版比较，确保测试版不会被提示降级到更低的正式版。
+    /// </summary>
+    public static bool TryParseInstalled(string? value, out Version baseVersion, out bool isPrerelease, out string? commitId)
+    {
+        baseVersion = new(0, 0, 0);
+        isPrerelease = false;
+        commitId = null;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
+        string clean = value.Split('+', 2)[0].Trim();
+        int dash = clean.IndexOf('-');
+        if (dash < 0)
+            return TryParse(clean, out baseVersion);
+
+        string core = clean[..dash];
+        string suffix = clean[(dash + 1)..];
+        if (suffix.Length == 0 || !TryParse(core, out baseVersion))
+            return false;
+
+        isPrerelease = true;
+        commitId = ExtractCommitId(suffix);
+        return true;
+    }
+
+    /// <summary>C2：把版本号格式化为人类可读文本，如「0.2.3」或「0.2.3 测试版（abc1234）」。</summary>
+    public static string FormatDisplay(string? value)
+    {
+        if (!TryParseInstalled(value, out var baseVersion, out bool isPrerelease, out var commit))
+            return value?.Split('+', 2)[0] ?? "";
+        if (!isPrerelease)
+            return baseVersion.ToString(3);
+        return commit is { Length: > 0 }
+            ? $"{baseVersion.ToString(3)} 测试版（{commit}）"
+            : $"{baseVersion.ToString(3)} 测试版";
+    }
+
+    private static string? ExtractCommitId(string suffix)
+    {
+        // 支持 "beta.abc1234"、"pre.abc1234"、"abc1234" 等形式，取 7 位短提交号。
+        string token = suffix.Contains('.') ? suffix[(suffix.LastIndexOf('.') + 1)..] : suffix;
+        if (token.Length >= 7 && token.All(Uri.IsHexDigit))
+            return token[..Math.Min(7, token.Length)].ToLowerInvariant();
+        return null;
     }
 }
 
@@ -130,6 +184,8 @@ internal sealed class UpdateFiles(string path)
 
 internal sealed class UpdateClient(HttpClient http)
 {
+    // C3：GitHub REST API 的 /releases/latest 端点按规范仅返回最新正式 Release，自动排除 draft 和 prerelease；
+    // 客户端在 AvailableUpdate.Select 中仍会再次拒绝 draft/prerelease 及非规范三段版本标签，且要求新正式版严格高于当前基础版本。
     public static readonly Uri Latest = new("https://api.github.com/repos/deepfry666/jige-battery/releases/latest");
 
     public static HttpClient CreateHttpClient()

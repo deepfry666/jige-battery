@@ -4,18 +4,15 @@ namespace Jige.Tray;
 
 internal enum AdaptationBadge { Verified, Protocol, Generic }
 
+/// <summary>
+/// 面板与设备页徽标映射（B1 / B2）：
+/// 验证状态数据集中放在核心库的 DeviceCatalog 中，此处不再硬编码设备型号；
+/// 面板徽标仍保持「已实机验证 / 按协议适配 / 通用适配」三种不变。
+/// </summary>
 internal static class DeviceVerification
 {
-    // 用适配器的身份前缀和原始型号判定，用户修改的显示名称不参与匹配。
-    private static readonly (string Prefix, string Model)[] Verified =
-    [
-        ("inzone-h9:", "Sony INZONE H9（一代接收器）"), // 054C:0E53。
-        ("mouse:", "G-Wolves HTX Ultra 8K") // 游狼 HTX Ultra 8K，33E4:5617。
-    ];
-
-    public static bool IsVerified(DeviceIdentity device) => Verified.Any(entry =>
-        device.Id.StartsWith(entry.Prefix, StringComparison.OrdinalIgnoreCase) &&
-        StringComparer.OrdinalIgnoreCase.Equals(entry.Model, device.Name));
+    public static bool IsVerified(DeviceIdentity device) =>
+        DeviceCatalog.GetVerification(device) == VerificationTier.HardwareVerified;
 
     public static AdaptationBadge Badge(DeviceIdentity device) =>
         IsVerified(device) ? AdaptationBadge.Verified :

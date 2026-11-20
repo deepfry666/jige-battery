@@ -8,7 +8,7 @@ internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
     GameSilent, Autostart, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
-    OpenDiagnostics, ToggleOffline, Redetect
+    OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -78,7 +78,8 @@ internal sealed partial class PopupScene : IDisposable
     private string? error;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
-    private bool HasDiagnosticReport => diagnosticStatus is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed;
+    private bool HasDiagnosticReport => diagnosticStatus is DiagnosticStatus.Ready or DiagnosticStatus.EditorFailed
+        or DiagnosticStatus.FeedbackCopied or DiagnosticStatus.FeedbackFailed;
     private int Threshold => model.Settings.LowBatteryThreshold;
     private string? editorId;
     private DeviceStatus[] devices = [];

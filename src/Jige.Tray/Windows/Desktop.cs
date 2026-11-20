@@ -7,9 +7,11 @@ using Windows.Win32;
 using Windows.Win32.Foundation;
 using Windows.Win32.Graphics.Dwm;
 using Windows.Win32.Graphics.Gdi;
+using Windows.Win32.System.Memory;
 using Windows.Win32.System.Threading;
 using Windows.Win32.UI.Controls;
 using Windows.Win32.UI.HiDpi;
+using Windows.Win32.UI.Input.KeyboardAndMouse;
 using Windows.Win32.UI.Shell;
 using Windows.Win32.UI.WindowsAndMessaging;
 
@@ -178,6 +180,61 @@ internal static unsafe class Desktop
     public static void Log(string message) => EventLog.Write(message);
     public static void Log(string message, Exception error) => Log(TrayLog.Describe(message, error));
     public static string RecentLog(int lines) => EventLog.Recent(lines);
+
+    /// <summary>R3：查询系统最后一次键鼠输入时间（毫秒），不安装任何钩子、不读取输入内容。</summary>
+    public static uint? LastInputTick()
+    {
+        var info = new LASTINPUTINFO { cbSize = (uint)sizeof(LASTINPUTINFO) };
+        return PInvoke.GetLastInputInfo(ref info) ? info.dwTime : null;
+    }
+
+    /// <summary>A4：仅在用户点击「复制报告并去反馈」时把文本写入系统剪贴板（CF_UNICODETEXT）。</summary>
+    public static bool SetClipboardText(HWND owner, string text)
+    {
+        if (!PInvoke.OpenClipboard(owner))
+            return false;
+        try
+        {
+            if (!PInvoke.EmptyClipboard())
+                return false;
+            nuint byteCount = (nuint)((text.Length + 1) * sizeof(char));
+            var memory = PInvoke.GlobalAlloc(GLOBAL_ALLOC_FLAGS.GMEM_MOVEABLE, byteCount);
+            if (memory.IsNull)
+                return false;
+            bool transferred = false;
+            try
+            {
+                void* locked = PInvoke.GlobalLock(memory);
+                if (locked == null)
+                    return false;
+                try
+                {
+                    var destination = new Span<char>(locked, text.Length + 1);
+                    text.AsSpan().CopyTo(destination);
+                    destination[text.Length] = '\0';
+                }
+                finally
+                {
+                    PInvoke.GlobalUnlock(memory);
+                }
+
+                const uint cfUnicodeText = 13;
+                if (PInvoke.SetClipboardData(cfUnicodeText, new HANDLE(memory.Value)).IsNull)
+                    return false;
+                transferred = true;
+                return true;
+            }
+            finally
+            {
+                if (!transferred)
+                    PInvoke.GlobalFree(memory);
+            }
+        }
+        finally
+        {
+            PInvoke.CloseClipboard();
+        }
+    }
 
     public static Jige.Core.Diagnostics.DiagnosticProcessMetrics CollectProcessMetrics(DateTimeOffset startedAt)
     {

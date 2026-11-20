@@ -8,9 +8,15 @@ internal sealed class PollSchedule(long createdMs)
 {
     public const int HeartbeatSeconds = 8;
     public const int GameHeartbeatSeconds = 30;
+    /// <summary>R3：键鼠输入触发的休眠设备补心跳冷却时长，最多每 2 秒一次。</summary>
+    public const int InputWakeCooldownMs = 2_000;
+    /// <summary>R3：存在休眠设备时检查 GetLastInputInfo 的轮询步长（仅在非游戏中且有休眠设备时启用）。</summary>
+    public const int InputCheckIntervalMs = 500;
 
     private long? lastPollStartedMs;
     private long? lastHeartbeatStartedMs;
+    private uint? lastObservedInputTick;
+    private long lastInputWakeMs = long.MinValue / 2;
     private bool requested;
     private bool userRequested;
     private bool urgentRescan;
@@ -87,13 +93,96 @@ internal sealed class PollSchedule(long createdMs)
 
     public void Complete() => Running = false;
 
-    public void StartHeartbeat(long nowMs)
+    public void StartHeartbeat(long nowMs, bool inputWake = false)
     {
         HeartbeatRunning = true;
-        lastHeartbeatStartedMs = nowMs;
+        if (inputWake)
+            lastInputWakeMs = nowMs;
+        else
+            lastHeartbeatStartedMs = nowMs;
     }
 
     public void CompleteHeartbeat() => HeartbeatRunning = false;
+
+    /// <summary>记录当前系统最后输入时间戳作为基线，避免设备刚进入休眠就被旧输入误触发。</summary>
+    public void SyncLastInputTick(uint? currentInputTick)
+    {
+        if (currentInputTick is uint tick)
+            lastObservedInputTick = tick;
+    }
+
+    /// <summary>
+    /// R3：用户有新的键鼠输入（GetLastInputInfo 的 dwTime 发生变化）且存在休眠设备时，
+    /// 立即允许补一次心跳（最多每 2 秒一次）；不安装钩子、不记录任何输入内容。
+    /// 游戏中保持 30 秒退避，不对休眠中的副外设按 2 秒高频发包。
+    /// </summary>
+    public bool ShouldWakeHeartbeatOnInput(uint? currentInputTick, long nowMs, bool hasAsleepHeartbeatDevices, bool game = false)
+    {
+        if (currentInputTick is not uint tick)
+            return false;
+        bool inputChanged = lastObservedInputTick is uint previous && previous != tick;
+        lastObservedInputTick = tick;
+        if (!inputChanged || !hasAsleepHeartbeatDevices || game || Running || HeartbeatRunning)
+            return false;
+        return nowMs - lastInputWakeMs >= InputWakeCooldownMs;
+    }
+}
+
+/// <summary>
+/// D3（#22）：DPI、显示器或主题变化防抖与编辑保护。
+/// 1) 过滤与界面外观/工作区无关的 WM_SETTINGCHANGE；
+/// 2) 连续收到多条系统设置变化消息时合并为一次重建；
+/// 3) 行内改名尚未结束时暂缓重建，避免强制提交未完成的别名。
+/// </summary>
+internal sealed class DesktopRefreshDebouncer
+{
+    public const int DebounceMs = 150;
+
+    private long? dueAtMs;
+    private bool pendingReset;
+    private bool deferredForEdit;
+
+    public bool HasPending => dueAtMs.HasValue || deferredForEdit;
+
+    public static bool IsRelevantSettingChange(nuint wParam, string? area)
+    {
+        // SPI_SETNONCLIENTMETRICS(0x2A)、SPI_SETWORKAREA(0x2F)、SPI_SETHIGHCONTRAST(0x43)、SPI_SETCLIENTAREAANIMATION(0x1043)。
+        if (wParam is 0x002A or 0x002F or 0x0043 or 0x1043)
+            return true;
+        if (string.IsNullOrEmpty(area))
+            return wParam == 0;
+        return area.Equals("ImmersiveColorSet", StringComparison.OrdinalIgnoreCase) ||
+               area.Equals("WindowsThemeElement", StringComparison.OrdinalIgnoreCase) ||
+               area.Equals("UserPreferences", StringComparison.OrdinalIgnoreCase);
+    }
+
+    public long Request(long nowMs, bool resetPopup)
+    {
+        pendingReset |= resetPopup;
+        long nextDue = nowMs + DebounceMs;
+        dueAtMs = nextDue;
+        return nextDue;
+    }
+
+    public bool TryConsume(long nowMs, bool isEditing, out bool resetPopup)
+    {
+        resetPopup = false;
+        if (dueAtMs is null && !deferredForEdit)
+            return false;
+        if (dueAtMs is long due && nowMs < due)
+            return false;
+        if (isEditing)
+        {
+            dueAtMs = null;
+            deferredForEdit = true;
+            return false;
+        }
+        dueAtMs = null;
+        deferredForEdit = false;
+        resetPopup = pendingReset;
+        pendingReset = false;
+        return true;
+    }
 }
 
 internal enum ForegroundKind { System, Own, Other }
