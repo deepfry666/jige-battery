@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="232" viewBox="0 0 760 232" role="img" aria-label="Google Chrome 下载拦截两步保留示意图：在下载记录点保留或下载可疑文件，再在确认框点仍然保留">
+  <rect x="0.5" y="0.5" width="759" height="231" rx="12" fill="#0b0c0e" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 左图：下载气泡 / Ctrl+J -->
+  <text x="24" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">① 点右上角下载图标，或按 Ctrl + J</text>
+
+  <rect x="20" y="46" width="344" height="168" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="36" y="70" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="600">近期下载记录</text>
+  <line x1="20" y1="82" x2="364" y2="82" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <rect x="28" y="94" width="328" height="106" rx="8" fill="#1c1e22"/>
+  <rect x="40" y="108" width="26" height="28" rx="4" fill="#25282e" stroke="#ffffff" stroke-opacity="0.12"/>
+  <text x="53" y="126" text-anchor="middle" fill="#a1a6ae" font-family="Segoe UI, sans-serif" font-size="8" font-weight="600">EXE</text>
+  <text x="76" y="118" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">Jige-Setup-x64.exe</text>
+  <text x="76" y="136" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11">已阻止可疑下载 · 不常下载此文件</text>
+
+  <!-- 弱化：删除 -->
+  <rect x="76" y="156" width="60" height="28" rx="14" fill="#25282e" stroke="#ffffff" stroke-opacity="0.1"/>
+  <text x="106" y="174" text-anchor="middle" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">删除</text>
+
+  <!-- 高亮：保留 / 下载可疑文件 -->
+  <rect x="146" y="156" width="154" height="28" rx="14" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="223" y="174" text-anchor="middle" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">保留 / 下载可疑文件</text>
+  <circle cx="300" cy="156" r="9" fill="#5ec4ff"/>
+  <text x="300" y="160" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">1</text>
+
+  <!-- 中间箭头 -->
+  <path d="M372 130h14m0 0-4-4m4 4-4 4" fill="none" stroke="#7d828a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 右图：二次确认 -->
+  <text x="400" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">② 若弹出确认框，点「仍然保留」</text>
+
+  <rect x="396" y="46" width="344" height="168" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="414" y="76" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="13.5" font-weight="600">仍要下载可疑文件？</text>
+  <text x="414" y="101" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">不常下载 Jige-Setup-x64.exe，请确认此文件</text>
+  <text x="414" y="119" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">来自几格官网或 GitHub 官方发布页。</text>
+
+  <!-- 弱化：删除 -->
+  <rect x="536" y="164" width="66" height="30" rx="15" fill="#22252a" stroke="#ffffff" stroke-opacity="0.1"/>
+  <text x="569" y="183" text-anchor="middle" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">删除</text>
+
+  <!-- 高亮：仍然保留 -->
+  <rect x="612" y="164" width="106" height="30" rx="15" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="665" y="183" text-anchor="middle" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12.5" font-weight="600">仍然保留</text>
+  <circle cx="718" cy="164" r="9" fill="#5ec4ff"/>
+  <text x="718" y="168" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">2</text>
+</svg>

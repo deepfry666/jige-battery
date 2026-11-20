@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="260" viewBox="0 0 760 260" role="img" aria-label="Microsoft Edge 下载拦截两步保留示意图：先悬停文件点三个点选保留，再在确认框点显示详细信息和仍然保留">
+  <rect x="0.5" y="0.5" width="759" height="259" rx="12" fill="#0b0c0e" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 左图：下载栏点保留 -->
+  <text x="24" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">① 在右上角下载栏点「保留」</text>
+
+  <rect x="20" y="46" width="344" height="194" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="36" y="70" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="600">下载</text>
+  <line x1="20" y1="82" x2="364" y2="82" stroke="#ffffff" stroke-opacity="0.08"/>
+
+  <!-- 被拦条目 -->
+  <rect x="28" y="90" width="328" height="52" rx="7" fill="#1c1e22"/>
+  <rect x="38" y="102" width="26" height="28" rx="4" fill="#25282e" stroke="#ffffff" stroke-opacity="0.12"/>
+  <text x="51" y="120" text-anchor="middle" fill="#a1a6ae" font-family="Segoe UI, sans-serif" font-size="8" font-weight="600">EXE</text>
+  <text x="74" y="112" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">Jige-Setup-x64.exe</text>
+  <text x="74" y="130" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11">无法安全下载此文件</text>
+
+  <!-- 垃圾桶图标（弱化） -->
+  <path d="M294 111h10m-8 0v9a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-9m-5 0v-2h4v2" fill="none" stroke="#62666e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 高亮：更多操作 ··· -->
+  <rect x="316" y="103" width="32" height="26" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <circle cx="326" cy="116" r="1.5" fill="#f7f8f8"/>
+  <circle cx="332" cy="116" r="1.5" fill="#f7f8f8"/>
+  <circle cx="338" cy="116" r="1.5" fill="#f7f8f8"/>
+  <circle cx="348" cy="103" r="9" fill="#5ec4ff"/>
+  <text x="348" y="107" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">1</text>
+
+  <!-- 展开菜单 -->
+  <rect x="210" y="135" width="142" height="96" rx="8" fill="#1d2025" stroke="#ffffff" stroke-opacity="0.18"/>
+  <text x="224" y="157" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">删除</text>
+  <rect x="216" y="166" width="130" height="28" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="228" y="185" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12.5" font-weight="600">保留</text>
+  <circle cx="346" cy="167" r="9" fill="#5ec4ff"/>
+  <text x="346" y="171" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">2</text>
+  <text x="224" y="216" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">报告此文件为安全</text>
+
+  <!-- 中间连接箭头 -->
+  <path d="M372 143h14m0 0-4-4m4 4-4 4" fill="none" stroke="#7d828a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- 右图：二次确认框 -->
+  <text x="400" y="32" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">② 弹出二次确认后点「仍然保留」</text>
+
+  <rect x="396" y="46" width="344" height="194" rx="10" fill="#151619" stroke="#ffffff" stroke-opacity="0.14"/>
+  <text x="414" y="73" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="13" font-weight="600">确保在打开之前信任 Jige-Setup…</text>
+  <text x="414" y="95" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">Microsoft Defender SmartScreen 无法验证此</text>
+  <text x="414" y="112" fill="#a1a6ae" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">文件，请确认来源可信后再继续保存。</text>
+
+  <!-- 弱化：删除 -->
+  <rect x="414" y="125" width="66" height="28" rx="6" fill="#22252a" stroke="#ffffff" stroke-opacity="0.1"/>
+  <text x="447" y="143" text-anchor="middle" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12">删除</text>
+
+  <!-- 高亮：显示详细信息 -->
+  <rect x="492" y="125" width="126" height="28" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <path d="M504 137l3.5 3.5 3.5-3.5" fill="none" stroke="#f7f8f8" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="518" y="143" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12" font-weight="600">显示详细信息</text>
+  <circle cx="618" cy="125" r="9" fill="#5ec4ff"/>
+  <text x="618" y="129" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">3</text>
+
+  <line x1="414" y1="168" x2="722" y2="168" stroke="#ffffff" stroke-opacity="0.08"/>
+  <text x="414" y="185" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11">展开后点这里：</text>
+
+  <!-- 高亮：仍然保留 -->
+  <rect x="414" y="195" width="94" height="30" rx="6" fill="#132533" stroke="#5ec4ff" stroke-width="1.5"/>
+  <text x="461" y="214" text-anchor="middle" fill="#f7f8f8" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="12.5" font-weight="600">仍然保留</text>
+  <circle cx="508" cy="195" r="9" fill="#5ec4ff"/>
+  <text x="508" y="199" text-anchor="middle" fill="#08090a" font-family="Segoe UI, sans-serif" font-size="10.5" font-weight="700">4</text>
+
+  <text x="528" y="214" fill="#7d828a" font-family="Segoe UI, PingFang SC, Microsoft YaHei UI, Microsoft YaHei, sans-serif" font-size="11.5">报告此应用为安全</text>
+</svg>
