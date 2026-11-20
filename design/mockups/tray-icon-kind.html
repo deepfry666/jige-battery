@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  .grid{display:grid;grid-template-columns:1fr;gap:14px}
+  .opt{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;background:var(--card)}
+  .opt h3{margin:0 0 4px;font-size:15px}
+  .opt p{margin:0 0 10px;font-size:13px;color:var(--muted-foreground);line-height:1.5}
+  .row{display:flex;gap:22px;align-items:flex-end;flex-wrap:wrap}
+  .cell{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+  .lab{font-size:11px;color:var(--muted-foreground)}
+  .bar{display:flex;gap:6px;align-items:center;background:#1c1c1c;border-radius:6px;padding:6px 10px}
+  .bar.light{background:#eef0f3}
+  .zoom{display:flex;gap:10px;background:#1c1c1c;border-radius:6px;padding:8px}
+  svg{display:block}
+  .tag{display:inline-block;font-size:11px;padding:1px 6px;border-radius:4px;background:var(--success-surface, rgba(46,160,67,.15));color:var(--success);margin-left:6px;vertical-align:1px}
+</style></head><body>
+<div class="grid" id="root"></div>
+<script>
+const D={0:["###","#.#","#.#","#.#","###"],2:["###","..#","###","#..","###"],8:["###","#.#","###","#.#","###"],1:[".#.","##.",".#.",".#.","###"]};
+const G={mouse:["##.##","#####","#####",".###."],keyboard:["#######","#.#.#.#","##...##","#######"]};
+function px(bits,x0,y0,s,fill){let o="";bits.forEach((r,y)=>[...r].forEach((c,x)=>{if(c==="#")o+=`<rect x="${x0+x*s}" y="${y0+y*s}" width="${s}" height="${s}" fill="${fill}"/>`}));return o}
+function digits(str,cx,y0,s,fill){const w=str.length*3*s+(str.length-1)*s;let x=Math.round(cx-w/2),o="";for(const ch of str){o+=px(D[ch],x,y0,s,fill);x+=4*s}return o}
+function icon(opt,N,kind,pct,dark){
+  const ink=dark?"#ffffff":"#1b1b1b", low="#f0a020", dim=dark?"#5a5a5a":"#c4c4c4";
+  const col=pct<=20?low:ink, str=String(pct);
+  const big=N>=24?3:2, gs=N>=24?2:1;
+  let b="";
+  if(opt==="A"){ // 上下排：小图标 + 数字
+    const g=G[kind], gw=g[0].length*gs, gh=g.length*gs, dh=5*big;
+    const top=Math.max(0,Math.floor((N-gh-dh-1)/2));
+    b+=px(g,Math.round((N-gw)/2),top,gs,ink);
+    b+=digits(str,N/2,top+gh+1,big,col);
+  } else if(opt==="B"){ // 大图标 + 电量条
+    const s=N>=24?3:2,g=G[kind],gw=g[0].length*s,gh=g.length*s;
+    const gx=Math.round((N-gw)/2), sc=kind==="keyboard"?(N>=24?3:2):s;
+    const kg=G[kind], kw=kg[0].length*sc, kh=kg.length*sc;
+    b+=px(kg,Math.round((N-kw)/2),Math.round((N-3-kh)/2),sc,ink);
+    const bh=N>=24?3:2, y=N-bh, fw=Math.round(N*pct/100);
+    b+=`<rect x="0" y="${y}" width="${N}" height="${bh}" fill="${dim}"/><rect x="0" y="${y}" width="${fw}" height="${bh}" fill="${col}"/>`;
+  } else { // C 数字 + 颜色下划线
+    const dh=5*big, top=Math.floor((N-dh-3)/2);
+    b+=digits(str,N/2,top,big,col);
+    const uc=kind==="mouse"?"#3b8eea":"#3fb950", uh=N>=24?3:2;
+    b+=`<rect x="1" y="${N-uh}" width="${N-2}" height="${uh}" fill="${uc}"/>`;
+  }
+  return b;
+}
+function svg(opt,N,kind,pct,dark,z){return `<svg width="${N*z}" height="${N*z}" viewBox="0 0 ${N} ${N}" shape-rendering="crispEdges">${icon(opt,N,kind,pct,dark)}</svg>`}
+const opts=[
+ ["A","小设备图标 + 数字（上下排）",true,"数字仍是主角，上方加一个很小的鼠标或键盘图形。一眼能看出哪个是鼠标、哪个是键盘，电量也不用悬停。同类设备有两台以上时（比如两只鼠标），悬停提示仍写名字。"],
+ ["B","设备图标 + 底部电量条（HaloBattery 式）",false,"图标画成鼠标、键盘的样子，底部一条电量条，具体数字要悬停才能看到。设备种类最清楚，但失去了几格「一眼看数字」的特点。"],
+ ["C","数字 + 彩色下划线",false,"数字保持现在这么大，底部加一条每台设备专属的颜色线，颜色在设置里可以改。数字最大最清楚，但要先记住哪个颜色对应哪台设备。"]
+];
+const root=document.getElementById("root");
+for(const [k,t,rec,desc] of opts){
+  const el=document.createElement("div");el.className="opt";
+  let h=`<h3>方案 ${k}　${t}${rec?'<span class="tag">推荐</span>':''}</h3><p>${desc}</p><div class="row">`;
+  for(const [N,lab] of [[16,"100% 缩放（16px）"],[24,"150% 缩放（24px）"]]){
+    h+=`<div class="cell"><span class="lab">实际大小 · ${lab}</span><div class="bar">${svg(k,N,"mouse",20,true,1)}${svg(k,N,"keyboard",80,true,1)}</div><div class="bar light">${svg(k,N,"mouse",20,false,1)}${svg(k,N,"keyboard",80,false,1)}</div></div>`;
+  }
+  h+=`<div class="cell"><span class="lab">放大 6 倍（16px / 24px）</span><div class="zoom">${svg(k,16,"mouse",20,true,6)}${svg(k,16,"keyboard",80,true,6)}${svg(k,24,"mouse",20,true,4)}${svg(k,24,"keyboard",80,true,4)}</div></div>`;
+  h+=`</div>`;el.innerHTML=h;root.appendChild(el);
+}
+</script></body></html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+.wrap{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:560px){.wrap{grid-template-columns:1fr}}
+.stage{border-radius:var(--radius);padding:18px 16px 0;display:flex;flex-direction:column;align-items:flex-end;gap:10px;overflow:hidden}
+.light{background:linear-gradient(160deg,#cfd9e6,#e9eef4);
+  --ink:#1b1b1b;--ink2:#5e5e5e;--ink3:#707070;--fly:rgba(249,249,249,.92);--stroke:rgba(0,0,0,.10);--chip:#ececec;--cell:#e1e1e1;
+  --accent:#005fb8;--soft:rgba(0,95,184,.12);--warn:#9d5d00;--low:#c42b1c;--charge:#0f7b0f;--tb:#eef0f3}
+.dark{background:linear-gradient(160deg,#1d2a3c,#0f1620);
+  --ink:#f3f3f3;--ink2:#c5c5c5;--ink3:#9a9a9a;--fly:rgba(44,44,44,.94);--stroke:rgba(255,255,255,.09);--chip:#3a3a3a;--cell:#4a4a4a;
+  --accent:#60cdff;--soft:rgba(96,205,255,.14);--warn:#fce100;--low:#ff99a4;--charge:#6ccb5f;--tb:#1c1c1c}
+.cap{align-self:flex-start;font-size:12px;color:var(--ink3);margin-bottom:-2px}
+.card{width:248px;background:var(--fly);color:var(--ink);border:1px solid var(--stroke);border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.22),0 1px 3px rgba(0,0,0,.12);padding:12px 14px 12px;font-family:"Segoe UI Variable","Segoe UI",var(--font-sans);backdrop-filter:blur(20px)}
+.top{display:flex;align-items:center;gap:10px}
+.ico{width:32px;height:32px;border-radius:7px;background:var(--soft);color:var(--accent);display:grid;place-items:center;flex:none}
+.name{font-size:13.5px;font-weight:600;line-height:18px}
+.sub{font-size:11.5px;color:var(--ink3);display:flex;gap:6px;align-items:center}
+.tag{font-size:10.5px;line-height:15px;padding:0 5px;border-radius:4px;background:var(--chip);color:var(--ink2);font-weight:600}
+.mid{display:flex;align-items:center;gap:12px;margin-top:10px}
+.big{font-size:30px;font-weight:600;line-height:30px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;min-width:62px}
+.big small{font-size:14px;font-weight:600;margin-left:1px}
+.cells{display:flex;gap:3px;flex:1}
+.cells i{flex:1;height:14px;border-radius:2.5px;background:var(--cell)}
+.st{margin-top:8px;font-size:11.5px;color:var(--ink2);display:flex;align-items:center;gap:6px}
+.dot{width:6px;height:6px;border-radius:50%}
+.row{display:flex;align-items:center;gap:9px;padding:6px 0}
+.row+.row{border-top:1px solid var(--stroke)}
+.row .ico{width:24px;height:24px;border-radius:6px}
+.row .n{font-size:12.5px;flex:1;line-height:16px}
+.row .n span{display:block;font-size:11px;color:var(--ink3)}
+.mini{display:flex;gap:2px;width:46px}.mini i{flex:1;height:9px;border-radius:1.5px;background:var(--cell)}
+.pct{font-size:13px;font-weight:600;width:38px;text-align:right;font-variant-numeric:tabular-nums}
+.tb{align-self:stretch;height:34px;background:var(--tb);margin:0 -16px;display:flex;justify-content:flex-end;align-items:center;gap:8px;padding-right:70px}
+.tray{font:700 12px/1 "Segoe UI";color:var(--ink);padding:3px 4px;border-radius:4px}
+.tray.on{background:var(--chip)}
+.title{font-size:11px;color:var(--ink3);margin-bottom:2px;font-weight:600}
+</style></head><body>
+<div class="wrap" id="w"></div>
+<script>
+const mouse='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="1.5" width="8" height="13" rx="4"/><path d="M8 1.5v4.5"/></svg>';
+const kb='<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="1" y="4" width="14" height="8.5" rx="1.8"/><path d="M4 7h.01M6.5 7h.01M9 7h.01M11.5 7h.01M5 10h6" stroke-linecap="round"/></svg>';
+function cells(p,c,n=10,cls="cells"){let h=`<div class="${cls}">`;const f=Math.round(p*n/100);for(let i=0;i<n;i++)h+=`<i style="${i<f?`background:${c}`:''}"></i>`;return h+'</div>'}
+function single(theme){
+  return `<div class="card">
+   <div class="top"><div class="ico">${mouse}</div><div><div class="name">MX Anywhere 3S</div><div class="sub"><span class="tag">2.4G</span>罗技 Bolt 接收器</div></div></div>
+   <div class="mid"><div class="big" style="color:var(--warn)">20<small>%</small></div>${cells(20,'var(--warn)')}</div>
+   <div class="st"><span class="dot" style="background:var(--warn)"></span>电量偏低 · 休眠中 · 2 分钟前读取</div></div>`;
+}
+function list(){
+  return `<div class="card"><div class="title">几格 · 2 台设备</div>
+   <div class="row"><div class="ico">${mouse}</div><div class="n">MX Anywhere 3S<span>休眠中</span></div>${cells(20,'var(--warn)',5,'mini')}<div class="pct" style="color:var(--warn)">20%</div></div>
+   <div class="row"><div class="ico">${kb}</div><div class="n">MX Keys S<span>在线 · 2.4G</span></div>${cells(80,'var(--ink)',5,'mini')}<div class="pct">80%</div></div></div>`;
+}
+const w=document.getElementById('w');
+for(const t of ['light','dark']){
+  const s=document.createElement('div');s.className='stage '+t;
+  s.innerHTML=`<div class="cap">${t==='light'?'浅色':'深色'} · 自定义模式（每台设备一个图标）</div>${single(t)}
+  <div class="cap">${t==='light'?'浅色':'深色'} · 只显示电量最低的一台（悬停列出所有在用设备）</div>${list()}
+  <div class="tb"><span class="tray on">20</span><span class="tray">80</span></div>`;
+  w.appendChild(s);
+}
+</script></body></html>
