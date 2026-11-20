@@ -61,3 +61,14 @@
 
 - 本地分支加 commit，不 push、不打 tag。
 - 交付说明逐条写清 T1–T5、H1–H8 做了什么、没做什么及原因，并给出代码位置；写明测试数量；列出 Windows 实机确认清单。公司电脑：MX Anywhere 3S、MX Keys S 经 Bolt 连接。
+
+## 验收结果（2026-11-20，Claude）
+
+结论：**通过**，已合并到 main，未打 tag。
+
+- G1：独立复核构建零警告；300 项测试全部通过（核心库 143、托盘 157，基线 288）。
+- G3：核心库只在 `DeviceIdentity` 上新增了显示用的来源标签，没有新增任何设备命令。
+- H1：`HandleTray` 按 `NOTIFYICON_VERSION_4` 的格式解析 `lParam`，低字是事件，高字是图标 ID；处理 `0x0406` / `0x0407` 时按图标 ID 关闭对应卡片；左键仍只认 `NIN_SELECT`，避免 0.1.0 那种面板一打开就被关掉的问题再次出现。
+- H2 / G4：卡片窗口带 `NOACTIVATE`、`TOOLWINDOW`、`TOPMOST`、`TRANSPARENT` 样式，不会抢焦点；全屏独占游戏期间不显示，主面板、右键菜单或更新弹窗打开时也不显示。
+
+以下未在实机上验证：16px 图形能否一眼分辨；Windows 是否会如期发送 `NIN_POPUPOPEN`；卡片的位置、Acrylic 效果和淡入淡出；反复悬停后有没有资源泄漏。
