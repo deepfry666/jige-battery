@@ -164,8 +164,8 @@ begin
   end;
   if (Dir = '') or not DirExists(Dir) then
     Exit;
-  Probe := AddBackslash(Dir) + '.jige-install-test-' + GetDateTimeString('yyyymmddhhnnss', '', '') + '.tmp';
-  if SaveStringToFile(Probe, AnsiString(''), False) then
+  Probe := AddBackslash(Dir) + '.jige-install-test-' + GetDateTimeString('yyyymmddhhnnss', '-', '-') + '.tmp';
+  if SaveStringToFile(Probe, '', False) then
   begin
     DeleteFile(Probe);
     Result := True;
