@@ -13,6 +13,7 @@
 #define DataDir "{localappdata}\Jige"
 #define RunKey "Software\Microsoft\Windows\CurrentVersion\Run"
 #define RunName "Jige Battery"
+#define UninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{DD33BE43-6D23-45E0-936F-9B6B067067E8}_is1"
 
 [Setup]
 AppId={{DD33BE43-6D23-45E0-936F-9B6B067067E8}
@@ -39,7 +40,7 @@ RestartApplications=no
 UninstallDisplayIcon={app}\Jige.exe
 ; 旧卸载日志里有强制删除数据目录的规则。安装项沿用原路径，重新生成卸载日志。
 UninstallLogMode=overwrite
-UsePreviousTasks=yes
+UsePreviousTasks=no
 SetupIconFile=..\assets\jige.ico
 #if Ver >= EncodeVer(6, 6, 0)
 WizardStyle=modern dynamic windows11
@@ -76,7 +77,7 @@ ClickFinish=点击「完成」关闭安装程序。
 BeveledLabel=几格 · 无线外设电量托盘
 
 [Tasks]
-Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："
+Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "快捷方式："; Check: ShouldOfferDesktopIcon
 Name: "autostart"; Description: "开机时启动几格"; GroupDescription: "启动选项："; Check: NeedsInitialConfig
 
 [Files]
@@ -85,7 +86,8 @@ Source: "..\artifacts\tray-win-x64\LICENSE"; DestDir: "{app}"; Flags: ignorevers
 
 [Icons]
 Name: "{autoprograms}\几格"; Filename: "{app}\Jige.exe"; WorkingDir: "{app}"; Comment: "无线外设电量托盘工具"
-Name: "{autodesktop}\几格"; Filename: "{app}\Jige.exe"; WorkingDir: "{app}"; Comment: "无线外设电量托盘工具"; Tasks: desktopicon
+Name: "{autodesktop}\几格"; Filename: "{app}\Jige.exe"; WorkingDir: "{app}"; Comment: "无线外设电量托盘工具"; Tasks: desktopicon; Check: ShouldOfferDesktopIcon
+Name: "{autodesktop}\几格"; Filename: "{app}\Jige.exe"; WorkingDir: "{app}"; Comment: "无线外设电量托盘工具"; Check: ShouldUpdateExistingDesktopIcon
 
 [Registry]
 Root: HKCU; Subkey: "{#RunKey}"; ValueType: none; ValueName: "{#RunName}"; Flags: uninsdeletevalue
@@ -96,6 +98,8 @@ Filename: "{app}\Jige.exe"; Parameters: "--after-setup"; WorkingDir: "{app}"; Fl
 Filename: "{app}\Jige.exe"; Parameters: "--after-setup"; WorkingDir: "{app}"; Description: "立即启动几格"; Flags: nowait postinstall skipifsilent
 
 [UninstallDelete]
+; 覆盖更新不再重建桌面快捷方式，而 UninstallLogMode=overwrite 会重置卸载日志，因此显式登记清理项。
+Type: files; Name: "{autodesktop}\几格.lnk"
 Type: dirifempty; Name: "{app}"
 
 [Code]
@@ -107,6 +111,8 @@ function CloseHandle(Handle: THandle): Boolean;
 var
   OperationGate: THandle;
   InitialConfig: Boolean;
+  IsUpgrade: Boolean;
+  PreviousInstallDir: String;
 
 // 同一个互斥量串行化安装与卸载，并阻止托盘在文件替换期间从快捷方式或自启启动。
 function BeginOperation: Boolean;
@@ -179,12 +185,44 @@ begin
   begin
     CloseTray;
     InitialConfig := not FileExists(ExpandConstant('{#DataDir}\config.json'));
+    IsUpgrade := RegKeyExists(HKCU, '{#UninstallKey}');
+    PreviousInstallDir := '';
+    if IsUpgrade then
+    begin
+      if not RegQueryStringValue(HKCU, '{#UninstallKey}', 'InstallLocation', PreviousInstallDir) or
+        (Trim(PreviousInstallDir) = '') then
+      begin
+        PreviousInstallDir := '';
+        RegQueryStringValue(HKCU, '{#UninstallKey}', 'Inno Setup: App Path', PreviousInstallDir);
+      end;
+    end;
   end;
 end;
 
 function NeedsInitialConfig: Boolean;
 begin
   Result := InitialConfig;
+end;
+
+function ShouldOfferDesktopIcon: Boolean;
+begin
+  Result := not IsUpgrade;
+end;
+
+function ShouldUpdateExistingDesktopIcon: Boolean;
+var
+  CurrentDir, OldDir: String;
+begin
+  Result := False;
+  if not IsUpgrade then
+    Exit;
+  OldDir := RemoveBackslashUnlessRoot(Trim(PreviousInstallDir));
+  if OldDir = '' then
+    Exit;
+  CurrentDir := RemoveBackslashUnlessRoot(Trim(ExpandConstant('{app}')));
+  if CompareText(CurrentDir, OldDir) = 0 then
+    Exit;
+  Result := FileExists(ExpandConstant('{autodesktop}\几格.lnk'));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
