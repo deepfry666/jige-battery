@@ -240,6 +240,19 @@ public sealed class TrayV029Tests
         }
     }
 
+    [Fact]
+    public void IconPixelsAreHandedToWindowsWithStraightAlpha()
+    {
+        var dim = new Color(0xffffff, 71);
+        Span<uint> pixels = [0u, 0xffffffffu, dim.Premultiplied, 0xffff99a4u];
+        PixelTrayIcon.ToStraightAlpha(pixels);
+
+        Assert.Equal(0u, pixels[0]);
+        Assert.Equal(0xffffffffu, pixels[1]);
+        Assert.Equal((71u << 24) | 0xffffffu, pixels[2]);
+        Assert.Equal(0xffff99a4u, pixels[3]);
+    }
+
     private static DeviceStatus Device(DeviceKind kind, int percent, ChargingState charging = ChargingState.NotCharging)
     {
         var identity = new DeviceIdentity($"dev:{kind}", "测试设备", kind);

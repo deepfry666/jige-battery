@@ -231,6 +231,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
 
             if (pixels.IndexOfAnyExcept(0u) < 0)
                 throw new InvalidOperationException("托盘图标为空");
+            PixelTrayIcon.ToStraightAlpha(pixels);
 
             int stride = ((size + 15) / 16) * 2;
             Span<byte> maskBits = stackalloc byte[stride * size];

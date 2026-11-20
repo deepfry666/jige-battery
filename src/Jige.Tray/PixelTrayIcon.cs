@@ -73,6 +73,23 @@ internal static class PixelTrayIcon
         "..XXXXXXXXXX.."
     ];
 
+    // 绘制阶段（像素版和 Direct2D）都产出预乘 alpha，而 CreateIconIndirect 要的是未预乘的 alpha。
+    // 不转换的话，半透明像素会被 Windows 再乘一次 alpha：28% 的暗色实际只剩约 8%，在任务栏上几乎看不见。
+    public static void ToStraightAlpha(Span<uint> pixels)
+    {
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            uint pixel = pixels[i];
+            uint alpha = pixel >> 24;
+            if (alpha is 0 or 255)
+                continue;
+            uint red = Math.Min(255u, (((pixel >> 16) & 255) * 255 + alpha / 2) / alpha);
+            uint green = Math.Min(255u, (((pixel >> 8) & 255) * 255 + alpha / 2) / alpha);
+            uint blue = Math.Min(255u, ((pixel & 255) * 255 + alpha / 2) / alpha);
+            pixels[i] = (alpha << 24) | (red << 16) | (green << 8) | blue;
+        }
+    }
+
     public static void Draw(Span<uint> pixels, IconAppearance icon)
     {
         if (icon.Kind is not { } kind)
