@@ -71,8 +71,8 @@ public static class DiagnosticReport
         DeviceInventory inventory;
         try
         {
-            // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合；不打开任何报告通道。
-            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken, includeBluetooth: true).ConfigureAwait(false);
+            // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合与声明报告 ID；不打开任何报告通道。
+            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken, includeBluetooth: true, includeReportIds: true).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -215,8 +215,98 @@ public static class DiagnosticReport
                 $"蓝牙电量来源|B{++bluetoothIndex}|{reading.Device.Kind}|{DiagnosticPrivacy.Product(reading.Device.Name, salt)}|电量={reading.Percentage?.ToString(CultureInfo.InvariantCulture) ?? "-"}%|{reading.Link}|{reading.ProtocolSummary ?? "蓝牙 HID++；未取得协议回复"}"));
         }
 
+        AppendAdaptationSummary(report, inventory, hid, ids, receivers, devices);
         AppendContextSections(report, context);
         return report.ToString();
+    }
+
+    private static void AppendAdaptationSummary(
+        StringBuilder report, DeviceInventory inventory, HidInterface[] relevantHids,
+        Dictionary<ReceiverEndpoint, string> ids, Dictionary<string, string> receivers, DetectedDevice[] detected)
+    {
+        if (relevantHids.Length == 0)
+            return;
+
+        var matchedReceivers = detected
+            .Select(item => item.Target.Endpoint.ReceiverId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        report.AppendLine();
+        report.AppendLine("# 适配线索摘要（仅硬件公开描述，无个人或设备唯一标识）");
+        foreach (var group in relevantHids.GroupBy(item => item.ReceiverId, StringComparer.OrdinalIgnoreCase))
+        {
+            var primary = group.First();
+            string rxAlias = receivers.TryGetValue(group.Key, out var alias) ? alias : "-";
+            string vidPid = FormattableString.Invariant($"{primary.VendorId:X4}:{primary.ProductId:X4}");
+            string vendor = DiagnosticPrivacy.KnownVendorName(primary.VendorId);
+            string firmware = primary.FirmwareVersion is ushort fw ? FormattableString.Invariant($"{fw:X4}") : "-";
+            string bus = group.Any(item => item.BluetoothHid) ? "蓝牙HID" : "USB";
+            string roles = DescribeReceiverRoles(inventory.Hid, group.Key);
+            string status = DescribeAdaptationStatus(group, matchedReceivers.Contains(group.Key));
+
+            report.AppendLine(FormattableString.Invariant(
+                $"适配线索|{rxAlias}|{vidPid}|厂商={vendor}|固件={firmware}|连接={bus}|角色={roles}|状态={status}"));
+
+            foreach (var endpoint in group)
+            {
+                if (endpoint.InputReportIds is null && endpoint.OutputReportIds is null && endpoint.FeatureReportIds is null)
+                    continue;
+                if (!ids.TryGetValue(endpoint, out string? hidAlias))
+                    continue;
+                report.AppendLine(FormattableString.Invariant(
+                    $"报告ID|{hidAlias}|{endpoint.UsagePage:X4}:{endpoint.Usage:X4}|in={endpoint.InputReportIds ?? "-"}|out={endpoint.OutputReportIds ?? "-"}|feat={endpoint.FeatureReportIds ?? "-"}"));
+            }
+        }
+    }
+
+    private static string DescribeReceiverRoles(IReadOnlyList<HidInterface> allHids, string receiverId)
+    {
+        List<string> roles = [];
+        void AddRole(string label)
+        {
+            if (!roles.Contains(label, StringComparer.Ordinal))
+                roles.Add(label);
+        }
+
+        foreach (var item in allHids)
+        {
+            if (!StringComparer.OrdinalIgnoreCase.Equals(item.ReceiverId, receiverId))
+                continue;
+            switch ((item.UsagePage, item.Usage))
+            {
+                case (0x0001, 0x0002):
+                    AddRole("鼠标");
+                    break;
+                case (0x0001, 0x0006 or 0x0007):
+                    AddRole("键盘");
+                    break;
+                case (0x0001, 0x0004 or 0x0005):
+                    AddRole("手柄");
+                    break;
+                case (0x000C, _):
+                    AddRole("媒体控制");
+                    break;
+                case (0x000B, _):
+                    AddRole("通话耳机");
+                    break;
+            }
+        }
+        return roles.Count == 0 ? "仅厂商集合" : string.Join('+', roles);
+    }
+
+    private static string DescribeAdaptationStatus(IGrouping<string, HidInterface> group, bool matched)
+    {
+        if (matched)
+            return "已匹配适配器";
+        foreach (var item in group)
+        {
+            if (DeviceCatalog.IsDisabledPath(item, out var disabled))
+                return $"暂未启用（{disabled!.Reason}）";
+        }
+        var sample = group.First();
+        if (AdapterRegistry.IsKnownHidReceiver(sample.VendorId, sample.ProductId))
+            return "已知厂商但未命中协议描述符";
+        return "未适配厂商";
     }
 
     private static void WriteCollectionSummary(
@@ -347,6 +437,7 @@ public static class DiagnosticReport
         var safeSerial = DiagnosticPrivacy.SerialReplies(serialData);
         Array.Clear(serialData);
         int offset = 0;
+        HashSet<string> emittedSummaries = [];
         foreach (var item in transfers)
         {
             var safe = item.Data;
@@ -366,6 +457,8 @@ public static class DiagnosticReport
             string hex = safe.Length == 0 ? "-" : Convert.ToHexString(safe);
             report.AppendLine(FormattableString.Invariant(
                 $"OP|{id}|{item.Operation}|{item.Milliseconds}|{item.Issue}|{code}|{argument}|{hex}|{(masked ? 1 : 0)}"));
+            if (item.ReplySummary is { } summary && emittedSummaries.Add($"{id}|{summary}"))
+                report.AppendLine($"回复特征|{id}|{summary}");
         }
     }
 

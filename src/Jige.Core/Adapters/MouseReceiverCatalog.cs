@@ -3,7 +3,7 @@ namespace Jige.Core.Adapters;
 internal enum MouseFamily { CompxOut, CompxFeature, BitMouse, XviOld, XviNew, Unknown }
 internal enum MouseEvidence { MultipleSources, SingleSource, Unverified }
 internal enum MouseChannel { OutputInput, FeatureInput, Feature }
-internal enum BitMouseReply { WithoutChecksum, WithChecksum }
+internal enum BitMouseReply { WithoutChecksum, WithChecksum, Auto }
 
 internal sealed record MouseProtocolShape(ushort UsagePage, ushort? Usage, ushort Length, byte ReportId, MouseChannel Channel)
 {
@@ -70,11 +70,11 @@ internal static class MouseReceiverCatalog
         new("ATK U2 Ultimate", Atk, null, MouseFamily.CompxOut, MouseEvidence.Unverified),
         new("ATK U2 Mini", Atk, null, MouseFamily.CompxOut, MouseEvidence.Unverified),
         new("ATK ZERO", Atk, 0x1155, MouseFamily.BitMouse, MouseEvidence.MultipleSources, true),
-        new("ATK NK NANO 接收器（A9 Plus NK / A9 3.0 NK 候选）", Atk, 0x1216,
-            MouseFamily.BitMouse, MouseEvidence.SingleSource, false, BitMouseReply.WithChecksum),
-        new("ATK A9 Plus NK 接收器（星闪）", Atk, 0x10C9, MouseFamily.CompxOut, MouseEvidence.SingleSource),
-        new("ATK A9 Pro Max 2.0 NK", Atk, 0x11DC, MouseFamily.BitMouse, MouseEvidence.Unverified),
-        new("ATK A9 Pro Max 2.0 NK（另一候选）", Atk, 0x11DB, MouseFamily.BitMouse, MouseEvidence.Unverified),
+        new("ATK NK NANO 接收器", Atk, 0x1216,
+            MouseFamily.BitMouse, MouseEvidence.SingleSource, true, BitMouseReply.Auto),
+        new("ATK A9 Plus NK 接收器（星闪）", Atk, 0x10C9, MouseFamily.CompxOut, MouseEvidence.SingleSource, true, ResolveModelByCidMid: true),
+        new("ATK A9 Pro Max 2.0 NK", Atk, 0x11DC, MouseFamily.BitMouse, MouseEvidence.SingleSource, true, BitMouseReply.Auto),
+        new("ATK A9 Pro Max 2.0 NK（另一候选）", Atk, 0x11DB, MouseFamily.BitMouse, MouseEvidence.SingleSource, true, BitMouseReply.Auto),
         new("ATK A9 Ultimate+", Atk, null, MouseFamily.BitMouse, MouseEvidence.Unverified),
         new("ATK X1 V2 Ultimate 2.0+", Atk, null, MouseFamily.BitMouse, MouseEvidence.Unverified),
         new("ATK F1 V3 Ultimate+", Atk, null, MouseFamily.BitMouse, MouseEvidence.Unverified),
@@ -169,7 +169,7 @@ internal static class MouseReceiverCatalog
             MouseFamily.CompxOut => new(DefaultAtkModel, Atk, hid.ProductId, MouseFamily.CompxOut,
                 MouseEvidence.SingleSource, Enabled: true, ResolveModelByCidMid: true, IsGeneric: true),
             MouseFamily.BitMouse => new(DefaultAtkModel, Atk, hid.ProductId, MouseFamily.BitMouse,
-                MouseEvidence.SingleSource, Enabled: true, IsGeneric: true),
+                MouseEvidence.SingleSource, Enabled: true, BitReply: BitMouseReply.Auto, IsGeneric: true),
             _ => null
         };
     }

@@ -47,6 +47,9 @@
 | ATK 鼠标（8K 共用接收器，支持 CID/MID 识别如 F1 Ultimate 2.0） | `373B:11D9` | Compx-OUT | 仅按资料 | OpenMouse / atk-control / HaloBattery（MIT） |
 | ATK 鼠标（共用接收器） | `373B:1278` | Compx-OUT | 仅按资料 | OpenMouse / atk-control |
 | ATK ZERO | `373B:1155` | BitMouse（`FF05:0001` 64/64） | 仅按资料 | OpenMouse / atkctl |
+| ATK NK NANO 接收器（A9 Plus NK / A9 3.0 NK） | `373B:1216` | BitMouse（`FF05:0001` 64/64，兼容带/不带前置校验） | 仅按资料 | atkctl `docs/PROTOCOL.md` |
+| ATK A9 Plus NK 接收器（星闪） | `373B:10C9` | Compx-OUT（`FF02:0002` 17/17） | 仅按资料 | OpenMouse `captures/atk-a9-plus-nk` |
+| ATK A9 Pro Max 2.0 NK | `373B:11DC` / `373B:11DB` | BitMouse（`FF05:0001` 64/64） | 仅按资料 | `research/device-catalog.md` |
 | 未收录的 `373B` 接收器（通用适配） | `373B:*` | Compx-OUT / BitMouse（三道安全门） | 仅按资料 | 接口特征唯一匹配时尝试 |
 
 ### 游狼 G-Wolves XVI-OLD
@@ -164,12 +167,14 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | --- | --- | --- | --- | --- |
 | Razer BlackShark V2 Pro (2020) | `1532:0528` | Razer BlackShark 64B Feature（Report ID `FF`） | 仅按资料 | OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT） |
 | Razer BlackShark V2 HyperSpeed | `1532:0565` | Razer BlackShark 64B | 仅按资料 | OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT） |
+| Razer BlackShark V3 | `1532:057A` | Razer BlackShark V3 64B（纯只读 `21/2A`，无高频心跳） | 仅按资料 | HaloBattery #292（MIT）/ OpenRazer PR 2794 |
+| Razer BlackShark V3 Pro | `1532:0577` | Razer BlackShark V3 64B（纯只读 `21/2A`，无高频心跳） | 仅按资料 | OpenRazer #2838 |
 
 ---
 
 ## 四、已识别但暂未启用的路径（路径开关）
 
-以下路径因证据不足、存在协议冲突或违背只读原则，登记在 `DeviceCatalog.DisabledPaths` 中。几格会在**打开设备句柄之前**直接跳过这些路径，不向设备发送任何字节，并在诊断报告里标明「已识别，暂未启用：原因」：
+以下路径因违背只读原则、存在协议冲突或尚缺接口特征，登记在 `DeviceCatalog.DisabledPaths` 中。几格会在**打开设备句柄之前**直接跳过这些路径，不向设备发送任何字节，并在诊断报告里标明「已识别，暂未启用：原因」：
 
 | 设备 | 接收器 VID:PID | 协议家族 | 暂未启用原因 | 出处 |
 | --- | --- | --- | --- | --- |
@@ -179,12 +184,7 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | Razer Barracuda X 2022 | `1532:0536` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery `providers/blackshark.py`（MIT） |
 | Razer Barracuda X 2022（Macronix / Airoha RACE） | `1532:0552` | Razer Airoha RACE | 查询序列需切换应用模式与远程模式，违背只读原则 | HaloBattery `providers/barracuda_x.py`（MIT） |
 | Razer BlackShark V2 Pro (2020) 充电线 | `1532:052E` | Razer BlackShark 64B Feature | 充电线不提供独立电量读取，请保持无线接收器 `1532:0528` 插入 | HaloBattery `providers/blackshark2020.py`（MIT） |
-| Razer BlackShark V3 | `1532:057A` | Razer BlackShark V3 64B | 冷启动会话未证实可只读建立，且高频查询有重置无线链路风险 | HaloBattery #292（MIT） |
-| Razer BlackShark V3 Pro | `1532:0577` | Razer BlackShark V3 64B | 冷启动会话未证实可只读建立，回复格式与不同固件变体待核实 | OpenRazer #2838 |
 | ATK A9 Ultra | `373B:111A` | Compx-FEAT | `FF04` 接口的精确 Usage 未经实机核实，独立电量抓包待补 | atkctl `docs/PROTOCOL.md` |
-| ATK NK NANO 接收器（A9 Plus NK / A9 3.0 NK 候选） | `373B:1216` | BitMouse（前置校验） | 带前置校验位布局与星闪接收器路由未经实机核实 | atkctl `ProtocolTests.swift` |
-| ATK A9 Plus NK 接收器（星闪） | `373B:10C9` | Compx-OUT 候选 | 星闪接收器协议家族与接口特征未经实机核实 | `research/device-catalog.md` |
-| ATK A9 Pro Max 2.0 NK 候选 | `373B:11DC`、`373B:11DB` | BitMouse 候选 | PID 与协议通道未经实机核实 | `research/device-catalog.md` |
 | G-Wolves Receiver RS | `33E4:3854` | Compx-OUT / XVI-NEW 候选 | 精确 Usage 与校验式未核实，且存在 Compx 与 XVI-NEW 候选冲突 | `gwolves-battery-overlay` |
 | G-Wolves Fenrir Asym 8K | `33E4:3517` | XVI-OLD / XVI-NEW 冲突 | 社区存在 XVI-OLD 与 XVI-NEW 两代协议冲突记录，待实机抓包确认 | `mouse.xyz` / OpenMouse |
 | Logitech G PRO X 3 LIGHTSPEED | `046D:0B45` | Logitech Centurion | 当前版本保持关闭，待单独复核 | 0.2.4 验收标准 |

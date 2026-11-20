@@ -110,13 +110,38 @@ internal static class MouseBatteryProtocol
         return true;
     }
 
-    public static bool TryBitMouse(ReadOnlySpan<byte> frame, BitMouseReply layout, bool charging, out byte value)
+    public static bool TryBitMouse(ReadOnlySpan<byte> frame, BitMouseReply layout, bool charging, out byte value) =>
+        TryBitMouseLayout(frame, layout, charging, out value, out _);
+
+    public static bool TryBitMouseLayout(
+        ReadOnlySpan<byte> frame, BitMouseReply layout, bool charging, out byte value, out bool hasChecksum)
+    {
+        if (layout == BitMouseReply.Auto)
+        {
+            if (TryBitMouseStrict(frame, true, charging, out value))
+            {
+                hasChecksum = true;
+                return true;
+            }
+            if (TryBitMouseStrict(frame, false, charging, out value))
+            {
+                hasChecksum = false;
+                return true;
+            }
+            hasChecksum = false;
+            return false;
+        }
+        hasChecksum = layout == BitMouseReply.WithChecksum;
+        return TryBitMouseStrict(frame, hasChecksum, charging, out value);
+    }
+
+    private static bool TryBitMouseStrict(ReadOnlySpan<byte> frame, bool withChecksum, bool charging, out byte value)
     {
         value = 0;
         if (frame.Length != 64 || frame[0] != 8)
             return false;
-        int start = layout == BitMouseReply.WithChecksum ? 2 : 1;
-        if (start == 2 && frame[1] != BitMouseChecksum(frame[2..]))
+        int start = withChecksum ? 2 : 1;
+        if (withChecksum && frame[1] != BitMouseChecksum(frame[2..]))
             return false;
         int length = frame[start + 5];
         // 实机可能报告 3A/3B 序列和目标 0。匹配命令并排除拒绝及主动推送。

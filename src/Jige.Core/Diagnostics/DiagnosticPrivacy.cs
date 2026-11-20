@@ -95,12 +95,12 @@ public static partial class DiagnosticPrivacy
                 CopyCompx(raw, result);
                 break;
             case MouseFamily.BitMouse:
-                if (MouseBatteryProtocol.TryBitMouse(raw, route.BitReply, false, out _) ||
-                    MouseBatteryProtocol.TryBitMouse(raw, route.BitReply, true, out _))
+                if (MouseBatteryProtocol.TryBitMouseLayout(raw, route.BitReply, false, out _, out bool hasChecksum) ||
+                    MouseBatteryProtocol.TryBitMouseLayout(raw, route.BitReply, true, out _, out hasChecksum))
                 {
-                    int length = route.BitReply == BitMouseReply.WithChecksum ? 9 : 8;
+                    int length = hasChecksum ? 9 : 8;
                     raw[..length].CopyTo(result);
-                    if (route.BitReply == BitMouseReply.WithChecksum)
+                    if (hasChecksum)
                         result[1] = MouseBatteryProtocol.BitMouseChecksum(result.AsSpan(2));
                 }
                 break;
@@ -241,12 +241,93 @@ public static partial class DiagnosticPrivacy
                 raw[..15].CopyTo(result);
             return;
         }
-        if (!RazerHeadsetProtocol.TryMediaTek(raw, request, 0x0565, out _))
+        if (pid is not ushort headsetPid ||
+            !RazerHeadsetProtocol.TryMediaTek(raw, request, headsetPid, out _, out int crcStart))
             return;
         raw[..3].CopyTo(result);
         result[6] = raw[6];
         raw[8..14].CopyTo(result[8..]);
-        result[62] = RazerHeadsetProtocol.Checksum(result, 1);
+        result[62] = RazerHeadsetProtocol.Checksum(result, crcStart);
+    }
+
+    /// <summary>仅根据公开的 16 位 USB VID 返回常见外设厂商名称，不包含任何个人或设备唯一信息。</summary>
+    internal static string KnownVendorName(ushort? vid) => vid switch
+    {
+        0x046D => "Logitech",
+        0x1532 => "Razer",
+        0x373B => "ATK",
+        0x33E4 => "G-Wolves",
+        0x361D => "Finalmouse",
+        0x054C => "Sony",
+        0x0B05 => "ASUS",
+        0x41E4 => "MCHOSE",
+        0x3554 => "Compx",
+        0x093A => "PixArt",
+        0x1038 => "SteelSeries",
+        0x1B1C => "Corsair",
+        0x03F0 or 0x0951 => "HyperX",
+        0x3434 => "Keychron",
+        0x31E3 => "Wooting",
+        0x24AE => "Rapoo",
+        0x260D => "Darmoshark",
+        0x3710 => "WLMouse",
+        0x320F => "Evision",
+        0x25A7 => "Areson/Compx",
+        0x3537 => "VGN/ATK",
+        0x045E => "Microsoft",
+        0x05AC => "Apple",
+        _ => "未知"
+    };
+
+    /// <summary>
+    /// 当已启用的只读查询收到未通过严格解码的 HID 回复时，仅提取固定协议帧头与校验结果（绝不输出载荷文本或原始字节串），
+    /// 便于在无需寄送实机的情况下定位协议变体差异。
+    /// </summary>
+    internal static string SummarizeUnrecognizedHidReply(
+        IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request)
+    {
+        if (raw.Length < 8)
+            return FormattableString.Invariant($"len={raw.Length} short");
+
+        switch (adapter)
+        {
+            case MouseReceiverAdapter:
+            {
+                var route = MouseReceiverAdapter.AllowedRoute(hid);
+                if (route?.Family == MouseFamily.BitMouse && raw.Length == 64)
+                {
+                    int magic = raw[2] == 0x72 ? 2 : raw[1] == 0x72 ? 1 : -1;
+                    if (magic < 0)
+                        return FormattableString.Invariant($"BitMouse len=64 rid={raw[0]:X2} magic=none");
+                    bool cksum = raw[1] == MouseBatteryProtocol.BitMouseChecksum(raw[2..]);
+                    return FormattableString.Invariant(
+                        $"BitMouse len=64 rid={raw[0]:X2} magic@{magic} st={raw[magic + 1]:X2} tgt={raw[magic + 3]:X2} cmd={raw[magic + 4]:X2} plen={raw[magic + 5]:X2} cksum={(cksum ? "OK" : "FAIL")}");
+                }
+                if (route?.Family is MouseFamily.CompxOut or MouseFamily.CompxFeature && raw.Length >= 17)
+                {
+                    bool cksum = MouseBatteryProtocol.CompxChecksum(raw[..16]) == raw[16];
+                    return FormattableString.Invariant(
+                        $"Compx len={raw.Length} rid={raw[0]:X2} cmd={raw[1]:X2} plen={raw[5]:X2} cksum={(cksum ? "OK" : "FAIL")}");
+                }
+                return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2}");
+            }
+            case RazerHeadsetAdapter when raw.Length == RazerHeadsetProtocol.ReportLength &&
+                hid.ProductId is 0x0565 or 0x057A or 0x0577:
+            {
+                bool crc0 = raw[62] == RazerHeadsetProtocol.Checksum(raw, 0);
+                bool crc1 = raw[62] == RazerHeadsetProtocol.Checksum(raw, 1);
+                return FormattableString.Invariant(
+                    $"RazerMT len=64 rid={raw[0]:X2} flag={raw[1]:X2} seq={raw[2]:X2} flen={raw[6]:X2} dir={raw[8]:X2} dom={raw[9]:X2} cmd={raw[10]:X2} st={raw[11]:X2} vlen={raw[12]:X2} crc0={(crc0 ? "OK" : "FAIL")} crc1={(crc1 ? "OK" : "FAIL")}");
+            }
+            case RazerFeatureAdapter when raw.Length == RazerFeatureProtocol.ReportLength:
+            {
+                bool crc = raw[89] == RazerFeatureProtocol.Checksum(raw);
+                return FormattableString.Invariant(
+                    $"Razer90B len=91 rid={raw[0]:X2} st={raw[1]:X2} tid={raw[2]:X2} cls={raw[7]:X2} cmd={raw[8]:X2} crc={(crc ? "OK" : "FAIL")}");
+            }
+            default:
+                return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2}");
+        }
     }
 
     internal static byte[] SerialReplies(ReadOnlySpan<byte> raw)

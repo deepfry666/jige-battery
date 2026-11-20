@@ -6,7 +6,7 @@ namespace Jige.Core.Diagnostics;
 internal enum DiagnosticOperation { OpenHid, OpenSerial, HidOutput, HidInput, SetFeature, GetFeature, SerialWrite, SerialRead }
 
 internal sealed record DiagnosticTransfer(
-    ReceiverEndpoint Endpoint, DiagnosticOperation Operation, long Milliseconds, ReadIssue Issue, int? NativeCode, int? Argument, byte[] Data, bool Masked = false);
+    ReceiverEndpoint Endpoint, DiagnosticOperation Operation, long Milliseconds, ReadIssue Issue, int? NativeCode, int? Argument, byte[] Data, bool Masked = false, string? ReplySummary = null);
 
 internal sealed class DiagnosticTransport(IReceiverTransport inner, IDeviceAdapter adapter) : IReceiverTransport
 {
@@ -85,12 +85,19 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, IDeviceAdapt
             var safe = transfer.Endpoint is HidInterface hid &&
                 transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature)
                 ? DiagnosticPrivacy.HidReply(adapter, hid, data, request, features) : data.ToArray();
+            string? replySummary = null;
+            if (issue == ReadIssue.None && data.Length > 0 &&
+                transfer.Endpoint is HidInterface replyHid &&
+                transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature) &&
+                safe.AsSpan().IndexOfAnyExcept((byte)0) < 0)
+                replySummary = DiagnosticPrivacy.SummarizeUnrecognizedHidReply(adapter, replyHid, data, request);
             if (issue == ReadIssue.None && transfer.Operation is DiagnosticOperation.HidOutput or DiagnosticOperation.SetFeature)
                 request = safe;
             transfers[entry.Index] = (0, transfer with
             {
                 Milliseconds = (long)Stopwatch.GetElapsedTime(entry.Started).TotalMilliseconds,
-                Issue = issue, NativeCode = code, Data = safe, Masked = !data.SequenceEqual(safe)
+                Issue = issue, NativeCode = code, Data = safe, Masked = !data.SequenceEqual(safe),
+                ReplySummary = replySummary
             });
         }
     }

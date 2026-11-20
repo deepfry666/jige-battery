@@ -128,12 +128,20 @@ public sealed class RazerBatteryTests
         };
         Assert.Empty(registry.Detect(new(entries, [], [])));
         Assert.Empty(registry.Detect(new([Mouse, Mouse with { Path = "ambiguous" }], [], [])));
-        foreach (ushort pid in new ushort[] { 0x052E, 0x0536, 0x053A, 0x0552, 0x0555, 0x0556, 0x0557, 0x0566, 0x057A, 0x0577, 0x0583, 0x0999 })
+        foreach (ushort pid in new ushort[] { 0x052E, 0x0536, 0x053A, 0x0552, 0x0555, 0x0556, 0x0557, 0x0566, 0x0583, 0x0999 })
         {
             Assert.False(AdapterRegistry.IsKnownHidReceiver(0x1532, pid));
             var headset = Mouse with { ProductId = pid, UsagePage = 0xFF14, InterfaceNumber = 3,
                 InputLength = 64, OutputLength = 64 };
             Assert.Empty(registry.Detect(new([headset], [], [])));
+        }
+        // BlackShark V3 / V3 Pro 仅允许 MI_05 的 FF14:0001 64/64，拒绝 MI_03 或 FF13。
+        foreach (ushort pid in new ushort[] { 0x057A, 0x0577 })
+        {
+            Assert.True(AdapterRegistry.IsKnownHidReceiver(0x1532, pid));
+            var wrongMi = Mouse with { ProductId = pid, UsagePage = 0xFF14, InterfaceNumber = 3, InputLength = 64, OutputLength = 64, FeatureLength = 0 };
+            var wrongPage = Mouse with { ProductId = pid, UsagePage = 0xFF13, InterfaceNumber = 5, InputLength = 62, OutputLength = 62, FeatureLength = 0 };
+            Assert.Empty(registry.Detect(new([wrongMi, wrongPage], [], [])));
         }
     }
 
@@ -187,8 +195,16 @@ public sealed class RazerBatteryTests
         response[62] ^= 1;
         Assert.False(RazerHeadsetProtocol.TryMediaTek(response, request, 0x057A, out _));
 
-        // OpenRazer #2838 在 0577 上记录的纯查询模板。
+        // OpenRazer #2838 在 0577 上记录的纯查询模板，且 0577 同时兼容字节 0 或字节 1 起算的 XOR 校验。
         Assert.Equal(recorded, RazerHeadsetProtocol.EncodeMediaTek(0x0577, RazerHeadsetQuery.Battery, 0));
+        var proReply0 = Frame("0202600000000500008021010158", 64);
+        proReply0[62] = RazerHeadsetProtocol.Checksum(proReply0, 0);
+        Assert.True(RazerHeadsetProtocol.TryMediaTek(proReply0, request, 0x0577, out byte proVal0));
+        Assert.Equal(88, proVal0);
+        var proReply1 = Frame("0202600000000500808021010159", 64);
+        proReply1[62] = RazerHeadsetProtocol.Checksum(proReply1, 1);
+        Assert.True(RazerHeadsetProtocol.TryMediaTek(proReply1, request, 0x0577, out byte proVal1));
+        Assert.Equal(89, proVal1);
         Assert.NotEqual(0xC7, RazerHeadsetProtocol.EncodeMediaTek(0x0565, RazerHeadsetQuery.Battery, 1)[62]);
 
         foreach (byte command in new byte[] { 0x93, 0x95, 0xAC, 0xE6, 0xE1 })
@@ -197,6 +213,40 @@ public sealed class RazerBatteryTests
             Assert.Throws<ArgumentOutOfRangeException>(() => RazerHeadsetProtocol.EncodePa(0x0555, (RazerHeadsetQuery)command));
         }
         Assert.Throws<ArgumentOutOfRangeException>(() => RazerHeadsetProtocol.EncodeMediaTek(0x0577, RazerHeadsetQuery.Link, 0));
+    }
+
+    [Fact]
+    public async Task BlackSharkV3ProReadsReadOnlyBatteryAndSkipsFastHeartbeat()
+    {
+        // 复现实机诊断报告中的 1532:0577 集合布局（MI_05 同时包含 FF14 64/64 与 FF13 62/62）。
+        var ff14 = new HidInterface("rx-v3p", "p-ff14", 0x1532, 0x0577, null, 0xFF14, 1, 64, 64, 0, 5);
+        var ff13 = new HidInterface("rx-v3p", "p-ff13", 0x1532, 0x0577, null, 0xFF13, 1, 62, 62, 0, 5);
+        var registry = AdapterRegistry.CreateDefault();
+        var target = Assert.Single(registry.Detect(new([ff14, ff13], [], [])));
+        Assert.Equal("Razer BlackShark V3 Pro", target.Target.Device.Name);
+
+        // V3 系列跳过高频心跳，不打开句柄也不发包。
+        var zeroTransport = new FakeReceiverTransport();
+        Assert.Null(await registry.CheckPresenceAsync(target, zeroTransport, CancellationToken.None));
+        Assert.Equal(0, zeroTransport.Calls);
+
+        // 完整轮询仅发 21 电量与 2A 充电（不发 20 链路，也不发会话控制指令）。
+        var session = new BatteryHidStub(request =>
+        {
+            var reply = request[10] switch
+            {
+                0x21 => Frame("0202600000000500008021010150", 64),
+                0x2A => Frame("020260000000050000802A010101", 64),
+                _ => throw new InvalidOperationException("意外发包")
+            };
+            reply[62] = RazerHeadsetProtocol.Checksum(reply, 0);
+            return [reply];
+        });
+        var reading = await registry.ReadAsync(target, new BatteryTransportStub(_ => session), null, CancellationToken.None);
+        Assert.Equal(80, reading.Percentage);
+        Assert.Equal(ChargingState.Charging, reading.Charging);
+        Assert.Equal(LinkState.Online, reading.Link);
+        Assert.Equal(new byte[] { 0x21, 0x2A }, session.Writes.Select(w => w[10]));
     }
 
     [Fact]

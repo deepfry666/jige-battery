@@ -1,6 +1,6 @@
 namespace Jige.Core.Adapters;
 
-internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) : IDeviceAdapter, IPresenceAdapter
+internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, SafetyGateStore? gates = null) : IDeviceAdapter, IPresenceAdapter
 {
     private const int MaxBlackShark2020Polls = 3;
     private static int nextSequence;
@@ -11,7 +11,11 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) :
     public async ValueTask<PresenceUpdate?> CheckPresenceAsync(
         DeviceTarget target, IReceiverTransport transport, CancellationToken token)
     {
-        if (target.Endpoint is not HidInterface endpoint || DeviceCatalog.IsDisabledPath(endpoint, out _) || !Matches(endpoint))
+        if (target.Endpoint is not HidInterface endpoint || DeviceCatalog.IsDisabledPath(endpoint, out _) ||
+            gates?.IsBlocked(endpoint, out _) == true || !Matches(endpoint))
+            return null;
+        // BlackShark V3 / V3 Pro 跳过高频心跳，仅走正常轮询间隔，避免高频查询干扰无线链路。
+        if (IsBlackSharkV3(endpoint))
             return null;
         if (IsBlackShark2020(endpoint))
         {
@@ -30,10 +34,17 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) :
         return new(endpoint.ReceiverId, null, target.Device.Id, linkValue == 0 ? LinkState.Offline : LinkState.Online);
     }
 
-    // PA 需切换远程模式，V3 系列冷启动有会话与断链风险。仅注册纯只读路径：V2 HyperSpeed（0565）与 V2 Pro 2020（0528）。
+    // PA 需切换远程模式保持禁用；MediaTek（0565 / 057A / 0577）与 V2 Pro 2020（0528）仅发纯只读查询。
     private static bool IsV2HyperSpeed(HidInterface hid) => !DeviceCatalog.IsDisabledPath(hid, out _) && hid is
     {
         VendorId: 0x1532, ProductId: 0x0565, UsagePage: 0xFF14, Usage: 1, InterfaceNumber: 3,
+        InputLength: RazerHeadsetProtocol.ReportLength, OutputLength: RazerHeadsetProtocol.ReportLength,
+        MetadataIssue: ReadIssue.None
+    };
+
+    private static bool IsBlackSharkV3(HidInterface hid) => !DeviceCatalog.IsDisabledPath(hid, out _) && hid is
+    {
+        VendorId: 0x1532, ProductId: 0x057A or 0x0577, UsagePage: 0xFF14, Usage: 1, InterfaceNumber: 5,
         InputLength: RazerHeadsetProtocol.ReportLength, OutputLength: RazerHeadsetProtocol.ReportLength,
         MetadataIssue: ReadIssue.None
     };
@@ -45,16 +56,25 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) :
         MetadataIssue: ReadIssue.None
     };
 
-    private static bool Matches(HidInterface hid) => IsV2HyperSpeed(hid) || IsBlackShark2020(hid);
+    private static bool Matches(HidInterface hid) => IsV2HyperSpeed(hid) || IsBlackSharkV3(hid) || IsBlackShark2020(hid);
 
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
         {
+            if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
+            {
+                gates.RecordRejection(endpoint, 3, $"已拦截（{blockedReason}）");
+                continue;
+            }
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
-            string name = IsBlackShark2020(endpoint)
-                ? "Razer BlackShark V2 Pro (2020)"
-                : "Razer BlackShark V2 HyperSpeed";
+            string name = endpoint.ProductId switch
+            {
+                RazerHeadsetProtocol.BlackShark2020Pid => "Razer BlackShark V2 Pro (2020)",
+                0x057A => "Razer BlackShark V3",
+                0x0577 => "Razer BlackShark V3 Pro",
+                _ => "Razer BlackShark V2 HyperSpeed"
+            };
             yield return new(new($"razer-headset:{endpoint.ReceiverId}", name,
                 DeviceKind.Headset, AdaptationSource.Catalog, tier)
             {
@@ -70,20 +90,28 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) :
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "雷蛇耳机控制集合不匹配");
         if (DeviceCatalog.IsDisabledPath(endpoint, out var disabled))
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}");
+        if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
         if (IsBlackShark2020(endpoint))
             return await ReadBlackShark2020Async(target, endpoint, transport, trace, token).ConfigureAwait(false);
-        if (!IsV2HyperSpeed(endpoint))
+        bool isV3 = IsBlackSharkV3(endpoint);
+        if (!IsV2HyperSpeed(endpoint) && !isV3)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "BlackShark 控制集合不匹配");
 
+        ushort pid = endpoint.ProductId!.Value;
         using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 2, RequiredOutputReportId = 2 }, token);
-        var link = await QueryAsync(RazerHeadsetQuery.Link).ConfigureAwait(false);
-        if (link == 0)
-            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
-                Detail: "BlackShark 接收器报告无线链路断开");
+        if (!isV3)
+        {
+            var link = await QueryAsync(RazerHeadsetQuery.Link).ConfigureAwait(false);
+            if (link == 0)
+                return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
+                    Detail: "BlackShark 接收器报告无线链路断开");
+        }
 
         var level = await QueryAsync(RazerHeadsetQuery.Battery).ConfigureAwait(false);
         if (level is null)
-            return AdapterRegistry.Failure(target, ReadIssue.Timeout, "未收到匹配的 BlackShark 21 电量回复");
+            return AdapterRegistry.Failure(target, ReadIssue.Timeout,
+                isV3 ? "未收到匹配的 BlackShark V3 电量回复" : "未收到匹配的 BlackShark 21 电量回复");
         if (level == 0xFF)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
                 Detail: "BlackShark 无线链路尚未就绪");
@@ -97,12 +125,12 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null) :
 
         async ValueTask<byte?> QueryAsync(RazerHeadsetQuery query)
         {
-            var sequence = (byte)(Interlocked.Increment(ref nextSequence) & 0x1F);
-            var request = RazerHeadsetProtocol.EncodeMediaTek(0x0565, query, sequence);
+            var sequence = isV3 ? (byte)0 : (byte)(Interlocked.Increment(ref nextSequence) & 0x1F);
+            var request = RazerHeadsetProtocol.EncodeMediaTek(pid, query, sequence);
             var frame = await HidQuery.OutputAsync(session, session, request, RazerHeadsetProtocol.ReportLength,
-                packet => RazerHeadsetProtocol.TryMediaTek(packet, request, 0x0565, out _), trace, token)
+                packet => RazerHeadsetProtocol.TryMediaTek(packet, request, pid, out _), trace, token)
                 .ConfigureAwait(false);
-            return frame is not null && RazerHeadsetProtocol.TryMediaTek(frame, request, 0x0565, out byte value) ? value : null;
+            return frame is not null && RazerHeadsetProtocol.TryMediaTek(frame, request, pid, out byte value) ? value : null;
         }
     }
 

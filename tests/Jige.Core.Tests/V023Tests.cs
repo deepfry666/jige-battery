@@ -248,8 +248,6 @@ public sealed class V023Tests
     [InlineData(0x1532, 0x0536, 0xFF14, 1, 64, 64, 0, 3)] // 雷蛇 PA：Barracuda X 2022
     [InlineData(0x1532, 0x0552, 0xFF00, 1, 64, 64, 0, 3)] // 雷蛇 Airoha RACE：Barracuda X 2022 Macronix
     [InlineData(0x1532, 0x052E, 0xFF00, 1, 0, 0, 64, 3)]  // 雷蛇 BlackShark V2 Pro 2020 充电线
-    [InlineData(0x1532, 0x057A, 0xFF14, 1, 64, 64, 0, 3)] // 雷蛇 BlackShark V3
-    [InlineData(0x1532, 0x0577, 0xFF14, 1, 64, 64, 0, 3)] // 雷蛇 BlackShark V3 Pro
     [InlineData(0x373B, 0x111A, 0xFF04, 1, 17, 0, 17, 1)] // ATK A9 Ultra
     [InlineData(0x33E4, 0x3854, 0xFF02, 2, 17, 17, 0, 1)] // 游狼 Receiver RS
     [InlineData(0x33E4, 0x3517, 0xFFFF, 0, 0, 0, 65, 2)]  // 游狼 Fenrir Asym

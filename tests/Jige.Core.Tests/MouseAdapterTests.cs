@@ -181,6 +181,51 @@ public sealed class MouseAdapterTests
         Assert.Empty(registry.Detect(new([Atk, Xvi with { ReceiverId = Atk.ReceiverId }], [], [])));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Atk1216NkNanoDetectsAlongsideSiblingVendorPagesAndSupportsBothBitMouseLayouts(bool withChecksum)
+    {
+        // 复现实机诊断报告中的 373B:1216 集合布局（FFB1、FF05、FFB3）。
+        var ffb1 = new HidInterface("rx-1216", "p-ffb1", 0x373B, 0x1216, null, 0xFFB1, 1, 0, 13, 0, 2);
+        var ff05 = new HidInterface("rx-1216", "p-ff05", 0x373B, 0x1216, null, 0xFF05, 1, 64, 64, 0, 2);
+        var ffb3 = new HidInterface("rx-1216", "p-ffb3", 0x373B, 0x1216, null, 0xFFB3, 1, 13, 65, 0, 1);
+
+        var registry = AdapterRegistry.CreateDefault();
+        var target = Assert.Single(registry.Detect(new([ffb1, ff05, ffb3], [], [])));
+        Assert.Equal("ATK NK NANO 接收器", target.Target.Device.Name);
+
+        string batteryReq = Pad("087D720200010701", 64);
+        string chargeReq = Pad("0885720200010F01", 64);
+        string batteryReply = withChecksum ? Pad("08A57200000107012A", 64) : Pad("087200000107012A", 64);
+        string chargeReply = withChecksum ? Pad("0884720000010F0101", 64) : Pad("08720000010F0101", 64);
+
+        var transport = new FakeReceiverTransport((ff05.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, batteryReq),
+            new(DiagnosticOperation.HidInput, batteryReply),
+            new(DiagnosticOperation.HidOutput, chargeReq),
+            new(DiagnosticOperation.HidInput, chargeReply)
+        ]));
+        var reading = await registry.ReadAsync(target, transport, null, CancellationToken.None);
+        Assert.Equal(42, reading.Percentage);
+        Assert.Equal(ChargingState.Charging, reading.Charging);
+        Assert.Equal(LinkState.Online, reading.Link);
+        transport.AssertComplete();
+    }
+
+    [Fact]
+    public void AtkReadOnlyCatalogPidsAreEnabledForTheirProtocolShapes()
+    {
+        var registry = AdapterRegistry.CreateDefault();
+        var c10c9 = new HidInterface("rx-10c9", "p-10c9", 0x373B, 0x10C9, null, 0xFF02, 2, 17, 17, 0, 1);
+        var c11dc = new HidInterface("rx-11dc", "p-11dc", 0x373B, 0x11DC, null, 0xFF05, 1, 64, 64, 0, 2);
+        var c11db = new HidInterface("rx-11db", "p-11db", 0x373B, 0x11DB, null, 0xFF05, 1, 64, 64, 0, 2);
+        var detected = registry.Detect(new([c10c9, c11dc, c11db], [], [])).ToArray();
+        Assert.Equal(3, detected.Length);
+    }
+
     internal static string Pad(string prefix, int bytes) => prefix.PadRight(bytes * 2, '0');
 
     internal static async Task<BatteryReading> Read(HidInterface endpoint, FakeReceiverTransport transport)

@@ -18,13 +18,13 @@ public static partial class WindowsDeviceDiscovery
 
     public static Task<DeviceInventory> ScanAsync(
         CancellationToken cancellationToken, Func<ushort?, ushort?, bool>? inspectHid = null, bool includeUnknownHid = false,
-        bool includeBluetooth = false) =>
+        bool includeBluetooth = false, bool includeReportIds = false) =>
         OperationDeadline.RunAsync(async token =>
         {
             await ScanGate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                var inventory = Scan(inspectHid, includeUnknownHid, token);
+                var inventory = Scan(inspectHid, includeUnknownHid, includeReportIds, token);
                 if (!includeBluetooth)
                     return inventory;
                 var (bluetooth, warnings) = ScanBluetooth(token);
@@ -36,7 +36,8 @@ public static partial class WindowsDeviceDiscovery
             }
         }, TimeSpan.FromSeconds(10), cancellationToken);
 
-    private static unsafe DeviceInventory Scan(Func<ushort?, ushort?, bool>? inspectHid, bool includeUnknownHid, CancellationToken token)
+    private static unsafe DeviceInventory Scan(
+        Func<ushort?, ushort?, bool>? inspectHid, bool includeUnknownHid, bool includeReportIds, CancellationToken token)
     {
         List<HidInterface> hid = [];
         List<UsbSerialPort> serial = [];
@@ -53,7 +54,7 @@ public static partial class WindowsDeviceDiscovery
                 BluetoothHidPath.ProductId(path) ?? BluetoothHidPath.ProductId(nodeId);
             bool known = inspectHid is null || inspectHid(vid, pid);
             if ((known || includeUnknownHid) &&
-                InspectHid(set, node, path, nodeId, vid, pid, known, token) is { } endpoint)
+                InspectHid(set, node, path, nodeId, vid, pid, known, includeReportIds, token) is { } endpoint)
                 hid.Add(endpoint);
         }, warnings, token);
 
@@ -153,7 +154,7 @@ public static partial class WindowsDeviceDiscovery
     }
 
     private static unsafe HidInterface? InspectHid(nint set, Native.DeviceData node, string path,
-        string nodeId, ushort? vid, ushort? pid, bool readProduct, CancellationToken token)
+        string nodeId, ushort? vid, ushort? pid, bool readProduct, bool includeReportIds, CancellationToken token)
     {
         var number = ReadHexTag(path, "MI_", 2) ?? ReadHexTag(nodeId, "MI_", 2);
         byte? interfaceNumber = number.HasValue ? (byte)number.Value : null;
@@ -174,11 +175,18 @@ public static partial class WindowsDeviceDiscovery
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
                     product = new string(chars);
             }
+            (string? inputIds, string? outputIds, string? featureIds) = includeReportIds && caps.UsagePage >= 0xFF00
+                ? WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps)
+                : (null, null, null);
             token.ThrowIfCancellationRequested();
             var receiver = ReadReceiverId(set, node, nodeId, path);
             return new(receiver, path, vid, pid, product, caps.UsagePage, caps.Usage,
                 caps.InputLength, caps.OutputLength, caps.FeatureLength, interfaceNumber)
             {
+                FirmwareVersion = attributes.Version,
+                InputReportIds = inputIds,
+                OutputReportIds = outputIds,
+                FeatureReportIds = featureIds,
                 BluetoothHid = BluetoothHidPath.UsbVendorId(path).HasValue || BluetoothHidPath.UsbVendorId(nodeId).HasValue,
                 BluetoothAddress = vid == 0x046D && caps is { UsagePage: 0xFF43, Usage: 0x0202 }
                     ? FindBluetoothAddress(node.DevInst) : null

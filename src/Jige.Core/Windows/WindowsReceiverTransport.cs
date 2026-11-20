@@ -95,6 +95,50 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         }
     }
 
+    internal static (string? InputIds, string? OutputIds, string? FeatureIds) ReadDeclaredReportIds(
+        SafeFileHandle handle, Native.HidCaps caps)
+    {
+        if (Native.GetPreparsedData(handle, out var data) == 0)
+            return (null, null, null);
+        try
+        {
+            return (
+                ScanReportIds(data, 0, caps.InputLength),
+                ScanReportIds(data, 1, caps.OutputLength),
+                ScanReportIds(data, 2, caps.FeatureLength)
+            );
+        }
+        finally
+        {
+            Native.FreePreparsedData(data);
+        }
+    }
+
+    private static unsafe string? ScanReportIds(nint data, int reportType, ushort length)
+    {
+        if (length == 0)
+            return null;
+        // 仅在内存中按 HID 描述符校验声明过的报告 ID，不产生任何 USB 通信。
+        var buffer = new byte[length];
+        List<string> ids = [];
+        fixed (byte* report = buffer)
+        {
+            for (int id = 0; id <= byte.MaxValue; id++)
+            {
+                if (Native.InitializeReportForId(reportType, (byte)id, data, report, length) == 0x00110000)
+                {
+                    ids.Add($"{id:X2}");
+                    if (ids.Count >= 16)
+                    {
+                        ids.Add("...");
+                        break;
+                    }
+                }
+            }
+        }
+        return ids.Count == 0 ? null : string.Join(',', ids);
+    }
+
     private static unsafe void VerifyReportId(nint data, int reportType, byte? id, ushort length)
     {
         if (id is not byte reportId)

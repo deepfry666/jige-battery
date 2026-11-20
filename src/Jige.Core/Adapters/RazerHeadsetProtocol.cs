@@ -76,7 +76,7 @@ internal static class RazerHeadsetProtocol
             sequence > 31 || (pid != 0x0565 && sequence != 0))
             throw new ArgumentOutOfRangeException(nameof(query));
 
-        // V3/V3 Pro 的纯查询模板供离线测试。冷启动需要会话动作，注册表不启用这两个 PID。
+        // V3/V3 Pro 仅使用纯只读 21/2A 查询（不发冷启动会话或模式切换指令）。
         var frame = new byte[ReportLength];
         frame[0] = 2;
         frame[2] = (byte)(0x60 | sequence);
@@ -87,16 +87,40 @@ internal static class RazerHeadsetProtocol
         return frame;
     }
 
-    public static bool TryMediaTek(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> request, ushort pid, out byte value)
+    public static bool TryMediaTek(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> request, ushort pid, out byte value) =>
+        TryMediaTek(frame, request, pid, out value, out _);
+
+    public static bool TryMediaTek(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> request, ushort pid, out byte value, out int checksumStart)
     {
         value = 0;
-        if (pid is not (0x0565 or 0x057A) || request.Length != ReportLength || frame.Length != ReportLength || frame[0] != 2 || frame[1] != 2 ||
+        checksumStart = 0;
+        if (pid is not (0x0565 or 0x057A or 0x0577) || request.Length != ReportLength || frame.Length != ReportLength || frame[0] != 2 || frame[1] != 2 ||
             frame[2] != request[2] || frame[9] != request[9] || frame[10] != request[10] ||
             frame[11] != 1 || frame[12] is < 1 or > 49 || frame[6] != frame[12] + 4 || frame[63] != 0)
             return false;
 
-        if (pid == 0x0565 && frame[8] != 0x80 || frame[62] != Checksum(frame, pid == 0x0565 ? 1 : 0))
-            return false;
+        if (pid == 0x0565)
+        {
+            checksumStart = 1;
+            if (frame[8] != 0x80 || frame[62] != Checksum(frame, 1))
+                return false;
+        }
+        else if (pid == 0x057A)
+        {
+            checksumStart = 0;
+            if (frame[62] != Checksum(frame, 0))
+                return false;
+        }
+        else
+        {
+            // BlackShark V3 Pro（0577）不同固件变体的回复 CRC 起始偏移可能为 0 或 1，两者均做严格校验。
+            if (frame[62] == Checksum(frame, 0))
+                checksumStart = 0;
+            else if (frame[62] == Checksum(frame, 1))
+                checksumStart = 1;
+            else
+                return false;
+        }
         value = frame[13];
         return true;
     }

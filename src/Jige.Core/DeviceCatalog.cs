@@ -99,6 +99,14 @@ public static class DeviceCatalog
             VerificationTier.DocsOnly, "mouse:", "OpenMouse / atk-control"),
         new(0x373B, 0x1155, "ATK ZERO", "BitMouse", DeviceKind.Mouse,
             VerificationTier.DocsOnly, "mouse:", "OpenMouse / atkctl"),
+        new(0x373B, 0x1216, "ATK NK NANO 接收器", "BitMouse", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", "atkctl docs/PROTOCOL.md"),
+        new(0x373B, 0x10C9, "ATK A9 Plus NK 接收器（星闪）", "Compx-OUT", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", "OpenMouse captures/atk-a9-plus-nk"),
+        new(0x373B, 0x11DC, "ATK A9 Pro Max 2.0 NK", "BitMouse", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", "research/device-catalog.md"),
+        new(0x373B, 0x11DB, "ATK A9 Pro Max 2.0 NK（另一候选）", "BitMouse", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", "research/device-catalog.md"),
 
         // === 仅按资料：G-Wolves XVI-OLD（独立于 XVI-NEW，尚无 XVI-OLD 实机记录） ===
         new(0x33E4, 0x3917, "G-Wolves VUK", "XVI-OLD", DeviceKind.Mouse,
@@ -244,11 +252,15 @@ public static class DeviceCatalog
         new(0x1532, 0x0528, "Razer BlackShark V2 Pro (2020)", "Razer BlackShark 64B Feature", DeviceKind.Headset,
             VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT）"),
         new(0x1532, 0x0565, "Razer BlackShark V2 HyperSpeed", "Razer BlackShark 64B", DeviceKind.Headset,
-            VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT）")
+            VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT）"),
+        new(0x1532, 0x057A, "Razer BlackShark V3", "Razer BlackShark V3 64B", DeviceKind.Headset,
+            VerificationTier.DocsOnly, "razer-headset:", "HaloBattery #292（MIT）/ OpenRazer PR 2794"),
+        new(0x1532, 0x0577, "Razer BlackShark V3 Pro", "Razer BlackShark V3 64B", DeviceKind.Headset,
+            VerificationTier.DocsOnly, "razer-headset:", "OpenRazer #2838")
     ];
 
     /// <summary>
-    /// 路径开关（B3）：证据不足或存在写入/断链风险的路径集中登记于此。
+    /// 路径开关（B3）：仅保留违背只读原则、存在协议家族冲突或无明确接口特征的路径。
     /// 所有登记路径在打开设备句柄之前即被跳过，并在诊断报告中列出「已识别，暂未启用：原因」。
     /// </summary>
     public static IReadOnlyList<DisabledDevicePath> DisabledPaths { get; } =
@@ -279,32 +291,10 @@ public static class DeviceCatalog
             "充电线不提供独立电量读取，请保持无线接收器 1532:0528 插入",
             "HaloBattery providers/blackshark2020.py（MIT）"),
 
-        // 雷蛇 BlackShark V3 系列：冷启动会话与断链风险未核实。
-        new(0x1532, 0x057A, "Razer BlackShark V3", "Razer BlackShark V3 64B",
-            "冷启动会话未证实可只读建立，且高频查询有重置无线链路风险",
-            "HaloBattery #292（MIT）"),
-        new(0x1532, 0x0577, "Razer BlackShark V3 Pro", "Razer BlackShark V3 64B",
-            "冷启动会话未证实可只读建立，回复格式与不同固件变体待核实",
-            "OpenRazer #2838"),
-
-        // ATK A9 Ultra（373B:111A）：FF04 精确 Usage 与独立电量抓包待核实。
+        // ATK A9 Ultra（373B:111A）：FF04 精确 Usage 未核实，待实机报告补全 Usage。
         new(0x373B, 0x111A, "ATK A9 Ultra", "Compx-FEAT",
             "FF04 接口的精确 Usage 未经实机核实，独立电量抓包待补",
             "atkctl docs/PROTOCOL.md#compx-a9-ultra-compatibility"),
-
-        // ATK 星闪 / 带前置校验 BitMouse 候选：布局与路由未经实机核实。
-        new(0x373B, 0x1216, "ATK NK NANO 接收器（A9 Plus NK / A9 3.0 NK 候选）", "BitMouse（前置校验）",
-            "带前置校验位布局与星闪接收器路由未经实机核实",
-            "atkctl ProtocolTests.swift / research/device-catalog.md"),
-        new(0x373B, 0x10C9, "ATK A9 Plus NK 接收器（星闪）", "Compx-OUT 候选",
-            "星闪接收器协议家族与接口特征未经实机核实",
-            "research/device-catalog.md"),
-        new(0x373B, 0x11DC, "ATK A9 Pro Max 2.0 NK", "BitMouse 候选",
-            "PID 与协议通道未经实机核实",
-            "research/device-catalog.md"),
-        new(0x373B, 0x11DB, "ATK A9 Pro Max 2.0 NK（另一候选）", "BitMouse 候选",
-            "PID 与协议通道未经实机核实",
-            "research/device-catalog.md"),
 
         // 游狼 Receiver RS（33E4:3854）：Usage、校验式与协议家族冲突。
         new(0x33E4, 0x3854, "G-Wolves Receiver RS", "Compx-OUT / XVI-NEW 候选",

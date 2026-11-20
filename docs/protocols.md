@@ -51,9 +51,9 @@
 
 | 家族 | 白名单请求与传输 | 运行状态 | 证据等级 |
 | --- | --- | --- | --- |
-| Compx-OUT | 电量 `08 04 00×14 49`、在线心跳 `08 03 00×14 4A`、型号 CID/MID `08 10 00×14 3D`；17 字节 Output / Input，先挂读再写 | ATK `101A/1031/11D9/1278` 与满足三道安全门的通用 `373B` `FF02:0002` 允许查询；游狼 `3854` 的精确 Usage 未核实，仍禁止查询 | `04` 多方开源一致；`03` 来自 [atk-control](https://github.com/NasirA1991/atk-control/blob/main/atk_control/protocol.py) 与 [OpenMouse](https://github.com/OpenMouse-Project/mouse-protocol/blob/main/src/drivers/atk/hid.ts)；`10` 来自 OpenMouse、atk-control 与 [atkctl](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md) |
+| Compx-OUT | 电量 `08 04 00×14 49`、在线心跳 `08 03 00×14 4A`、型号 CID/MID `08 10 00×14 3D`；17 字节 Output / Input，先挂读再写 | ATK `101A/1031/10C9/11D9/1278` 与满足三道安全门的通用 `373B` `FF02:0002` 允许查询；游狼 `3854` 的精确 Usage 未核实，仍禁止查询 | `04` 多方开源一致；`03` 来自 [atk-control](https://github.com/NasirA1991/atk-control/blob/main/atk_control/protocol.py) 与 [OpenMouse](https://github.com/OpenMouse-Project/mouse-protocol/blob/main/src/drivers/atk/hid.ts)；`10` 来自 OpenMouse、atk-control 与 [atkctl](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md) |
 | Compx-FEAT | 同一 17 字节 Compx 请求，SetFeature 发，Input 收 | ATK `111A` 在 `FF04` 的精确 Usage 未核实，仍禁止查询 | 单一来源 |
-| BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155` 与满足三道安全门的通用 `373B` `FF05:0001` 允许查询；星闪 `1216`（带前置校验布局）及未核实条目保持禁用 | ZERO 无线路径多方开源实现一致 |
+| BitMouse | `08 7D 72 02 00 01 07 01 00×56` 查电量，`08 85 72 02 00 01 0F 01 00×56` 查充电，64 字节 Output / Input | ATK ZERO `1155`、NK NANO `1216`、`11DC/11DB` 与满足三道安全门的通用 `373B` `FF05:0001` 允许查询（自动兼容带/不带前置校验回复布局） | ZERO 无线路径多方开源实现一致；`1216` 来自 atkctl 实机记录 |
 | XVI-OLD | `00 00 02 8F 01 00×60`，65 字节 SetFeature / GetFeature | 从游狼官方网页驱动 [`https://mouse.xyz/Config/env-models.json`](https://mouse.xyz/Config/env-models.json)（`AppVer 1.0.0.51`，`XVI=1`、`IsNewProtocol=0`）导入启用：`2717`（HTX Mini 8K）、`3717`（Fenrir Max 8K）、`3917`（VUK）、`5317`（HTS Ultra）、`5403/5407/5417`（HTS Plus）、`5703/5707/5717`（HTX）、`5803/5807/5817`（HSK Pro）、`5903/5907/5917`（HSK Plus）、`7203`（HSK Lite）、`7713/7717`（HTR / HTR Pro）、`7913/7917`（HT-S2 / Pro） | 官方网页驱动型号表 + 单一开源实现 |
 | XVI-NEW | `00 00 00 02 02 00 83 00×58`，65 字节 SetFeature / GetFeature | 从 `mouse.xyz/Config/env-models.json`（`XVI=1`、`IsNewProtocol=1`）导入启用：`3617`（Fenrir Pro 8K）、`3817`（HTM Plus）、`5617`（HTX Ultra 8K）、`6817`（HSK Pro 2.0 8K）；`3517` 存在两代协议冲突记录，保持禁用 | `5617` 已实机验证，其余来自官方网页驱动型号表 |
 
@@ -147,7 +147,7 @@ G325 跳过 ACK，用实机状态帧 `50 23 0B 00 03 10 00 06 00 07 0A` 的字�
 | BlackShark V2 HyperSpeed | 启用 `0565` 的 MI_03、`FF14:0001`。多方开源实现一致 | 未在实机验证 |
 | BlackShark V2 Pro 2023（PC） | `0555` 及待确定 SKU 的 `0556`/`0557`/`0583` 默认禁用。PA 查询序列涉及 `E1` 切换远程模式。单一来源 | 未在实机验证 |
 | Barracuda Pro、Barracuda X 2022 | 对照型号 `053A`/`0536` 的 PA 分支与 `0552` 的 Macronix/Airoha RACE 分支默认禁用（涉及远程/应用模式切换）。单一来源 | 未在实机验证 |
-| BlackShark V3、BlackShark V3 Pro | `057A`/`0577` 保持禁用。冷启动会话未证实可只读建立，V3 曾在高频查询时重置无线链路。单一来源 | 未在实机验证 |
+| BlackShark V3、BlackShark V3 Pro | 启用 `057A`/`0577` 的 MI_05、`FF14:0001` 纯只读 `21/2A` 查询（不发冷启动会话帧，且跳过高频心跳以避免干扰无线链路）。单一来源 | 未在实机验证 |
 | Barracuda X Chroma、Barracuda V2 Pro | 协议家族与电量事务未核实，保持禁用 | 未在实机验证 |
 
 BlackShark V2 Pro (2020) `0528` 使用 `FF00:0001` 的 64 字节 Feature 报告（Report ID `FF`），固定发送只读请求 `FF 0A 00 FD 04 12 F1 02 05 00×55`，等待约 100 ms 后读取同一报告。仅接受新鲜回复头 `FF 0F 05 FE 12 04 1F 08 05`（`[11]` 为电源状态：`01/02/03` 放电、`09` 充电中、`06` 已充满；`[12..13]` 大端毫伏，为 0 判离线；`[14]` 为设备上报的粗粒度百分比 `100/80/50/30/10`，标为估算；充电中 `09` 因固件跳数暂隐去具体百分比）；无新回复头 `FF 01 00 FE 12 04 1F 08 05` 判离线且拒绝使用其过期载荷。

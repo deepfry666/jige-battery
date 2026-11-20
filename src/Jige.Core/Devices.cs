@@ -57,6 +57,10 @@ public sealed record HidInterface(
     ushort? FeatureLength, byte? InterfaceNumber, ReadIssue MetadataIssue = ReadIssue.None,
     string? MetadataError = null) : ReceiverEndpoint(ReceiverId, Path)
 {
+    public ushort? FirmwareVersion { get; init; }
+    public string? InputReportIds { get; init; }
+    public string? OutputReportIds { get; init; }
+    public string? FeatureReportIds { get; init; }
     internal ulong? BluetoothAddress { get; init; }
     internal bool BluetoothHid { get; init; }
     internal bool InputOnly { get; init; }
