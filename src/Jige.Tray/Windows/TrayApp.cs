@@ -44,6 +44,12 @@ internal sealed class TrayApp : IDisposable
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
+    // 指针离开托盘图标后先停留片刻：移到相邻图标时系统会紧接着发 NIN_POPUPOPEN，卡片原地换内容，不闪不淡。
+    private const uint HoverLingerMs = 200;
+    // 收起后隐藏保留的时间，期间再次悬停直接复用窗口与图形设备；超时才释放。
+    private const uint HoverReleaseMs = 5_000;
+
+    private enum HoverPhase { Visible, Leaving, Fading, Parked }
     private enum TrayAction { Panel, Menu }
     private static TrayApp? current;
 
@@ -75,6 +81,7 @@ internal sealed class TrayApp : IDisposable
     private TrayMenuWindow? menu;
     private Point menuPoint;
     private uint? hoverIconId;
+    private HoverPhase hoverPhase;
     private RECT hoverAnchor;
     private DateTimeOffset? hoverTextDue;
     private GameMode game;
@@ -475,8 +482,7 @@ internal sealed class TrayApp : IDisposable
                     DestroyPopup();
                 if (wParam.Value == HoverCloseTimer)
                 {
-                    if (hoverCard?.Closing == true)
-                        DestroyHoverCard();
+                    AdvanceHoverCard();
                     return true;
                 }
                 if (wParam.Value == MenuCloseTimer)
@@ -1092,15 +1098,15 @@ internal sealed class TrayApp : IDisposable
             PInvoke.KillTimer(host, HoverCloseTimer);
             hoverIconId = iconId;
             hoverAnchor = anchor;
-            if (hoverCard is { } active)
-                active.Update(content, anchor);
-            else
+            if (hoverCard is null)
             {
                 var extra = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
                 HWND window = MakeWindow(HoverCardClass, extra, WS_POPUP | WS_THICKFRAME);
                 hoverCard = new HoverCardWindow(window);
-                hoverCard.Show(content, anchor);
             }
+            // 已显示（含刚离开、正在淡出）时原地换内容；已隐藏时复用原窗口重新显示。
+            hoverCard.Show(content, anchor);
+            hoverPhase = HoverPhase.Visible;
             hoverTextDue = now.AddMinutes(1);
             ScheduleWork(now, Environment.TickCount64);
         }
@@ -1113,7 +1119,16 @@ internal sealed class TrayApp : IDisposable
 
     private void RenderHoverCard(bool reset = false)
     {
-        if (hoverCard is not { Closing: false } active || hoverIconId is not uint iconId)
+        if (hoverCard is not { } active)
+            return;
+        if (hoverPhase == HoverPhase.Parked)
+        {
+            // 隐藏保留中的卡片沿用旧主题与背板，外观变化后直接释放，下次悬停重新创建。
+            if (reset)
+                DestroyHoverCard();
+            return;
+        }
+        if (hoverPhase == HoverPhase.Fading || hoverIconId is not uint iconId)
             return;
         if (!HoverCardPolicy.CanShow(game, popup is not null, MenuOpen) ||
             !icons.TryGetSlotKey(iconId, out var slotKey) || slotKey is null)
@@ -1140,22 +1155,54 @@ internal sealed class TrayApp : IDisposable
 
     private void CloseHoverCard(uint iconId)
     {
-        if (hoverCard is not { } active || hoverIconId != iconId)
+        if (hoverCard is null || hoverIconId != iconId || hoverPhase != HoverPhase.Visible)
             return;
-        hoverTextDue = null;
+        hoverPhase = HoverPhase.Leaving;
+        ArmTimer(HoverCloseTimer, HoverLingerMs);
+    }
+
+    /// <summary>悬停卡片收起的分步推进：停留 → （淡出）→ 隐藏保留 → 释放。</summary>
+    private void AdvanceHoverCard()
+    {
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, HoverCloseTimer);
+        if (hoverCard is not { } active)
+            return;
         try
         {
-            if (active.BeginClose())
+            switch (hoverPhase)
             {
-                ArmTimer(HoverCloseTimer, HoverCardWindow.FadeOutMs);
-                return;
+                case HoverPhase.Leaving:
+                    if (active.BeginClose())
+                    {
+                        hoverPhase = HoverPhase.Fading;
+                        ArmTimer(HoverCloseTimer, HoverCardWindow.FadeOutMs);
+                        return;
+                    }
+                    ParkHoverCard(active);
+                    return;
+                case HoverPhase.Fading:
+                    ParkHoverCard(active);
+                    return;
+                case HoverPhase.Parked:
+                    DestroyHoverCard();
+                    return;
             }
         }
         catch (Exception error)
         {
             Desktop.Log("关闭悬停卡片失败", error);
+            DestroyHoverCard();
         }
-        DestroyHoverCard();
+    }
+
+    private void ParkHoverCard(HoverCardWindow active)
+    {
+        active.Hide();
+        hoverPhase = HoverPhase.Parked;
+        hoverIconId = null;
+        hoverTextDue = null;
+        ArmTimer(HoverCloseTimer, HoverReleaseMs);
     }
 
     private void DestroyHoverCard()
@@ -1165,6 +1212,7 @@ internal sealed class TrayApp : IDisposable
         var previous = hoverCard;
         hoverCard = null;
         hoverIconId = null;
+        hoverPhase = HoverPhase.Visible;
         hoverTextDue = null;
         previous?.Dispose();
     }
