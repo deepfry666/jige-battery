@@ -24,6 +24,7 @@
   --accent:#005fb8; --accent-soft:rgba(0,95,184,.12);
   --ok:#005fb8; --warn:#9d5d00; --low:#c42b1c; --charge:#0f7b0f; --idle:#8a8a8a;
   --cell-empty:rgba(0,0,0,.09);
+  --tray-ink:#1b1b1b; --tray-dim:rgba(0,0,0,.22);
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -39,6 +40,7 @@
     --accent:#60cdff; --accent-soft:rgba(96,205,255,.14);
     --ok:#60cdff; --warn:#fce100; --low:#ff99a4; --charge:#6ccb5f; --idle:#8f8f8f;
     --cell-empty:rgba(255,255,255,.12);
+    --tray-ink:#fff; --tray-dim:rgba(255,255,255,.28);
   }
 }
 :root[data-theme="dark"]{
@@ -54,6 +56,7 @@
   --accent:#60cdff; --accent-soft:rgba(96,205,255,.14);
   --ok:#60cdff; --warn:#fce100; --low:#ff99a4; --charge:#6ccb5f; --idle:#8f8f8f;
   --cell-empty:rgba(255,255,255,.12);
+  --tray-ink:#fff; --tray-dim:rgba(255,255,255,.28);
 }
 
 *{box-sizing:border-box}
@@ -451,8 +454,8 @@ section{margin-top:28px}
   </section>
 
   <section>
-    <h2>托盘图标（0.2.6）</h2>
-    <p class="note">两种托盘模式都用设备图形和底部电量条，悬停可看百分比。依次展示 16、24、32px 和放大 3 倍的 16px 图标。</p>
+    <h2>托盘图标（0.2.9）</h2>
+    <p class="note">两种托盘模式都用设备剪影显示电量。颜色从底部向上填充，悬停可看具体百分比。依次展示 16、24、32px 和放大 3 倍的 16px 图标。</p>
     <div class="grid" id="iconGrid"></div>
   </section>
 
@@ -657,59 +660,46 @@ section{margin-top:28px}
     if (typeof fit === 'function' && current === 'pMain') fit('pMain');
   }
 
-  // 16px 像素版与高 DPI 矢量版（与 PixelTrayIcon.cs 和 Graphics.cs 一致）
+  // 与 PixelTrayIcon.cs 和 TrayDeviceShape.cs 对应的剪影。
   const trayGlyphPixels = {
-    mouse: ['..####..', '.##..##.', '##.##.##', '#..##..#', '#..##..#', '########', '#......#', '#......#', '#......#', '##....##', '.##..##.', '..####..'],
-    keyboard: ['.############.', '##..........##', '#............#', '#.#.#.#.#.#..#', '#............#', '#..#.#.#.#.#.#', '#............#', '#...######...#', '#............#', '##..........##', '.############.'],
-    headset: ['...######...', '..##....##..', '.##......##.', '.#........#.', '.#........#.', '##........##', '###......###', '###......###', '###......###', '###......###', '.##......##.', '..#......#..'],
-    other: ['..########..', '.##......##.', '##........##', '#..##......#', '#..##......#', '#..........#', '#...####...#', '#..........#', '##........##', '.##......##.', '..########..']
+    mouse: ["..XXXXXX..", ".XXXXXXXX.", "XXXX..XXXX", "XXXX..XXXX", "XXXX..XXXX", "XXXXXXXXXX", "..........", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", ".XXXXXXXX.", "..XXXXXX.."],
+    keyboard: [".XXXXXXXXXXXXX.", "XXXXXXXXXXXXXXX", "XX.X.X.X.X.X.XX", "XXXXXXXXXXXXXXX", "XXX.X.X.X.X.XXX", "XXXXXXXXXXXXXXX", "XXXX.......XXXX", "XXXXXXXXXXXXXXX", ".XXXXXXXXXXXXX."],
+    headset: [".....XXXXXX.....", "...XXXXXXXXXX...", "..XXX......XXX..", ".XXX........XXX.", ".XX..........XX.", ".XX..........XX.", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", ".XXX........XXX."],
+    other: ["..XXXXXXXXXX..", ".XXXXXXXXXXXX.", "XXXXXXXXXXXXXX", "XXX..XXXXXXXXX", "XXX..XXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXXXXXXXXXXX", "XXXXX......XXX", "XXXXX......XXX", "XXXXXXXXXXXXXX", ".XXXXXXXXXXXX.", "..XXXXXXXXXX.."],
   };
-  function pxMask(rows, left, top, ink){
-    let pixels = '';
-    rows.forEach((row,y)=>[...row].forEach((pixel,x)=>{
-      if (pixel==='#') pixels += `<rect x="${left+x}" y="${top+y}" width="1" height="1" fill="${ink}"/>`;
-    }));
-    return pixels;
-  }
-  function vectorGlyph(kind, x, y, w, h, ink){
-    const s = Math.max(0.8, h * 0.12), half = s / 2;
-    const outline = r => `<rect x="${x+half}" y="${y+half}" width="${w-s}" height="${h-s}" rx="${r}" fill="none" stroke="${ink}" stroke-width="${s}"/>`;
-    const line = (ax, ay, bx, by, width=s) => `<path d="M ${ax} ${ay} L ${bx} ${by}" stroke="${ink}" stroke-width="${width}"/>`;
-    const dot = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${ink}"/>`;
-    if (kind==='mouse'){
-      const middle = y+h*0.48;
-      return outline(w*0.42) + line(x+w/2,y+half,x+w/2,middle) + line(x+half,middle,x+w-half,middle,s*0.8);
-    }
-    if (kind==='keyboard'){
-      let keys = '';
-      for (let row=0;row<2;row++)
-        for (let key=0;key<5;key++)
-          keys += dot(x+w*(0.21+key*0.135+row*0.04),y+h*(0.32+row*0.20),s*0.48);
-      return outline(h*0.18) + keys + line(x+w*0.29,y+h*0.74,x+w*0.71,y+h*0.74);
-    }
-    if (kind==='headset'){
-      const earW = w*0.25, cy = y+h*0.52, r = Math.min((w-earW)/2,cy-y-half);
-      const ear = left => `<rect x="${left}" y="${cy}" width="${earW}" height="${h*0.48}" rx="${earW*0.42}" fill="${ink}"/>`;
-      return `<path d="M ${x+w/2-r} ${cy} A ${r} ${r} 0 0 1 ${x+w/2+r} ${cy}" fill="none" stroke="${ink}" stroke-width="${s}"/>` + ear(x) + ear(x+w-earW);
-    }
-    return outline(h*0.24) + dot(x+w*0.33,y+h*0.36,s*0.75) + line(x+w*0.33,y+h*0.68,x+w*0.67,y+h*0.68);
-  }
+  const trayGlyphPaths = {
+    mouse: "M2 0L8 0L9.5 1.5L10 3L10 6L0 6L0 3L0.5 1.5ZM4 2L6 2L6 5L4 5ZM0 8L10 8L10 13L9.25 14.75L7.75 16L2.25 16L0.75 14.75L0 13Z",
+    keyboard: "M1 0L14 0L15 1L15 8L14 9L1 9L0 8L0 1ZM1.25 1L3.25 1L3.25 3L1.25 3ZM3.875 1L5.875 1L5.875 3L3.875 3ZM6.5 1L8.5 1L8.5 3L6.5 3ZM9.125 1L11.125 1L11.125 3L9.125 3ZM11.75 1L13.75 1L13.75 3L11.75 3ZM2.5625 3.5L4.5625 3.5L4.5625 5.5L2.5625 5.5ZM5.1875 3.5L7.1875 3.5L7.1875 5.5L5.1875 5.5ZM7.8125 3.5L9.8125 3.5L9.8125 5.5L7.8125 5.5ZM10.4375 3.5L12.4375 3.5L12.4375 5.5L10.4375 5.5ZM4 6.25L11 6.25L11 8.25L4 8.25Z",
+    headset: "M0 7L1 6L1 4L2 2L4 0.5L5.5 0L10.5 0L12 0.5L14 2L15 4L15 6L16 7L16 11.5L14.75 13L12 13L11 11.5L11 7L12.75 6L12.75 4.5L11.5 3L9.75 2L6.25 2L4.5 3L3.25 4.5L3.25 6L5 7L5 11.5L4 13L1.25 13L0 11.5Z",
+    other: "M2 0L12 0L14 2L14 10L12 12L2 12L0 10L0 2ZM3 3L5 3L5 5L3 5ZM5 7L11 7L11 9L5 9Z",
+  };
   function trayIconSVG(size, {percentage, color, kind}, zoom=1){
-    const ink = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim();
     const display = size * zoom;
     if (!kind){
-      return `<svg width="${display}" height="${display}" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="7" width="6" height="2" fill="${ink}" opacity="0.55"/></svg>`;
+      return `<svg width="${display}" height="${display}" viewBox="0 0 16 16" shape-rendering="crispEdges"><rect x="5" y="7" width="6" height="2" fill="var(--ink)" opacity="0.55"/></svg>`;
     }
     const rows = trayGlyphPixels[kind] || trayGlyphPixels.other;
     const scale = pixels => Math.round(pixels*size/16);
     const w = scale(rows[0].length), h = scale(rows.length);
-    const x = Math.floor((size-w)/2), y = Math.floor((scale(12)-h)/2);
-    const glyph = size===16 ? pxMask(rows,x,y,ink) : vectorGlyph(kind,x,y,w,h,ink);
-    const margin = scale(1), barH = scale(2), barW = size-2*margin, barY = size-barH;
-    const fillW = Math.round(barW*Math.min(100,Math.max(0,percentage ?? 0))/100);
-    const bar = (width, fill, opacity=1) => `<rect x="${margin}" y="${barY}" width="${width}" height="${barH}" fill="${fill}" opacity="${opacity}" shape-rendering="crispEdges"/>`;
-    return `<svg width="${display}" height="${display}" viewBox="0 0 ${size} ${size}"${size===16?' shape-rendering="crispEdges"':''}>
-      ${glyph}${bar(barW,ink,0.25)}${fillW>0?bar(fillW,color || ink):''}</svg>`;
+    const x = Math.floor((size-w)/2), y = Math.floor((size-h)/2);
+    const pct = Math.min(100,Math.max(0,percentage ?? 0));
+    const waterline = y + h - (pct > 0 ? Math.max(1, Math.round(pct*h/100)) : 0);
+    const fullInk = color || 'var(--tray-ink)';
+    const dimInk = 'var(--tray-dim)';
+    let glyph = '';
+    if (size===16){
+      rows.forEach((row,j)=>[...row].forEach((pixel,i)=>{
+        if (pixel==='X')
+          glyph += `<rect x="${x+i}" y="${y+j}" width="1" height="1" fill="${y+j<waterline?dimInk:fullInk}"/>`;
+      }));
+    } else {
+      const path = trayGlyphPaths[kind] || trayGlyphPaths.other;
+      const section = (top, bottom, ink) => top < bottom
+        ? `<svg x="${x}" y="${top}" width="${w}" height="${bottom-top}" viewBox="${x} ${top} ${w} ${bottom-top}" overflow="hidden"><path d="${path}" transform="translate(${x} ${y}) scale(${w/rows[0].length} ${h/rows.length})" fill-rule="evenodd" fill="${ink}"/></svg>`
+        : '';
+      glyph = section(y, waterline, dimInk) + section(waterline, y+h, fullInk);
+    }
+    return `<svg width="${display}" height="${display}" viewBox="0 0 ${size} ${size}"${size===16?' shape-rendering="crispEdges"':''}>${glyph}</svg>`;
   }
   function trayOptFor(d){
     if (!d) return {kind:null};

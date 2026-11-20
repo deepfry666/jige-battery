@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>托盘图标新样式</title>
+<style>
+:root{--bg:#f6f3ee;--ink:#211d19;--muted:#6b645c;--card:#fff;--line:#e3ddd3}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1816;--ink:#f0ece4;--muted:#a59d93;--card:#24211e;--line:#38332e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.6 "Segoe UI Variable","Segoe UI","PingFang SC",sans-serif;padding:24px 16px 48px}
+main{max-width:980px;margin:0 auto}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 24px}
+.opt{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.opt h3{margin:0 0 4px;font-size:16px}
+.opt p{margin:0 0 12px;color:var(--muted)}
+.tag{font-size:12px;background:#211d19;color:#f0ece4;border-radius:4px;padding:1px 6px;margin-left:8px;vertical-align:2px}
+@media (prefers-color-scheme:dark){.tag{background:#f0ece4;color:#211d19}}
+.row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.cell{display:flex;flex-direction:column;gap:6px}
+.lab{font-size:12px;color:var(--muted)}
+.bar{display:flex;align-items:center;gap:10px;padding:0 12px;height:40px;background:#1c1c1c;border-radius:6px}
+.bar.light{background:#eeeeee}
+.bar .chev{width:10px;height:10px;border-left:1.5px solid #ccc;border-top:1.5px solid #ccc;transform:rotate(45deg) translate(2px,2px);margin-right:4px}
+.bar.light .chev{border-color:#444}
+.zoom{display:flex;gap:10px;flex-wrap:wrap;padding:10px;background:#1c1c1c;border-radius:6px}
+.zoom svg{background:#262626}
+.legend{font-size:12px;color:var(--muted);margin-top:8px}
+svg{display:block}
+</style></head><body><main>
+<h1>托盘图标新样式</h1>
+<p class="sub">每行四个图标依次是：鼠标 20%（偏低）、键盘 80%、耳机 45% 充电中、鼠标 8%（过低）。「实际大小」那一栏就是任务栏上的真实尺寸，请在 100% 缩放的屏幕上看。</p>
+<div id="root"></div>
+</main>
+<script>
+// 16×16 像素位图，X 为实心像素
+const BIG={
+ mouse:[".....XXXXXX.....","....XXXXXXXX....","...XXXX..XXXX...","...XXXX..XXXX...","...XXXX..XXXX...","...XXXXXXXXXX...","...............","...XXXXXXXXXX...","...XXXXXXXXXX...","...XXXXXXXXXX...","...XXXXXXXXXX...","...XXXXXXXXXX...","...XXXXXXXXXX...","...XXXXXXXXXX...","....XXXXXXXX....",".....XXXXXX....."],
+ keyboard:["","","",".XXXXXXXXXXXXX..","XXXXXXXXXXXXXXX.","XX.X.X.X.X.X.XX.","XXXXXXXXXXXXXXX.","XXX.X.X.X.X.XXX.","XXXXXXXXXXXXXXX.","XXXX.......XXXX.","XXXXXXXXXXXXXXX.",".XXXXXXXXXXXXX..","","","",""],
+ headset:["",".....XXXXXX.....","...XXXXXXXXXX...","..XXX......XXX..",".XXX........XXX.",".XX..........XX.",".XX..........XX.","XXXXX......XXXXX","XXXXX......XXXXX","XXXXX......XXXXX","XXXXX......XXXXX","XXXXX......XXXXX","XXXXX......XXXXX",".XXX........XXX.","",""]
+};
+const SMALL={ // 给方案 E 用，高度 ≤ 12
+ mouse:["......XXXX......",".....XXXXXX.....","....XXX..XXX....","....XXX..XXX....","....XXXXXXXX....","....XXXXXXXX....","....XXXXXXXX....","....XXXXXXXX....","....XXXXXXXX....","....XXXXXXXX....",".....XXXXXX.....","......XXXX......"],
+ keyboard:["","",".XXXXXXXXXXXXX..","XXXXXXXXXXXXXXX.","XX.X.X.X.X.X.XX.","XXXXXXXXXXXXXXX.","XXX.X.X.X.X.XXX.","XXXXXXXXXXXXXXX.","XXXX.......XXXX.","XXXXXXXXXXXXXXX.",".XXXXXXXXXXXXX..",""],
+ headset:[".....XXXXXX.....","...XXXXXXXXXX...","..XXX......XXX..","..XX........XX..","..XX........XX..","..XXXX....XXXX..","..XXXX....XXXX..","..XXXX....XXXX..","..XXXX....XXXX..","..XXXX....XXXX..","...XX......XX...",""]
+};
+const DIG={"0":["XXX","X.X","X.X","X.X","XXX"],"1":[".X.","XX.",".X.",".X.","XXX"],"2":["XXX","..X","XXX","X..","XXX"],"3":["XXX","..X","XXX","..X","XXX"],"4":["X.X","X.X","XXX","..X","..X"],"5":["XXX","X..","XXX","..X","XXX"],"6":["XXX","X..","XXX","X.X","XXX"],"7":["XXX","..X","..X","..X","..X"],"8":["XXX","X.X","XXX","X.X","XXX"],"9":["XXX","X.X","XXX","..X","XXX"]};
+
+function pal(dark){return dark
+ ?{fg:"#ffffff",dim:"rgba(255,255,255,.28)",low:"#ffc83d",crit:"#ff5c5c",chg:"#3fd16b",tileInk:"#111"}
+ :{fg:"#1b1b1b",dim:"rgba(0,0,0,.22)",low:"#c78a00",crit:"#d13438",chg:"#107c10",tileInk:"#fff"};}
+function stateColor(p,d){const c=pal(d);if(d===undefined)return c.fg;return p.chg?c.chg:p.pct<10?c.crit:p.pct<25?c.low:c.fg;}
+function px(x,y,fill,s=1){return `<rect x="${x}" y="${y}" width="${s}" height="${s}" fill="${fill}"/>`}
+function rows(bm){let top=-1,bot=-1;bm.forEach((r,i)=>{if(r.includes("X")){if(top<0)top=i;bot=i}});return [top,bot]}
+
+// D 水位图形：整个设备图形就是电量计，从下往上填色
+function D(p,dark){const c=pal(dark),bm=BIG[p.kind],[t,b]=rows(bm),h=b-t+1;
+ const filled=Math.round(p.pct/100*h),line=b-filled+1,col=stateColor(p,dark);let s="";
+ bm.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==="X")s+=px(x,y,y>=line?col:c.dim)});return s;}
+
+// E 加粗版：实心图形 + 3px 粗电量条（带底槽）
+function E(p,dark){const c=pal(dark),bm=SMALL[p.kind];let s="";
+ bm.forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==="X")s+=px(x,y,c.fg)});
+ s+=`<rect x="0" y="13" width="16" height="3" fill="${c.dim}"/>`;
+ const w=Math.max(p.pct>0?1:0,Math.round(p.pct/100*16));
+ s+=`<rect x="0" y="13" width="${w}" height="3" fill="${stateColor(p,dark)}"/>`;return s;}
+
+// F 数字色块：整块圆角底色表示状态，里面是加粗大数字；设备种类看左上角缺口形状
+function F(p,dark){const c=pal(dark),col=stateColor(p,dark);
+ let s=`<rect x="0" y="0" width="16" height="16" rx="3" fill="${col}"/>`;
+ const str=String(Math.min(p.pct,99)),sc=2,w=str.length*3*sc+(str.length-1)*2,x0=Math.floor((16-w)/2),y0=3;
+ [...str].forEach((ch,i)=>DIG[ch].forEach((r,y)=>{for(let x=0;x<3;x++)if(r[x]==="X")s+=px(x0+i*(3*sc+2)+x*sc,y0+y*sc,c.tileInk,sc)}));
+ return s;}
+
+// G 竖电量柱 + 设备图形：左边一根粗竖条从下往上涨，右边是设备
+function G(p,dark){const c=pal(dark);let s="";
+ s+=`<rect x="0" y="1" width="4" height="14" fill="${c.dim}"/>`;
+ const h=Math.max(p.pct>0?1:0,Math.round(p.pct/100*14));
+ s+=`<rect x="0" y="${15-h}" width="4" height="${h}" fill="${stateColor(p,dark)}"/>`;
+ const NARROW={
+  mouse:["","...XXXX...","..XXXXXX..",".XXX..XXX.",".XXX..XXX.",".XXXXXXXX.",".XXXXXXXX.",".XXXXXXXX.",".XXXXXXXX.",".XXXXXXXX.",".XXXXXXXX.",".XXXXXXXX.","..XXXXXX..","...XXXX...","",""],
+  keyboard:["","","","",".XXXXXXXXX","XXXXXXXXXX","X.X.X.X.XX","XXXXXXXXXX","XX.X.X.XXX","XXXXXXXXXX","XX.....XXX","XXXXXXXXXX",".XXXXXXXXX","","",""],
+  headset:["","","..XXXXXX..",".XXXXXXXX.","XXX....XXX","XX......XX","XX......XX","XXXX..XXXX","XXXX..XXXX","XXXX..XXXX","XXXX..XXXX","XXXX..XXXX",".XX....XX.","","",""]};
+ NARROW[p.kind].forEach((r,y)=>{for(let x=0;x<r.length;x++)if(r[x]==="X")s+=px(6+x,y,c.fg)});return s;}
+
+const samples=[{kind:"mouse",pct:20},{kind:"keyboard",pct:80},{kind:"headset",pct:45,chg:true},{kind:"mouse",pct:8}];
+function svg(fn,p,dark,z){return `<svg width="${16*z}" height="${16*z}" viewBox="0 0 16 16" shape-rendering="crispEdges">${fn(p,dark)}</svg>`}
+const opts=[
+ ["D","水位图形",true,D,"整个托盘格子画成一个实心的鼠标、键盘或耳机，电量多少就从下往上填多少颜色，没填到的部分是暗色。图形占满整格，比现在大一倍，远看也能分清是哪台设备、大概还剩多少。具体数字仍看悬停卡片。"],
+ ["E","加粗版 B",false,E,"保留现在的思路，但图形改成实心，电量条从 1 像素加粗到 3 像素，还加了暗色底槽，能看出满格有多长。改动最小，但图形会比现在再小一点。"],
+ ["F","数字色块",false,F,"一整块圆角色块，颜色就是状态（正常白、偏低黄、过低红、充电绿），中间是加粗的大号数字。数字最清楚，但图标上看不出是鼠标还是键盘，要靠位置或悬停区分。满电显示为 99。"],
+ ["G","竖电量柱 + 图形",false,G,"左边一根粗竖条像电池一样从下往上涨，右边是实心的设备图形。电量和设备种类各占一半，两样都比现在清楚，但图形会窄一些，键盘最挤。"]
+];
+const root=document.getElementById("root");
+for(const [k,t,rec,fn,desc] of opts){
+ const el=document.createElement("div");el.className="opt";
+ let h=`<h3>方案 ${k}　${t}${rec?'<span class="tag">推荐</span>':''}</h3><p>${desc}</p><div class="row">`;
+ for(const [z,lab] of [[1,"实际大小 · 100% 缩放"],[2,"实际大小 · 200% 缩放"]]){
+  h+=`<div class="cell"><span class="lab">${lab}</span><div class="bar"><span class="chev"></span>${samples.map(p=>svg(fn,p,true,z)).join("")}</div><div class="bar light"><span class="chev"></span>${samples.map(p=>svg(fn,p,false,z)).join("")}</div></div>`;
+ }
+ h+=`<div class="cell"><span class="lab">放大 5 倍看像素</span><div class="zoom">${samples.map(p=>svg(fn,p,true,5)).join("")}</div></div></div>`;
+ el.innerHTML=h;root.appendChild(el);
+}
+</script></body></html>

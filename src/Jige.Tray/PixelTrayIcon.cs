@@ -6,73 +6,79 @@ internal static class PixelTrayIcon
 {
     private const int Size = 16;
 
+    // BIG 位图裁到实际外接矩形，TrayIconLayout 负责与 16px 图标对齐。
     private static readonly string[] Mouse =
     [
-        "..####..",
-        ".##..##.",
-        "##.##.##",
-        "#..##..#",
-        "#..##..#",
-        "########",
-        "#......#",
-        "#......#",
-        "#......#",
-        "##....##",
-        ".##..##.",
-        "..####.."
+        "..XXXXXX..",
+        ".XXXXXXXX.",
+        "XXXX..XXXX",
+        "XXXX..XXXX",
+        "XXXX..XXXX",
+        "XXXXXXXXXX",
+        "..........",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        "XXXXXXXXXX",
+        ".XXXXXXXX.",
+        "..XXXXXX.."
     ];
 
     private static readonly string[] Keyboard =
     [
-        ".############.",
-        "##..........##",
-        "#............#",
-        "#.#.#.#.#.#..#",
-        "#............#",
-        "#..#.#.#.#.#.#",
-        "#............#",
-        "#...######...#",
-        "#............#",
-        "##..........##",
-        ".############."
+        ".XXXXXXXXXXXXX.",
+        "XXXXXXXXXXXXXXX",
+        "XX.X.X.X.X.X.XX",
+        "XXXXXXXXXXXXXXX",
+        "XXX.X.X.X.X.XXX",
+        "XXXXXXXXXXXXXXX",
+        "XXXX.......XXXX",
+        "XXXXXXXXXXXXXXX",
+        ".XXXXXXXXXXXXX."
     ];
 
     private static readonly string[] Headset =
     [
-        "...######...",
-        "..##....##..",
-        ".##......##.",
-        ".#........#.",
-        ".#........#.",
-        "##........##",
-        "###......###",
-        "###......###",
-        "###......###",
-        "###......###",
-        ".##......##.",
-        "..#......#.."
+        ".....XXXXXX.....",
+        "...XXXXXXXXXX...",
+        "..XXX......XXX..",
+        ".XXX........XXX.",
+        ".XX..........XX.",
+        ".XX..........XX.",
+        "XXXXX......XXXXX",
+        "XXXXX......XXXXX",
+        "XXXXX......XXXXX",
+        "XXXXX......XXXXX",
+        "XXXXX......XXXXX",
+        "XXXXX......XXXXX",
+        ".XXX........XXX."
     ];
 
     private static readonly string[] Other =
     [
-        "..########..",
-        ".##......##.",
-        "##........##",
-        "#..##......#",
-        "#..##......#",
-        "#..........#",
-        "#...####...#",
-        "#..........#",
-        "##........##",
-        ".##......##.",
-        "..########.."
+        "..XXXXXXXXXX..",
+        ".XXXXXXXXXXXX.",
+        "XXXXXXXXXXXXXX",
+        "XXX..XXXXXXXXX",
+        "XXX..XXXXXXXXX",
+        "XXXXXXXXXXXXXX",
+        "XXXXXXXXXXXXXX",
+        "XXXXX......XXX",
+        "XXXXX......XXX",
+        "XXXXXXXXXXXXXX",
+        ".XXXXXXXXXXXX.",
+        "..XXXXXXXXXX.."
     ];
 
     public static void Draw(Span<uint> pixels, IconAppearance icon)
     {
         if (icon.Kind is not { } kind)
         {
-            Fill(pixels, new(5, 7, 6, 2), icon.FillInk);
+            pixels.Slice(7 * Size + 5, 6).Fill(icon.FillInk.Premultiplied);
+            pixels.Slice(8 * Size + 5, 6).Fill(icon.FillInk.Premultiplied);
             return;
         }
 
@@ -84,24 +90,18 @@ internal static class PixelTrayIcon
             DeviceKind.Headset => Headset,
             _ => Other
         };
-        uint ink = icon.GlyphInk.Premultiplied;
-        for (int y = 0; y < rows.Length; y++)
+
+        uint filled = icon.FillInk.Premultiplied;
+        uint dim = icon.DimInk.Premultiplied;
+        for (int row = 0; row < rows.Length; row++)
         {
-            for (int x = 0; x < rows[y].Length; x++)
+            int y = layout.Glyph.Y + row;
+            uint ink = y >= layout.Waterline ? filled : dim;
+            for (int x = 0; x < rows[row].Length; x++)
             {
-                if (rows[y][x] == '#')
-                    pixels[(layout.Glyph.Y + y) * Size + layout.Glyph.X + x] = ink;
+                if (rows[row][x] == 'X')
+                    pixels[y * Size + layout.Glyph.X + x] = ink;
             }
         }
-
-        Fill(pixels, layout.Track, icon.TrackInk);
-        Fill(pixels, layout.Fill, icon.FillInk);
-    }
-
-    private static void Fill(Span<uint> pixels, IconRect rect, Color color)
-    {
-        uint ink = color.Premultiplied;
-        for (int y = rect.Y; y < rect.Bottom; y++)
-            pixels.Slice(y * Size + rect.X, rect.Width).Fill(ink);
     }
 }

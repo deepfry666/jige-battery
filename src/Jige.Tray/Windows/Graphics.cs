@@ -1,3 +1,4 @@
+using System.Numerics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Jige.Core;
@@ -314,45 +315,49 @@ internal sealed unsafe class Canvas : IDisposable
         }
     }
 
-    public void TrayDeviceGlyph(DeviceKind kind, IconRect rect, Color ink)
+    public void TrayDeviceGlyph(ID2D1Factory* factory, DeviceKind kind, TrayIconLayout layout, IconAppearance icon)
     {
-        float x = rect.X, y = rect.Y, w = rect.Width, h = rect.Height;
-        float stroke = MathF.Max(0.8f, h * 0.12f);
-        float half = stroke / 2f;
-        PushClip(new PanelRect(x, y, w, h));
+        var glyph = layout.Glyph;
+        var transform = TrayDeviceShape.Transform(kind, glyph);
+        ID2D1PathGeometry* geometry = null;
+        ID2D1GeometrySink* sink = null;
         try
         {
-            switch (kind)
+            factory->CreatePathGeometry(&geometry);
+            geometry->Open(&sink);
+            sink->SetFillMode(D2D1_FILL_MODE.D2D1_FILL_MODE_ALTERNATE);
+            foreach (var contour in TrayDeviceShape.Contours(kind))
             {
-                case DeviceKind.Mouse:
-                    Stroke(x + half, y + half, w - stroke, h - stroke, w * 0.42f, ink, stroke);
-                    Line(x + w * 0.50f, y + half, x + w * 0.50f, y + h * 0.48f, ink, stroke);
-                    Line(x + half, y + h * 0.48f, x + w - half, y + h * 0.48f, ink, stroke * 0.8f);
-                    break;
-                case DeviceKind.Keyboard:
-                    Stroke(x + half, y + half, w - stroke, h - stroke, h * 0.18f, ink, stroke);
-                    for (int row = 0; row < 2; row++)
-                    {
-                        for (int key = 0; key < 5; key++)
-                            Dot(x + w * (0.21f + key * 0.135f + row * 0.04f), y + h * (0.32f + row * 0.20f),
-                                stroke * 0.48f, ink);
-                    }
-                    Line(x + w * 0.29f, y + h * 0.74f, x + w * 0.71f, y + h * 0.74f, ink, stroke);
-                    break;
-                case DeviceKind.Headset:
-                    float earWidth = w * 0.25f;
-                    float bandY = y + h * 0.52f;
-                    float bandRadius = MathF.Min((w - earWidth) / 2f, bandY - y - half);
-                    Arc(x + w / 2f, bandY, bandRadius, MathF.PI, 2f * MathF.PI, ink, stroke);
-                    Fill(x, bandY, earWidth, h * 0.48f, earWidth * 0.42f, ink);
-                    Fill(x + w - earWidth, bandY, earWidth, h * 0.48f, earWidth * 0.42f, ink);
-                    break;
-                default:
-                    Stroke(x + half, y + half, w - stroke, h - stroke, h * 0.24f, ink, stroke);
-                    Dot(x + w * 0.33f, y + h * 0.36f, stroke * 0.75f, ink);
-                    Line(x + w * 0.33f, y + h * 0.68f, x + w * 0.67f, y + h * 0.68f, ink, stroke);
-                    break;
+                var first = Vector2.Transform(contour[0], transform);
+                sink->BeginFigure(Graphics.Point(first.X, first.Y), D2D1_FIGURE_BEGIN.D2D1_FIGURE_BEGIN_FILLED);
+                foreach (var point in contour.AsSpan(1))
+                {
+                    var scaled = Vector2.Transform(point, transform);
+                    sink->AddLine(Graphics.Point(scaled.X, scaled.Y));
+                }
+                sink->EndFigure(D2D1_FIGURE_END.D2D1_FIGURE_END_CLOSED);
             }
+            sink->Close();
+
+            // 两个整数边界的裁剪区互不重叠，暗色不会透过水位以下的剪影边缘叠上来。
+            if (layout.Waterline > glyph.Y)
+                FillTrayGlyph(geometry, glyph, glyph.Y, layout.Waterline, icon.DimInk);
+            if (layout.Waterline < glyph.Bottom)
+                FillTrayGlyph(geometry, glyph, layout.Waterline, glyph.Bottom, icon.FillInk);
+        }
+        finally
+        {
+            Graphics.Release(sink);
+            Graphics.Release(geometry);
+        }
+    }
+
+    private void FillTrayGlyph(ID2D1PathGeometry* geometry, IconRect glyph, int top, int bottom, Color ink)
+    {
+        PushClip(new PanelRect(glyph.X, top, glyph.Width, bottom - top));
+        try
+        {
+            target->FillGeometry((ID2D1Geometry*)geometry, Brush(ink), null);
         }
         finally
         {

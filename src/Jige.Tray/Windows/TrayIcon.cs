@@ -275,10 +275,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
                 if (icon.Kind is { } kind)
                 {
                     var layout = TrayIconLayout.Compute(size, kind, icon.Percentage);
-                    canvas.TrayDeviceGlyph(kind, layout.Glyph, icon.GlyphInk);
-                    canvas.Fill(layout.Track.X, layout.Track.Y, layout.Track.Width, layout.Track.Height, 0, icon.TrackInk);
-                    if (!layout.Fill.IsEmpty)
-                        canvas.Fill(layout.Fill.X, layout.Fill.Y, layout.Fill.Width, layout.Fill.Height, 0, icon.FillInk);
+                    canvas.TrayDeviceGlyph(sharedFactories.D2D, kind, layout, icon);
                 }
                 else
                 {

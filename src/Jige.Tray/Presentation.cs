@@ -48,10 +48,7 @@ internal sealed record Palette(Color Ink, Color Secondary, Color Muted, Color Ca
 }
 
 internal readonly record struct IconAppearance(
-    int? Percentage, BatteryTone Tone, Color FillInk, DeviceKind? Kind, Color GlyphInk)
-{
-    public Color TrackInk => GlyphInk.WithAlpha(64);
-}
+    int? Percentage, BatteryTone Tone, Color FillInk, DeviceKind? Kind, Color DimInk);
 
 internal static class Presentation
 {
@@ -78,11 +75,12 @@ internal static class Presentation
         var color = tone switch
         {
             BatteryTone.Idle => palette.Ink.WithAlpha(140),
-            BatteryTone.Normal => palette.Ink,
+            BatteryTone.Normal => darkTaskbar ? new(0xffffff) : palette.Ink,
             _ => palette.Status(tone)
         };
         int? percentage = tone == BatteryTone.Idle ? null : device?.Percentage;
-        return new(percentage, tone, color, device?.Device.Kind, palette.Ink);
+        Color dim = darkTaskbar ? new(0xffffff, 71) : new(0, 56);
+        return new(percentage, tone, color, device?.Device.Kind, dim);
     }
 
     public static int FilledCells(int? percent, int count) => ((percent ?? 0) * count + 50) / 100;
