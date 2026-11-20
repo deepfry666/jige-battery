@@ -162,7 +162,8 @@ internal static class MouseBatteryProtocol
         int offset = family switch
         {
             MouseFamily.XviOld when frame[..4].SequenceEqual((ReadOnlySpan<byte>)[0, 0xA1, 2, 0x8F]) => 5,
-            MouseFamily.XviNew when frame[..7].SequenceEqual((ReadOnlySpan<byte>)[0, 0xA1, 0, 2, 2, 0, 0x83]) => 7,
+            MouseFamily.XviNew when frame[0] == 0 && frame[1] is 0xA1 or 0xA2 &&
+                frame[2..7].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0, 0x83]) => 7,
             _ => 0
         };
         if (offset == 0 || frame[offset + 1] > 100)

@@ -108,6 +108,13 @@ public static class DeviceCatalog
         new(0x373B, 0x11DB, "ATK A9 Pro Max 2.0 NK（另一候选）", "BitMouse", DeviceKind.Mouse,
             VerificationTier.DocsOnly, "mouse:", "research/device-catalog.md"),
 
+        // === 仅按资料：国产鼠标第一批 ===
+        ..MouseReceiverCatalog.DomesticModels.Select(model => new DeviceCatalogEntry(
+            model.Receiver.VendorId, model.Receiver.ProductId!.Value, model.Receiver.Model,
+            model.Receiver.Family == MouseFamily.CompxOut ? "Compx-OUT" : "XVI-NEW", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", model.Source)),
+        ..MchoseMouseAdapter.Models,
+
         // === 仅按资料：G-Wolves XVI-OLD（独立于 XVI-NEW，尚无 XVI-OLD 实机记录） ===
         new(0x33E4, 0x3917, "G-Wolves VUK", "XVI-OLD", DeviceKind.Mouse,
             VerificationTier.DocsOnly, "mouse:", "mouse.xyz 官方型号表 / OpenMouse"),
@@ -278,6 +285,15 @@ public static class DeviceCatalog
     /// </summary>
     public static IReadOnlyList<DisabledDevicePath> DisabledPaths { get; } =
     [
+        new(0x3554, 0xF524, "Zaopin 鼠标", "Compx-OUT", "电量应答存在未核实分支", "Control HUB"),
+        new(0x3554, 0xF527, "Zaopin 鼠标", "Compx-OUT", "电量应答存在未核实分支", "Control HUB"),
+        new(0x3554, 0xF5D5, "Compx 方案鼠标", "Compx-OUT", "Zaopin 电量应答存在未核实分支", "Control HUB"),
+        new(0x3554, 0xFB43, "Attack Shark 鼠标", "Compx-OUT", "电量应答分支未核实", "Control HUB"),
+        new(0x3554, 0xFB44, "Attack Shark 鼠标", "Compx-OUT", "电量应答分支未核实", "Control HUB"),
+        new(0x3554, 0xF510, "Compx 方案鼠标", "Compx-OUT", "Lamzu 与 Attack Shark 共用 PID，回复分支无法区分", "Lamzu Aurora / Control HUB"),
+        new(0x3554, 0xFB26, "Delux 鼠标", "Compx-OUT", "电量应答分支未核实", "Control HUB"),
+        new(0x3554, 0xFB23, "Delux 鼠标", "Compx-OUT", "电量应答分支未核实", "Control HUB"),
+
         // 雷蛇 PA 系列：查询前需发送 0xE1 切换远程模式，违背只读原则。
         new(0x1532, 0x0555, "Razer BlackShark V2 Pro 2023（PC）", "Razer PA",
             "PA 查询序列涉及 0xE1 切换远程模式，违背只读原则",

@@ -1,0 +1,2441 @@
+[
+  {
+    "brand": "AJAZZ",
+    "model": "AJ179 V2 MAX",
+    "vid": "248A",
+    "pid": "5D2E",
+    "kind": "wired",
+    "family": "AJAZZ Report 0",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/ajazz.py"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "AJ179 V2 MAX",
+    "vid": "249A",
+    "pid": "5C2F",
+    "kind": "receiver",
+    "family": "AJAZZ Report 0",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/ajazz.py"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "AJ159 Pro 8K（待验证）",
+    "vid": "3151",
+    "pid": "402D",
+    "kind": "receiver",
+    "family": "GearHub V5 candidate",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/ajazz.py"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "AJ179 Pro",
+    "vid": "3151",
+    "pid": "402D",
+    "kind": "receiver",
+    "family": "GearHub V5",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/docs/ajazz-aj179-pro.md"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "AJ179 Pro",
+    "vid": "3151",
+    "pid": "4026",
+    "kind": "wired",
+    "family": "GearHub V5",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/docs/ajazz-aj179-pro.md"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07",
+    "vid": "A8A4",
+    "pid": "2157",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08",
+    "vid": "A8A4",
+    "pid": "2158",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07 MC",
+    "vid": "A8A4",
+    "pid": "2167",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08 MC",
+    "vid": "A8A4",
+    "pid": "2168",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07 MC PRO",
+    "vid": "A8A4",
+    "pid": "2177",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08 MC PRO",
+    "vid": "A8A4",
+    "pid": "2178",
+    "kind": "wired",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/ajazz/index.ts"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07",
+    "vid": "A8A5",
+    "pid": "2157",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08",
+    "vid": "A8A5",
+    "pid": "2158",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07 MC",
+    "vid": "A8A5",
+    "pid": "2167",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08 MC",
+    "vid": "A8A5",
+    "pid": "2168",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ07 MC PRO",
+    "vid": "A8A5",
+    "pid": "2177",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "AJAZZ",
+    "model": "NJ08 MC PRO",
+    "vid": "A8A5",
+    "pid": "2178",
+    "kind": "receiver",
+    "family": "AJAZZ F0 candidate",
+    "source": "https://nacodex.yjx2012.com/_next/static/chunks/515-103c69dad660d3a3.js"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "X11 / R1 / X3 Max 共享接收器",
+    "vid": "1D57",
+    "pid": "FA60",
+    "kind": "receiver",
+    "family": "1D57 Input 03",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/inphic.py"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "X11 / R1 共用平台",
+    "vid": "1D57",
+    "pid": "FA55",
+    "kind": "wired",
+    "family": "1D57 wired (battery unverified)",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/drivers/attackshark/hid.ts"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "X11 / R1 共用平台",
+    "vid": "1D57",
+    "pid": "FA61",
+    "kind": "wired",
+    "family": "1D57 wired (battery unverified)",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/drivers/attackshark/hid.ts"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F50D",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F510",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F517",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "FB43",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "FB44",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F50E",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F515",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F516",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "ATTACK SHARK",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F5F6",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/AttackShark/cfg.json"
+  },
+  {
+    "brand": "AULA",
+    "model": "SC380 Pro",
+    "vid": "258A",
+    "pid": "0138",
+    "kind": "receiver",
+    "family": "AULA Feature 09",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/aula/index.ts"
+  },
+  {
+    "brand": "Dareu",
+    "model": "A950",
+    "vid": "260D",
+    "pid": "1074",
+    "kind": "receiver",
+    "family": "Compx Feature / Input 09",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/dareu.py"
+  },
+  {
+    "brand": "Dareu",
+    "model": "A950 系列（具体型号未核实）",
+    "vid": "260D",
+    "pid": "1084",
+    "kind": "receiver",
+    "family": "Compx Feature / Input 09",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/dareu.py"
+  },
+  {
+    "brand": "Dareu",
+    "model": "A950 PRO Mg / TM265",
+    "vid": "260D",
+    "pid": "1114",
+    "kind": "receiver",
+    "family": "Compx Jm",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/dareu/index.ts"
+  },
+  {
+    "brand": "Dareu",
+    "model": "A950 PRO Mg / TM265",
+    "vid": "260D",
+    "pid": "1117",
+    "kind": "wired",
+    "family": "Compx Jm",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/dareu/index.ts"
+  },
+  {
+    "brand": "Delux",
+    "model": "M800 Mini / M600 Pro 共用接收器",
+    "vid": "1D57",
+    "pid": "FA60",
+    "kind": "receiver",
+    "family": "1D57 Input 03",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/drivers/attackshark/hid.ts"
+  },
+  {
+    "brand": "Delux",
+    "model": "M800 Mini",
+    "vid": "1D57",
+    "pid": "FA55",
+    "kind": "wired",
+    "family": "1D57 wired (battery unverified)",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/delux/index.ts"
+  },
+  {
+    "brand": "Delux",
+    "model": "M600 Pro",
+    "vid": "1D57",
+    "pid": "FA71",
+    "kind": "wired",
+    "family": "1D57 wired (battery unverified)",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/delux/index.ts"
+  },
+  {
+    "brand": "Delux",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "FB23",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.controlhub.top/delux/cfg.json"
+  },
+  {
+    "brand": "Delux",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "FB26",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.controlhub.top/delux/cfg.json"
+  },
+  {
+    "brand": "Delux",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "FB25",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.controlhub.top/delux/cfg.json"
+  },
+  {
+    "brand": "EWEADN",
+    "model": "S9/M156",
+    "vid": "088D",
+    "pid": "062E",
+    "kind": "wired",
+    "family": "EWEADN 30 candidate",
+    "source": "https://hub.eweadn.cn/pq/web/_next/static/chunks/app/page-1ea75b68e269350f.js"
+  },
+  {
+    "brand": "EWEADN",
+    "model": "S9/M156",
+    "vid": "089D",
+    "pid": "062F",
+    "kind": "receiver",
+    "family": "EWEADN 30",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/eweadn.py"
+  },
+  {
+    "brand": "Incott",
+    "model": "Incott 8K（零售型号未核实）",
+    "vid": "093A",
+    "pid": "522C",
+    "kind": "receiver",
+    "family": "Incott Input 09",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/incott/index.ts"
+  },
+  {
+    "brand": "Incott",
+    "model": "Incott 8K（零售型号未核实）",
+    "vid": "093A",
+    "pid": "622C",
+    "kind": "wired",
+    "family": "Incott Input 09",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/incott/index.ts"
+  },
+  {
+    "brand": "Inphic",
+    "model": "IN9 Pro",
+    "vid": "1D57",
+    "pid": "FA65",
+    "kind": "receiver",
+    "family": "1D57 Input 03",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/inphic.py"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis",
+    "vid": "3554",
+    "pid": "F50D",
+    "kind": "receiver",
+    "family": "Compx-OUT candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis",
+    "vid": "3554",
+    "pid": "F510",
+    "kind": "receiver",
+    "family": "Compx-OUT candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis",
+    "vid": "3554",
+    "pid": "F50F",
+    "kind": "wired",
+    "family": "Compx-OUT candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MayaX V2",
+    "vid": "373E",
+    "pid": "0016",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya X",
+    "vid": "373E",
+    "pid": "001D",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya X",
+    "vid": "373E",
+    "pid": "001E",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya X",
+    "vid": "373E",
+    "pid": "001C",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2",
+    "vid": "37B0",
+    "pid": "0003",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "TACHI",
+    "vid": "37B0",
+    "pid": "000B",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "TACHI",
+    "vid": "37B0",
+    "pid": "000C",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "PARO",
+    "vid": "37B0",
+    "pid": "000D",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "PARO",
+    "vid": "37B0",
+    "pid": "000E",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "INCA",
+    "vid": "37B0",
+    "pid": "000F",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "INCA",
+    "vid": "37B0",
+    "pid": "0010",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya",
+    "vid": "37B0",
+    "pid": "0013",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya",
+    "vid": "37B0",
+    "pid": "0015",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN",
+    "vid": "37B0",
+    "pid": "0019",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN",
+    "vid": "37B0",
+    "pid": "001B",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Tachi Lite",
+    "vid": "37B0",
+    "pid": "001E",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2",
+    "vid": "37B0",
+    "pid": "0023",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis OG Champion",
+    "vid": "37B0",
+    "pid": "0027",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis Mini",
+    "vid": "37B0",
+    "pid": "002A",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis Mini",
+    "vid": "37B0",
+    "pid": "002B",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA M(54H20)",
+    "vid": "37B0",
+    "pid": "002E",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2(54H20)",
+    "vid": "37B0",
+    "pid": "002E",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2(54H20)",
+    "vid": "37B0",
+    "pid": "0032",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "DM198(54H20)",
+    "vid": "37B0",
+    "pid": "0036",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "DM198_OP(54H20)",
+    "vid": "37B0",
+    "pid": "0036",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA (54H20)",
+    "vid": "37B0",
+    "pid": "0036",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "ORCUS",
+    "vid": "37B0",
+    "pid": "0036",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA X(54H20)",
+    "vid": "37B0",
+    "pid": "003B",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis Mini(54H20)",
+    "vid": "37B0",
+    "pid": "003F",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Inca V2(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "LX11(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA M(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya X(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Orcus V2(LM20)",
+    "vid": "37B0",
+    "pid": "0048",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Mini(LM20)",
+    "vid": "37B0",
+    "pid": "0054",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MayaX V2",
+    "vid": "37B0",
+    "pid": "00FF",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "TACHI",
+    "vid": "37B0",
+    "pid": "0005",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "PARO",
+    "vid": "37B0",
+    "pid": "0007",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "INCA",
+    "vid": "37B0",
+    "pid": "0009",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya",
+    "vid": "37B0",
+    "pid": "0011",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN",
+    "vid": "37B0",
+    "pid": "0017",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Tachi Lite",
+    "vid": "37B0",
+    "pid": "001C",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MayaX V2",
+    "vid": "37B0",
+    "pid": "001F",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2",
+    "vid": "37B0",
+    "pid": "0021",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis OG Champion",
+    "vid": "37B0",
+    "pid": "0025",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis Mini",
+    "vid": "37B0",
+    "pid": "0028",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA M(54H20)",
+    "vid": "37B0",
+    "pid": "002C",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2(54H20)",
+    "vid": "37B0",
+    "pid": "0030",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "DM198(54H20)",
+    "vid": "37B0",
+    "pid": "0034",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "DM198_OP(54H20)",
+    "vid": "37B0",
+    "pid": "0038",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA X(54H20)",
+    "vid": "37B0",
+    "pid": "003A",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA (54H20)",
+    "vid": "37B0",
+    "pid": "003C",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Atlantis Mini(54H20)",
+    "vid": "37B0",
+    "pid": "003E",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "THORN V2(54H20)",
+    "vid": "37B0",
+    "pid": "0040",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "ORCUS",
+    "vid": "37B0",
+    "pid": "0042",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya X(LM20)",
+    "vid": "37B0",
+    "pid": "0044",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Mini(LM20)",
+    "vid": "37B0",
+    "pid": "0046",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Maya(LM20)",
+    "vid": "37B0",
+    "pid": "0050",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "MAYA M(LM20)",
+    "vid": "37B0",
+    "pid": "0052",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Orcus V2(LM20)",
+    "vid": "37B0",
+    "pid": "0056",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "LX11(LM20)",
+    "vid": "37B0",
+    "pid": "0058",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "Lamzu",
+    "model": "Inca V2(LM20)",
+    "vid": "37B0",
+    "pid": "005A",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://www.lamzu.net/Config/env-models.json"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 Pro Max",
+    "vid": "2023",
+    "pid": "F013",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 Pro Max",
+    "vid": "2023",
+    "pid": "F015",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 Pro Max",
+    "vid": "2023",
+    "pid": "F019",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A7 V2 Ultra",
+    "vid": "3837",
+    "pid": "100B",
+    "kind": "receiver",
+    "family": "MCHOSE inverted Feature candidate",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "V3 共享接收器",
+    "vid": "3837",
+    "pid": "1014",
+    "kind": "receiver",
+    "family": "MCHOSE 4D",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "V3 共享接收器",
+    "vid": "3837",
+    "pid": "1016",
+    "kind": "receiver",
+    "family": "MCHOSE 4D",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "V3 共享接收器",
+    "vid": "3837",
+    "pid": "1018",
+    "kind": "receiver",
+    "family": "MCHOSE 4D",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 V3 Ultra+",
+    "vid": "3837",
+    "pid": "4026",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "K7 V2 Pro+",
+    "vid": "3837",
+    "pid": "4027",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "K7 V2 Ultra+",
+    "vid": "3837",
+    "pid": "4028",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "G3 V3",
+    "vid": "3837",
+    "pid": "4029",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "V7",
+    "vid": "3837",
+    "pid": "402A",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A7 V3",
+    "vid": "3837",
+    "pid": "4030",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A7 V3 Pro",
+    "vid": "3837",
+    "pid": "4031",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A7 V3 Pro+",
+    "vid": "3837",
+    "pid": "4032",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A7 V3 Ultra+",
+    "vid": "3837",
+    "pid": "4033",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 V3 Ultra+ (3955)",
+    "vid": "3837",
+    "pid": "4034",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "A5 V3 Pro",
+    "vid": "3837",
+    "pid": "4035",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "R7 Ultra",
+    "vid": "3837",
+    "pid": "4036",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "K5 Pro",
+    "vid": "3837",
+    "pid": "4037",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "K5 Ultra",
+    "vid": "3837",
+    "pid": "4038",
+    "kind": "wired",
+    "family": "MCHOSE 4D candidate",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/mchose/v3.ts"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "L7 Pro",
+    "vid": "5253",
+    "pid": "1020",
+    "kind": "receiver",
+    "family": "MCHOSE inverted Feature",
+    "source": "https://github.com/alexfrih/mchose-linux/blob/75204ccc3bd83883330176d1eefda211dd449576/PROTOCOL.md"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "M7 Ultra",
+    "vid": "5253",
+    "pid": "1020",
+    "kind": "receiver",
+    "family": "MCHOSE inverted Feature",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "M7 Ultra",
+    "vid": "5253",
+    "pid": "0031",
+    "kind": "wired",
+    "family": "MCHOSE inverted Feature",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "L7 Pro",
+    "vid": "5253",
+    "pid": "00B0",
+    "kind": "wired",
+    "family": "MCHOSE inverted Feature",
+    "source": "https://github.com/alexfrih/mchose-linux/blob/75204ccc3bd83883330176d1eefda211dd449576/PROTOCOL.md"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "G7（两种模式同 ID）",
+    "vid": "A8A5",
+    "pid": "2255",
+    "kind": "receiver",
+    "family": "YJX G7",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "MCHOSE",
+    "model": "G7（两种模式同 ID）",
+    "vid": "A8A5",
+    "pid": "2255",
+    "kind": "wired",
+    "family": "YJX G7",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/mchose.py"
+  },
+  {
+    "brand": "Rapoo",
+    "model": "VT9 Pro",
+    "vid": "24AE",
+    "pid": "1205",
+    "kind": "receiver",
+    "family": "Rapoo BA / 2A",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rapoo/index.ts"
+  },
+  {
+    "brand": "Rapoo",
+    "model": "VT7 Gen 2",
+    "vid": "24AE",
+    "pid": "1413",
+    "kind": "receiver",
+    "family": "Rapoo Gen2 Input",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/rapoo.py"
+  },
+  {
+    "brand": "Rapoo",
+    "model": "VT9 Pro V2",
+    "vid": "24AE",
+    "pid": "14A9",
+    "kind": "receiver",
+    "family": "Rapoo Gen2 Input",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/rapoo.py"
+  },
+  {
+    "brand": "Rapoo",
+    "model": "VT9 Pro",
+    "vid": "24AE",
+    "pid": "4405",
+    "kind": "wired",
+    "family": "Rapoo BA / 2A",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rapoo/index.ts"
+  },
+  {
+    "brand": "Rapoo",
+    "model": "VT7 Gen 2",
+    "vid": "24AE",
+    "pid": "4613",
+    "kind": "wired",
+    "family": "Rapoo Gen2 Input",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/rapoo.py"
+  },
+  {
+    "brand": "RAWM",
+    "model": "RAWM receiver",
+    "vid": "1915",
+    "pid": "232A",
+    "kind": "receiver",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "RAWM 8K receiver",
+    "vid": "1915",
+    "pid": "232B",
+    "kind": "receiver",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "RAWM 8K receiver",
+    "vid": "1915",
+    "pid": "2335",
+    "kind": "receiver",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "DH8 receiver",
+    "vid": "1915",
+    "pid": "2336",
+    "kind": "receiver",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "Blade 1",
+    "vid": "1915",
+    "pid": "2328",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ML01",
+    "vid": "1915",
+    "pid": "2329",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "MH01",
+    "vid": "1915",
+    "pid": "232C",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "SL01",
+    "vid": "1915",
+    "pid": "232D",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "SH01",
+    "vid": "1915",
+    "pid": "232E",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "SH01",
+    "vid": "1915",
+    "pid": "232F",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "SH01 Pro",
+    "vid": "1915",
+    "pid": "2330",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "MH01 Pro",
+    "vid": "1915",
+    "pid": "2331",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "SH01 Pro",
+    "vid": "1915",
+    "pid": "2332",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ES21",
+    "vid": "1915",
+    "pid": "2333",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ES21 Pro",
+    "vid": "1915",
+    "pid": "2334",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ES21M",
+    "vid": "1915",
+    "pid": "2337",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ER21 Pro",
+    "vid": "1915",
+    "pid": "2338",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "RAWM",
+    "model": "ER21M",
+    "vid": "1915",
+    "pid": "2339",
+    "kind": "wired",
+    "family": "RAWM JSON",
+    "source": "https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d448ea481eb59d7b785eec75ae16ec2/src/rawm/index.ts"
+  },
+  {
+    "brand": "Scyrox",
+    "model": "V8S Turbo 8K receiver",
+    "vid": "3554",
+    "pid": "F517",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.scyrox.net/cfg.json"
+  },
+  {
+    "brand": "Scyrox",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F5F4",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.scyrox.net/cfg.json"
+  },
+  {
+    "brand": "Scyrox",
+    "model": "V8 8K receiver",
+    "vid": "3554",
+    "pid": "F5F7",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.scyrox.net/cfg.json"
+  },
+  {
+    "brand": "Scyrox",
+    "model": "V8S",
+    "vid": "3554",
+    "pid": "F515",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.scyrox.net/cfg.json"
+  },
+  {
+    "brand": "Scyrox",
+    "model": "V8",
+    "vid": "3554",
+    "pid": "F5F6",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://www.scyrox.net/cfg.json"
+  },
+  {
+    "brand": "VGN",
+    "model": "F1 系列（具体型号未核实）",
+    "vid": "3554",
+    "pid": "F503",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "F1 系列（具体型号未核实）",
+    "vid": "3554",
+    "pid": "F505",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "F1 系列（具体型号未核实）",
+    "vid": "3554",
+    "pid": "F50B",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Ultra",
+    "vid": "3554",
+    "pid": "FB3E",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN USB Receiver",
+    "vid": "3554",
+    "pid": "FB49",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "UFO Pro",
+    "vid": "3554",
+    "pid": "FB4A",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "UFO Ultra",
+    "vid": "3554",
+    "pid": "FB4B",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Master",
+    "vid": "3554",
+    "pid": "FB52",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Pro Max",
+    "vid": "3554",
+    "pid": "FB54",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN F2 Master",
+    "vid": "3554",
+    "pid": "FB56",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN USB Receiver",
+    "vid": "3554",
+    "pid": "FB58",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "F1 系列（具体型号未核实）",
+    "vid": "3554",
+    "pid": "F502",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN F1 MOBA",
+    "vid": "3554",
+    "pid": "F506",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "F1 系列（具体型号未核实）",
+    "vid": "3554",
+    "pid": "F50A",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN F1 SE",
+    "vid": "3554",
+    "pid": "F511",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Ultra",
+    "vid": "3554",
+    "pid": "FB3D",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN F1 SE",
+    "vid": "3554",
+    "pid": "FB51",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Master",
+    "vid": "3554",
+    "pid": "FB53",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Y2 Pro Max",
+    "vid": "3554",
+    "pid": "FB55",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN F2 Master",
+    "vid": "3554",
+    "pid": "FB57",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly 3 Master",
+    "vid": "3554",
+    "pid": "FB59",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly King",
+    "vid": "372E",
+    "pid": "10AD",
+    "kind": "receiver",
+    "family": "FF10 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly3 SE",
+    "vid": "3837",
+    "pid": "4042",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly F2 MasterGT",
+    "vid": "391D",
+    "pid": "102D",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly3 SE",
+    "vid": "391D",
+    "pid": "1A01",
+    "kind": "receiver",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly3 Pro",
+    "vid": "391D",
+    "pid": "1A03",
+    "kind": "receiver",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN USB Receiver",
+    "vid": "391D",
+    "pid": "1A05",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "2.4G Wireless Mouse",
+    "vid": "391D",
+    "pid": "1A09",
+    "kind": "receiver",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "2.4G Wireless Mouse",
+    "vid": "391D",
+    "pid": "1A14",
+    "kind": "receiver",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "2.4G Wireless Mouse",
+    "vid": "391D",
+    "pid": "1A16",
+    "kind": "receiver",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly F1 V2 Extreme 2.4G",
+    "vid": "391D",
+    "pid": "1A18",
+    "kind": "receiver",
+    "family": "FFA0 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly 3 MasterGT",
+    "vid": "391D",
+    "pid": "1A1A",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Falcon3 Extreme+ 2.4G",
+    "vid": "391D",
+    "pid": "1A29",
+    "kind": "receiver",
+    "family": "FFA0 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Falcon3 Extreme 2.4G",
+    "vid": "391D",
+    "pid": "1A2A",
+    "kind": "receiver",
+    "family": "FFA0 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly Y2 V2 MasterGT",
+    "vid": "391D",
+    "pid": "1A2F",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly3 SE",
+    "vid": "391D",
+    "pid": "1001",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly3 Pro",
+    "vid": "391D",
+    "pid": "1003",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly 3 Master",
+    "vid": "391D",
+    "pid": "1005",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly Y2 V2 Pro",
+    "vid": "391D",
+    "pid": "100A",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly Y2 V2 Plus",
+    "vid": "391D",
+    "pid": "100B",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly F1 V2 Pro",
+    "vid": "391D",
+    "pid": "1017",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly F1 V2 SE",
+    "vid": "391D",
+    "pid": "1019",
+    "kind": "wired",
+    "family": "Yongjiaxin candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Falcon3 Extreme",
+    "vid": "391D",
+    "pid": "102E",
+    "kind": "wired",
+    "family": "FFA0 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly F2 MasterGT",
+    "vid": "391D",
+    "pid": "1032",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Dragonfly Y2 V2 MasterGT",
+    "vid": "391D",
+    "pid": "1034",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "Falcon3 Extreme+",
+    "vid": "391D",
+    "pid": "1037",
+    "kind": "wired",
+    "family": "FFA0 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VGN",
+    "model": "VGN Dragonfly King",
+    "vid": "9981",
+    "pid": "7002",
+    "kind": "receiver",
+    "family": "FF10 candidate",
+    "source": "https://drive.vgnlab.com.cn/assets/index-Cw5Cr2W_.js"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 Pro / Pro Max",
+    "vid": "3554",
+    "pid": "F505",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/pulsar.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 Pro / Pro Max",
+    "vid": "3554",
+    "pid": "F58A",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/pulsar.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 SE+",
+    "vid": "3554",
+    "pid": "F58E",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 Pro / Pro Max",
+    "vid": "3554",
+    "pid": "F58C",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/pulsar.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 SE+",
+    "vid": "3554",
+    "pid": "F58F",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "MAD R Major Plus",
+    "vid": "373B",
+    "pid": "1040",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "MAD R+（共享 MAD 8K 接收器）",
+    "vid": "373B",
+    "pid": "1040",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/NasirA1991/atk-control/blob/4822253b0b02036f727c130bddf4d6db156e880b/docs/PROTOCOL.md"
+  },
+  {
+    "brand": "VXE",
+    "model": "MAD R",
+    "vid": "373B",
+    "pid": "104D",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "R1 SE+",
+    "vid": "373B",
+    "pid": "1085",
+    "kind": "receiver",
+    "family": "Compx-OUT",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/pulsar.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "NK NANO（共享接收器）",
+    "vid": "373B",
+    "pid": "1216",
+    "kind": "receiver",
+    "family": "BitMouse",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/atk_bitmouse.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "MAD R",
+    "vid": "373B",
+    "pid": "103F",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "VXE",
+    "model": "MAD R Major Plus",
+    "vid": "373B",
+    "pid": "104C",
+    "kind": "wired",
+    "family": "Compx-OUT",
+    "source": "https://github.com/Fan4Metal/ATK_tray/blob/7a5d9e3b1aefeae60945140419cbbf9df9f83c30/models.py"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X V2",
+    "vid": "36A7",
+    "pid": "A856",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST G",
+    "vid": "36A7",
+    "pid": "A860",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "HUAN",
+    "vid": "36A7",
+    "pid": "A863",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "HUAN M",
+    "vid": "36A7",
+    "pid": "A863",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MIAO",
+    "vid": "36A7",
+    "pid": "A866",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI PRO",
+    "vid": "36A7",
+    "pid": "A868",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X PRO",
+    "vid": "36A7",
+    "pid": "A870",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "STRIDER",
+    "vid": "36A7",
+    "pid": "A872",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "YING",
+    "vid": "36A7",
+    "pid": "A874",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "SWORD X",
+    "vid": "36A7",
+    "pid": "A878",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MAX",
+    "vid": "36A7",
+    "pid": "A880",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST G",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MAX",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MIAO",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI PRO",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X PRO",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "STRIDER",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "SWORD X",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "YING",
+    "vid": "36A7",
+    "pid": "A882",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X",
+    "vid": "36A7",
+    "pid": "A883",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI",
+    "vid": "36A7",
+    "pid": "A885",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "Beast X（早期）",
+    "vid": "36A7",
+    "pid": "A887",
+    "kind": "receiver",
+    "family": "XVI-NEW-compatible",
+    "source": "https://github.com/HeyOkay/HaloBattery/blob/73e229cbee2e97fad659fcd96c78afdfa78488fb/providers/wlmouse.py"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X V2",
+    "vid": "36A7",
+    "pid": "A857",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "HUAN M",
+    "vid": "36A7",
+    "pid": "A859",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST G",
+    "vid": "36A7",
+    "pid": "A861",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "HUAN",
+    "vid": "36A7",
+    "pid": "A864",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MIAO",
+    "vid": "36A7",
+    "pid": "A867",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI PRO",
+    "vid": "36A7",
+    "pid": "A869",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X PRO",
+    "vid": "36A7",
+    "pid": "A871",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "STRIDER",
+    "vid": "36A7",
+    "pid": "A873",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "YING",
+    "vid": "36A7",
+    "pid": "A875",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "SWORD X",
+    "vid": "36A7",
+    "pid": "A879",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MAX",
+    "vid": "36A7",
+    "pid": "A881",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST X",
+    "vid": "36A7",
+    "pid": "A884",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "WLmouse",
+    "model": "BEAST MINI",
+    "vid": "36A7",
+    "pid": "A886",
+    "kind": "wired",
+    "family": "XVI-NEW-compatible candidate",
+    "source": "https://gm.wlmouse.gg/Config/env-models.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F50D",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F517",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F524",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F527",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F5D5",
+    "kind": "receiver",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F50F",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F511",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F515",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  },
+  {
+    "brand": "Zaopin",
+    "model": "型号未核实",
+    "vid": "3554",
+    "pid": "F526",
+    "kind": "wired",
+    "family": "Compx-OUT template candidate",
+    "source": "https://controlhub.top/zaopin/cfg.json"
+  }
+]
