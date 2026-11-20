@@ -296,7 +296,11 @@ public sealed class LogitechV024Tests
         var session = new BatteryHidStub(request => DirectReply(request, "MX Anywhere 3S", 3, 78));
         var first = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => session), null, default));
         var silent = new BatteryHidStub(_ => []);
+        // 刚在线的设备第一次没有回复时保留在线（防抖），连续第二次才算休眠。
+        var held = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => silent), null, default));
         var asleep = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => silent), null, default));
+        Assert.Equal(LinkState.Online, held.Link);
+        Assert.Equal(78, held.Percentage);
         var rejected = new BatteryHidStub(request => [Frame($"11FFFF{request[2]:X2}{request[3]:X2}{code:X2}", 20)]);
         var failed = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => rejected), null, default));
         var ping = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => rejected), null, default));
@@ -307,7 +311,8 @@ public sealed class LogitechV024Tests
         Assert.Equal(LinkState.Asleep, asleep.Link);
         Assert.Equal(LinkState.Asleep, failed.Link);
         Assert.Equal(LinkState.Asleep, ping.Link);
-        Assert.Equal(Frame("11FF061A", 20), Assert.Single(silent.Writes));
+        Assert.All(silent.Writes, write => Assert.Equal(Frame("11FF061A", 20), write));
+        Assert.Equal(2, silent.Writes.Count);
 
         var property = new BluetoothDevice("container", "My Mouse", DeviceKind.Other, true, 83);
         var merged = Assert.Single(BluetoothBattery.Merge([failed], [property], DateTimeOffset.UnixEpoch));

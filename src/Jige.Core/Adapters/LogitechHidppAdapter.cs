@@ -39,12 +39,18 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         }
     }
 
+    // 实机（MX Keys S / MX Anywhere 3S + Bolt，2026-11-20）：设备打盹时首条请求 200 ms 内收不到回复，稍后才回复。
+    // HaloBattery 的 Ping 超时取 2 秒；这里首条请求给 1.5 秒，其后每条 600 ms。空槽由接收器立即回错误码，不受影响。
+    internal const int WakeTimeoutMs = 1500;
+    internal const int ReplyTimeoutMs = 600;
+
     private sealed class SlotState
     {
         public int Generation;
         public bool Disconnected;
         public bool Reconnect;
         public BatteryReading? Last;
+        public int Misses;
         public DeviceIdentity? SavedDevice;
         public string? UnitDigest;
         public string? QueryIdentity;
@@ -343,7 +349,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         }
         var results = new List<BatteryReading>();
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(6));
+        deadline.CancelAfter(TimeSpan.FromSeconds(12));
         CancellationToken scanToken = deadline.Token;
 
         try
@@ -405,9 +411,12 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
 
                 if (cached is not null)
                 {
-                    var reply = await QueryAsync(cached.Request(slot)).ConfigureAwait(false);
+                    // 每个槽本轮的第一条请求给足唤醒时间：罗技设备打盹时，无线电要约 0.5 秒才回复。
+                    var reply = await QueryAsync(cached.Request(slot), WakeTimeoutMs).ConfigureAwait(false);
                     if (ParseBattery(cached, reply, previous?.ProtocolSummary) is { } updated)
                         return Remember(updated, cached);
+                    if (reply is null && HoldOnline() is { } held)
+                        return held;
                     if (reply is null || Unreachable(reply))
                         return Remember(Unavailable(Unreachable(reply), previous?.ProtocolSummary),
                             reply is null ? cached : null);
@@ -416,14 +425,14 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 }
 
                 byte marker = unchecked((byte)Interlocked.Increment(ref nextMarker));
-                var ping = await QueryAsync(LogitechHidppProtocol.Ping(slot, marker)).ConfigureAwait(false);
+                var ping = await QueryAsync(LogitechHidppProtocol.Ping(slot, marker), WakeTimeoutMs).ConfigureAwait(false);
                 byte? legacyError = LogitechHidppProtocol.LegacyError(ping);
                 if (receiver && legacyError == 0x08)
                     return Remember(Unavailable(true), null);
                 if (Unreachable(ping))
                     return Remember(Unavailable(true), null);
                 if (ping is null)
-                    return Remember(Unavailable(disconnected), null);
+                    return HoldOnline() ?? Remember(Unavailable(disconnected), null);
 
                 if (legacyError == 0x01)
                 {
@@ -529,6 +538,19 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                     (indices.Count == 0 ? "—" : string.Join("、", indices.Where(item => LogitechHidppProtocol.IsFeatureIndex(item.Value))
                         .Select(item => $"{(ushort)item.Key:X4}={item.Value:X2}").DefaultIfEmpty("—")));
 
+                // 刚在线的设备只超时一次时保留在线：打字、移动时偶发一次超时不应让图标在在线和休眠之间来回跳。
+                // 连续第二次没有回复才按休眠处理。
+                BatteryReading? HoldOnline()
+                {
+                    lock (state)
+                    {
+                        if (previous is not { Link: LinkState.Online } || entry.Generation != generation || entry.Misses > 0)
+                            return null;
+                        entry.Misses = 1;
+                        return previous;
+                    }
+                }
+
                 BatteryReading Unavailable(bool offline, string? summary = null, DeviceIdentity? identity = null) =>
                     Reading(identity ?? known ?? device, null, false, ChargingState.Unknown,
                         offline ? LinkState.Offline : LinkState.Asleep,
@@ -578,6 +600,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                         {
                             entry.Disconnected = false;
                             entry.Reconnect = false;
+                            entry.Misses = 0;
                         }
                         return reading;
                     }
@@ -598,7 +621,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 }
             }
 
-            async ValueTask<byte[]?> QueryAsync(byte[] request)
+            async ValueTask<byte[]?> QueryAsync(byte[] request, int timeoutMs = ReplyTimeoutMs)
             {
                 bool register = request[0] == 0x10;
                 if (register && shortSession is null)
@@ -614,7 +637,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                         malformed = true;
                     return false;
                 }, trace is null ? null : (direction, bytes) => trace(direction, direction == FrameDirection.Sent
-                    ? bytes : DiagnosticPrivacy.HidReply(this, endpoint, bytes, request, features)), scanToken).ConfigureAwait(false);
+                    ? bytes : DiagnosticPrivacy.HidReply(this, endpoint, bytes, request, features)), scanToken, timeoutMs).ConfigureAwait(false);
 
                 if (guarded && ping)
                 {
@@ -670,10 +693,11 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
     }
 
     private static async ValueTask<byte[]?> QueryCollectionsAsync(IHidSession output, IHidSession longInput,
-        IHidSession? shortInput, byte[] request, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
+        IHidSession? shortInput, byte[] request, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token,
+        int timeoutMs = ReplyTimeoutMs)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(200);
+        deadline.CancelAfter(timeoutMs);
         var work = deadline.Token;
         var reads = new List<Task<byte[]?>>(2);
         try
