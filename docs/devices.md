@@ -98,25 +98,71 @@
 
 ### Razer 90B Feature 与 BlackShark 64B
 
+Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`）、Razer Battery Report（MIT）与 HaloBattery（MIT），覆盖 **72 个无线/有线充电鼠标 PID** 与 **15 个无线/有线充电键盘 PID**（有意排除纯有线无电池鼠标 `1532:00CB` 与蓝牙路径 `1532:0095`，后者由 Windows 蓝牙电量属性覆盖）：
+
+#### Razer 90B 鼠标
+
+| 设备 | 接收器 / 有线 PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| Razer Naga Epic | `1532:001F`（有线） | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Mamba 2012 | `1532:0025` / `1532:0024` | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Ouroboros | `1532:0032`（有线） | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Naga Epic Chroma | `1532:003F` / `1532:003E` | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Mamba Chroma | `1532:0045` / `1532:0044` | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Lancehead | `1532:005A` / `1532:0059` | Razer 90B（TID `3F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Atheris | `1532:0062` | Razer 90B（TID `1F`，仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Lancehead Wireless | `1532:006F` / `1532:0070` | Razer 90B（TID `1F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Mamba Wireless | `1532:0072` / `1532:0073` | Razer 90B（TID `3F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Pro Click | `1532:0077` / `1532:0080` | Razer 90B（TID `1F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper Ultimate | `1532:007B` / `1532:007A` | Razer 90B（TID `FF`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer DeathAdder V2 Pro | `1532:007D` / `1532:007C` | Razer 90B（TID `3F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk X HyperSpeed | `1532:0083` | Razer 90B（TID `FF`，仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk Ultimate | `1532:0088` / `1532:0086` | Razer 90B（TID `1F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Naga Pro | `1532:0090` / `1532:008F` | Razer 90B（TID `1F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Orochi V2 / Orochi V2 (2026) | `1532:0094`、`1532:00E0` | Razer 90B（TID `1F`，仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Pro Click Mini | `1532:009A` | Razer 90B（TID `1F`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer DeathAdder V2 X HyperSpeed | `1532:009C` | Razer 90B（TID `1F`，仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper Mini Signature Edition | `1532:009F` / `1532:009E` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper V2 Pro | `1532:00A6` / `1532:00A5` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Naga V2 Pro | `1532:00A8` / `1532:00A7` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk V3 Pro | `1532:00AB` / `1532:00AA` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Cobra Pro | `1532:00B0` / `1532:00AF` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer HyperPolling Wireless Dongle | `1532:00B3` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Naga V2 HyperSpeed | `1532:00B4` | Razer 90B（仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer DeathAdder V3 Pro | `1532:00B7` / `1532:00B6`、`1532:00C3` / `1532:00C2` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper V3 HyperSpeed | `1532:00B8` | Razer 90B（仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk V3 X HyperSpeed | `1532:00B9` | Razer 90B（仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer DeathAdder V4 Pro | `1532:00BF` / `1532:00BE` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper V3 Pro | `1532:00C1` / `1532:00C0` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer DeathAdder V3 HyperSpeed | `1532:00C5` / `1532:00C4` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Pro Click V2 Vertical Edition | `1532:00C8` / `1532:00C7` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk V3 Pro 35K | `1532:00CD` / `1532:00CC` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Pro Click V2 | `1532:00D1` / `1532:00D0` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk Mobile | `1532:00D4` / `1532:00D3` | Razer 90B（仅电量） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk V3 Pro 35K Phantom Green | `1532:00D7` / `1532:00D6` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Cobra HyperSpeed | `1532:00DB` / `1532:00DA` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Viper V3 Pro SE | `1532:00DF` / `1532:00DE` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+| Razer Basilisk V4 Pro | `1532:00E3` / `1532:00E2` | Razer 90B（MI `03`） | 仅按资料 | OpenRazer #2958 / Razer Battery Report（MIT） |
+| Razer Viper V4 Pro | `1532:00E6` / `1532:00E5` | Razer 90B（MI `03`） | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
+
+#### Razer 90B 键盘
+
+| 设备 | 接收器 / 有线 PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| Razer BlackWidow V3 Mini HyperSpeed | `1532:0271`（MI `03`/TID `9F`） / `1532:0258`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer BlackWidow V3 Pro | `1532:025C`（MI `02`/TID `9F`） / `1532:025A`（MI `02`/TID `3F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer DeathStalker V2 Pro | `1532:0290`（MI `02`/TID `9F`） / `1532:0292`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer DeathStalker V2 Pro TKL | `1532:0296`（MI `02`/TID `9F`） / `1532:0298`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer BlackWidow V4 Mini HyperSpeed | `1532:02BA`（MI `03`/TID `9F`） / `1532:02B9`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer Joro | `1532:02CD`（有线，MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer |
+| Razer BlackWidow V4 Low-profile Tenkeyless HyperSpeed | `1532:02D2`（MI `02`/TID `9F`） / `1532:02D4`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+| Razer BlackWidow V4 Tenkeyless HyperSpeed | `1532:02D5`（MI `02`/TID `9F`） / `1532:02D7`（MI `03`/TID `1F`） | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
+
+#### Razer 耳机（纯只读路径）
+
 | 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
 | --- | --- | --- | --- | --- |
-| Razer Viper Mini Signature Edition | `1532:009F` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Cobra Pro | `1532:00B0` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Viper V3 HyperSpeed | `1532:00B8` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
-| Razer Basilisk V3 X HyperSpeed | `1532:00B9` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Viper V3 Pro | `1532:00C1` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT）/ HaloBattery（MIT） |
-| Razer DeathAdder V3 HyperSpeed | `1532:00C5` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Basilisk V3 Pro 35K | `1532:00CD` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Basilisk V3 Pro 35K Phantom Green | `1532:00D7` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer DeathAdder V4 Pro | `1532:00BF` | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
-| Razer Cobra HyperSpeed | `1532:00DB` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Basilisk Mobile | `1532:00D4` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Viper V3 Pro SE | `1532:00DF` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer Viper V4 Pro | `1532:00E6` | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
-| Razer Basilisk V4 Pro | `1532:00E3` | Razer 90B | 仅按资料 | OpenRazer / HaloBattery（MIT） |
-| Razer BlackWidow V4 Mini HyperSpeed | `1532:02BA` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer BlackWidow V4 Tenkeyless HyperSpeed | `1532:02D5` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
-| Razer BlackWidow V4 Low-profile Tenkeyless HyperSpeed | `1532:02D2` | Razer 90B | 仅按资料 | OpenRazer / Razer Battery Report（MIT） |
+| Razer BlackShark V2 Pro (2020) | `1532:0528` | Razer BlackShark 64B Feature（Report ID `FF`） | 仅按资料 | OpenRazer #1280 / RazerNariBatteryLevel / HaloBattery（MIT） |
 | Razer BlackShark V2 HyperSpeed | `1532:0565` | Razer BlackShark 64B | 仅按资料 | OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT） |
 
 ---
@@ -128,9 +174,11 @@
 | 设备 | 接收器 VID:PID | 协议家族 | 暂未启用原因 | 出处 |
 | --- | --- | --- | --- | --- |
 | Razer BlackShark V2 Pro 2023（PC） | `1532:0555` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery `providers/blackshark.py`（MIT） |
-| Razer BlackShark V2 Pro 2023（待确定 SKU） | `1532:0556` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式且 SKU 待核实 | HaloBattery `providers/blackshark.py`（MIT） |
+| Razer BlackShark V2 Pro 2023（待确定 SKU） | `1532:0556`、`1532:0557`、`1532:0583` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式且 SKU 待核实 | HaloBattery `providers/blackshark.py`（MIT） |
 | Razer Barracuda Pro | `1532:053A` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery #10 / `providers/blackshark.py`（MIT） |
 | Razer Barracuda X 2022 | `1532:0536` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery `providers/blackshark.py`（MIT） |
+| Razer Barracuda X 2022（Macronix / Airoha RACE） | `1532:0552` | Razer Airoha RACE | 查询序列需切换应用模式与远程模式，违背只读原则 | HaloBattery `providers/barracuda_x.py`（MIT） |
+| Razer BlackShark V2 Pro (2020) 充电线 | `1532:052E` | Razer BlackShark 64B Feature | 充电线不提供独立电量读取，请保持无线接收器 `1532:0528` 插入 | HaloBattery `providers/blackshark2020.py`（MIT） |
 | Razer BlackShark V3 | `1532:057A` | Razer BlackShark V3 64B | 冷启动会话未证实可只读建立，且高频查询有重置无线链路风险 | HaloBattery #292（MIT） |
 | Razer BlackShark V3 Pro | `1532:0577` | Razer BlackShark V3 64B | 冷启动会话未证实可只读建立，回复格式与不同固件变体待核实 | OpenRazer #2838 |
 | ATK A9 Ultra | `373B:111A` | Compx-FEAT | `FF04` 接口的精确 Usage 未经实机核实，独立电量抓包待补 | atkctl `docs/PROTOCOL.md` |

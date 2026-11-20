@@ -372,6 +372,40 @@ public sealed class LogitechBatteryTests
         Assert.Throws<ArgumentOutOfRangeException>(() => LogitechHeadsetProtocol.Encode(0x0B1C, (LogitechHeadsetQuery)0x0F));
     }
 
+    [Fact]
+    public void HidppNameKindRecognizesKeyboardMouseAndHeadset()
+    {
+        Assert.Equal(DeviceKind.Keyboard, LogitechHidppProtocol.NameKind(0));
+        Assert.Equal(DeviceKind.Keyboard, LogitechHidppProtocol.NameKind(2));
+        Assert.Equal(DeviceKind.Mouse, LogitechHidppProtocol.NameKind(3));
+        Assert.Equal(DeviceKind.Mouse, LogitechHidppProtocol.NameKind(5));
+        Assert.Equal(DeviceKind.Headset, LogitechHidppProtocol.NameKind(8));
+        Assert.Equal(DeviceKind.Other, LogitechHidppProtocol.NameKind(1));
+        Assert.Equal(DeviceKind.Other, LogitechHidppProtocol.NameKind(7));
+    }
+
+    [Fact]
+    public void DeviceCatalogCoversAllLogitechNanoReceiversAndHidppHeadsets()
+    {
+        ushort[] nanoPids = [0xC518, 0xC51A, 0xC51B, 0xC521, 0xC525, 0xC526, 0xC52E, 0xC52F, 0xC531, 0xC534, 0xC535, 0xC537];
+        foreach (ushort pid in nanoPids)
+        {
+            var entry = DeviceCatalog.FindEntry(0x046D, pid);
+            Assert.NotNull(entry);
+            Assert.Equal("Nano", DeviceCatalog.LogitechReceiverFamily(pid));
+            Assert.Equal(VerificationTier.DocsOnly, entry!.Verification);
+        }
+
+        ushort[] headsetPids = [0x0A66, 0x0AC4, 0x0A5C, 0x0A89, 0x0A5B, 0x0A87, 0x0AB5, 0x0AFE, 0x0B1F, 0x0AA7, 0x0AAA, 0x0ABA, 0x0AFB, 0x0AFC];
+        foreach (ushort pid in headsetPids)
+        {
+            var entry = DeviceCatalog.FindEntry(0x046D, pid);
+            Assert.NotNull(entry);
+            Assert.Equal(DeviceKind.Headset, entry!.Kind);
+            Assert.Equal(DeviceCatalog.LogitechHidppHeadset(pid), entry.Model);
+        }
+    }
+
     private static bool IsPing(byte[] request) => request[2] == 0 && request[3] == 0x1A;
 
     internal static byte[] Frame(string hex, int length)
@@ -397,7 +431,7 @@ internal sealed class BatteryTransportStub(Func<HidInterface, IHidSession> open)
         throw new InvalidOperationException("意外打开串口");
 }
 
-internal sealed class BatteryHidStub(Func<byte[], byte[][]> respond, bool feature = false) : IHidSession
+internal sealed class BatteryHidStub(Func<byte[], byte[][]> respond, bool feature = false, byte expectedFeatureReportId = 0) : IHidSession
 {
     private readonly ConcurrentQueue<byte[]> queue = new();
     public List<byte[]> Writes { get; } = [];
@@ -438,7 +472,7 @@ internal sealed class BatteryHidStub(Func<byte[], byte[][]> respond, bool featur
         token.ThrowIfCancellationRequested();
         if (!feature)
             throw new InvalidOperationException("意外读取 Feature");
-        Assert.Equal(0, report[0]);
+        Assert.Equal(expectedFeatureReportId, report[0]);
         Assert.True(queue.TryDequeue(out var frame));
         frame.CopyTo(report, 0);
         return ValueTask.CompletedTask;

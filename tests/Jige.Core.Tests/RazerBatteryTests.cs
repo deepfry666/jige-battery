@@ -1,4 +1,5 @@
 using Jige.Core.Adapters;
+using Jige.Core.Diagnostics;
 using static Jige.Core.Tests.LogitechBatteryTests;
 
 namespace Jige.Core.Tests;
@@ -89,7 +90,9 @@ public sealed class RazerBatteryTests
         Assert.Equal(0x81, request[89]);
         foreach (byte command in new byte[] { 0x01, 0x03, 0x05, 0x10 })
             Assert.Throws<ArgumentOutOfRangeException>(() => RazerFeatureProtocol.Encode(0x00BF, (RazerFeatureQuery)command));
-        Assert.Throws<ArgumentOutOfRangeException>(() => RazerFeatureProtocol.Encode(0x00B3, RazerFeatureQuery.Battery));
+        // 纯有线无电池鼠标 00CB 与蓝牙路径 0095 必须继续拒绝。
+        Assert.Throws<ArgumentOutOfRangeException>(() => RazerFeatureProtocol.Encode(0x00CB, RazerFeatureQuery.Battery));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RazerFeatureProtocol.Encode(0x0095, RazerFeatureQuery.Battery));
         Assert.Throws<ArgumentOutOfRangeException>(() => RazerFeatureProtocol.Encode(0x00B8, RazerFeatureQuery.Charging));
 
         var model = RazerFeatureProtocol.Find(0x00BF)!;
@@ -114,7 +117,8 @@ public sealed class RazerBatteryTests
         var entries = new HidInterface[]
         {
             Mouse with { ProductId = 0x0999 },
-            Mouse with { ProductId = 0x00BE }, // 有线
+            Mouse with { ProductId = 0x00CB }, // 纯有线无电池（Basilisk V3 35K）
+            Mouse with { ProductId = 0x0095 }, // 蓝牙路径（Orochi V2 BT）
             Mouse with { ProductId = 0x00BF, InterfaceNumber = 1 },
             Mouse with { ProductId = 0x00E6, InterfaceNumber = 0 },
             Mouse with { ProductId = 0x02D2, InterfaceNumber = 3 },
@@ -124,7 +128,7 @@ public sealed class RazerBatteryTests
         };
         Assert.Empty(registry.Detect(new(entries, [], [])));
         Assert.Empty(registry.Detect(new([Mouse, Mouse with { Path = "ambiguous" }], [], [])));
-        foreach (ushort pid in new ushort[] { 0x053A, 0x0555, 0x0556, 0x0566, 0x057A, 0x0577, 0x0999 })
+        foreach (ushort pid in new ushort[] { 0x052E, 0x0536, 0x053A, 0x0552, 0x0555, 0x0556, 0x0557, 0x0566, 0x057A, 0x0577, 0x0583, 0x0999 })
         {
             Assert.False(AdapterRegistry.IsKnownHidReceiver(0x1532, pid));
             var headset = Mouse with { ProductId = pid, UsagePage = 0xFF14, InterfaceNumber = 3,
@@ -218,5 +222,177 @@ public sealed class RazerBatteryTests
         Assert.True(RazerHeadsetProtocol.TryPa(frame, (ushort)pid, query, out var value));
         Assert.Equal(expected, value);
         Assert.False(RazerHeadsetProtocol.TryPa(frame, (ushort)pid, RazerHeadsetQuery.Charging, out _));
+    }
+
+    [Fact]
+    public void Razer90BCatalogIsUniqueConsistentAndExcludesWiredOnlyAndBluetoothPids()
+    {
+        var models = RazerFeatureProtocol.AllModels;
+        Assert.Equal(87, models.Count);
+        Assert.Equal(models.Count, models.Select(m => m.Pid).Distinct().Count());
+        Assert.Equal(72, models.Count(m => m.Kind == DeviceKind.Mouse));
+        Assert.Equal(15, models.Count(m => m.Kind == DeviceKind.Keyboard));
+
+        byte[] knownTids = [0x1F, 0x3F, 0x9F, 0xFF];
+        foreach (var model in models)
+        {
+            Assert.Contains(model.TransactionId, knownTids);
+            Assert.True(AdapterRegistry.IsKnownHidReceiver(0x1532, model.Pid));
+            var catalog = DeviceCatalog.FindEntry(0x1532, model.Pid);
+            Assert.NotNull(catalog);
+            Assert.Equal($"Razer {model.Name}", catalog!.Model);
+            Assert.Equal(model.Kind, catalog.Kind);
+            Assert.Equal(VerificationTier.DocsOnly, catalog.Verification);
+        }
+
+        Assert.Null(RazerFeatureProtocol.Find(0x00CB)); // Basilisk V3 35K（纯有线）
+        Assert.Null(RazerFeatureProtocol.Find(0x0095)); // Orochi V2（蓝牙）
+        Assert.Equal(400, RazerFeatureProtocol.Find(0x0062)!.SettleMs);
+        Assert.Equal(400, RazerFeatureProtocol.Find(0x0094)!.SettleMs);
+        Assert.Equal(400, RazerFeatureProtocol.Find(0x00E0)!.SettleMs);
+    }
+
+    [Theory]
+    [InlineData(0x00BE, 0, 0x1F, (int)DeviceKind.Mouse, (int)DeviceConnection.UsbCable, "雷蛇 USB 直连")] // DeathAdder V4 Pro 有线
+    [InlineData(0x00B3, 0, 0x1F, (int)DeviceKind.Mouse, (int)DeviceConnection.Receiver, "雷蛇无线接收器")] // HyperPolling Wireless Dongle
+    [InlineData(0x007B, 0, 0xFF, (int)DeviceKind.Mouse, (int)DeviceConnection.Receiver, "雷蛇无线接收器")] // Viper Ultimate 无线（TID FF）
+    [InlineData(0x007D, 0, 0x3F, (int)DeviceKind.Mouse, (int)DeviceConnection.Receiver, "雷蛇无线接收器")] // DeathAdder V2 Pro 无线（TID 3F）
+    [InlineData(0x00E2, 3, 0x1F, (int)DeviceKind.Mouse, (int)DeviceConnection.UsbCable, "雷蛇 USB 直连")] // Basilisk V4 Pro 有线（MI 3）
+    [InlineData(0x025A, 2, 0x3F, (int)DeviceKind.Keyboard, (int)DeviceConnection.UsbCable, "雷蛇 USB 直连")] // BlackWidow V3 Pro 有线（MI 2, TID 3F）
+    [InlineData(0x025C, 2, 0x9F, (int)DeviceKind.Keyboard, (int)DeviceConnection.Receiver, "雷蛇无线接收器")] // BlackWidow V3 Pro 无线（MI 2, TID 9F）
+    [InlineData(0x0290, 2, 0x9F, (int)DeviceKind.Keyboard, (int)DeviceConnection.Receiver, "雷蛇无线接收器")] // DeathStalker V2 Pro 无线（MI 2, TID 9F）
+    [InlineData(0x0292, 3, 0x1F, (int)DeviceKind.Keyboard, (int)DeviceConnection.UsbCable, "雷蛇 USB 直连")] // DeathStalker V2 Pro 有线（MI 3, TID 1F）
+    [InlineData(0x02CD, 3, 0x1F, (int)DeviceKind.Keyboard, (int)DeviceConnection.UsbCable, "雷蛇 USB 直连")] // Razer Joro（MI 3, TID 1F）
+    public async Task Razer90BReadsExpandedMiceKeyboardsWiredAndLegacyTids(
+        int pid, int iface, int tid, int kind, int connection, string sourceLabel)
+    {
+        var hid = Mouse with { ProductId = (ushort)pid, InterfaceNumber = (byte)iface };
+        var session = new BatteryHidStub(request =>
+        {
+            Assert.Equal((byte)tid, request[2]);
+            var reply = request[8] == 0x80
+                ? Frame($"0002{tid:X2}00000002078000CC", 91) // 204/255 = 80%
+                : Frame($"0002{tid:X2}0000000207840001", 91);
+            reply[89] = RazerFeatureProtocol.Checksum(reply);
+            return [reply];
+        }, feature: true);
+
+        var adapter = new RazerFeatureAdapter(TimeSpan.Zero, TimeSpan.Zero);
+        var registry = new AdapterRegistry(adapter);
+        var target = Assert.Single(registry.Detect(new([hid], [], [])));
+        Assert.Equal((DeviceKind)kind, target.Target.Device.Kind);
+        Assert.Equal((DeviceConnection)connection, target.Target.Device.Connection);
+        Assert.Equal(sourceLabel, target.Target.Device.SourceLabel);
+
+        var reading = await registry.ReadAsync(target, new BatteryTransportStub(_ => session), null, CancellationToken.None);
+        Assert.Equal(80, reading.Percentage);
+        Assert.Equal(ChargingState.Charging, reading.Charging);
+        Assert.Equal(LinkState.Online, reading.Link);
+    }
+
+    [Fact]
+    public async Task Razer90BRetriesForeignSynapseRepliesAndReportsBusyWhenPersistent()
+    {
+        var hid = Mouse with { ProductId = 0x007D }; // DeathAdder V2 Pro（TID 3F）
+        var foreignLed = Frame("00023F000000020F030001", 91);
+        foreignLed[89] = RazerFeatureProtocol.Checksum(foreignLed);
+
+        // 1) 前 2 次读到 Synapse 灯效回复（0F:03），第 3 次成功拿到电量回复。
+        int attempts = 0;
+        var recoverSession = new BatteryHidStub(request =>
+        {
+            if (request[8] == 0x80)
+            {
+                attempts++;
+                if (attempts <= 2)
+                    return [foreignLed];
+                var ok = Frame("00023F0000000207800099", 91); // 153/255 = 60%
+                ok[89] = RazerFeatureProtocol.Checksum(ok);
+                return [ok];
+            }
+            var chg = Frame("00023F0000000207840000", 91);
+            chg[89] = RazerFeatureProtocol.Checksum(chg);
+            return [chg];
+        }, feature: true);
+
+        var registry = new AdapterRegistry(new RazerFeatureAdapter(TimeSpan.Zero, TimeSpan.Zero));
+        var target = Assert.Single(registry.Detect(new([hid], [], [])));
+        var recovered = await registry.ReadAsync(target, new BatteryTransportStub(_ => recoverSession), null, CancellationToken.None);
+        Assert.Equal(3, attempts);
+        Assert.Equal(60, recovered.Percentage);
+        Assert.Equal(ChargingState.NotCharging, recovered.Charging);
+
+        // 2) 持续只读到 Synapse 0F:03 回复 → 重试耗尽后按 Busy 报告（区别于状态 01 协议忙报 Timeout）。
+        int persistentAttempts = 0;
+        var busySession = new BatteryHidStub(_ =>
+        {
+            persistentAttempts++;
+            return [foreignLed];
+        }, feature: true);
+        var busyReading = await registry.ReadAsync(target, new BatteryTransportStub(_ => busySession), null, CancellationToken.None);
+        Assert.Equal(1 + RazerFeatureAdapter.MaxBusyRetries, persistentAttempts);
+        Assert.Equal(ReadIssue.Busy, busyReading.Issue);
+        Assert.Equal(LinkState.Busy, busyReading.Link);
+    }
+
+    [Theory]
+    [InlineData("FF0F05FE12041F08050305010EC050", 80, (int)ChargingState.NotCharging, (int)LinkState.Online, true)] // 实机：放电 80%
+    [InlineData("FF0F05FE12041F08050305020E081E", 30, (int)ChargingState.NotCharging, (int)LinkState.Online, true)] // 实机：低电 30%
+    [InlineData("FF0F05FE12041F08050305030DA00A", 10, (int)ChargingState.NotCharging, (int)LinkState.Online, true)] // 实机：极低 10%
+    [InlineData("FF0F05FE12041F0805050309108050", null, (int)ChargingState.Charging, (int)LinkState.Online, false)] // 实机：充电中隐藏跳数
+    [InlineData("FF0F05FE12041F0805060506108864", 100, (int)ChargingState.Full, (int)LinkState.Online, true)] // 实机：已充满 100%
+    [InlineData("FF0F05FE12041F0805030501000050", null, (int)ChargingState.Unknown, (int)LinkState.Offline, false)] // 电压为 0 → 离线
+    public async Task BlackSharkV2Pro2020ReadsCapturedFeatureFrames(
+        string responseHex, int? expectedPercent, int expectedCharging, int expectedLink, bool expectedEstimated)
+    {
+        var receiver = new HidInterface("bs2020", "bs2020-path", 0x1532, 0x0528,
+            "Razer BlackShark V2 Pro", 0xFF00, 1, 0, 0, 64, 3);
+        Assert.True(AdapterRegistry.IsKnownHidReceiver(0x1532, 0x0528));
+
+        var session = new BatteryHidStub(request =>
+        {
+            Assert.Equal(Frame("FF0A00FD0412F10205", 64), request);
+            return [Frame(responseHex, 64)];
+        }, feature: true, expectedFeatureReportId: 0xFF);
+
+        var registry = new AdapterRegistry(new RazerHeadsetAdapter(TimeSpan.Zero));
+        var target = Assert.Single(registry.Detect(new([receiver], [], [])));
+        Assert.Equal("Razer BlackShark V2 Pro (2020)", target.Target.Device.Name);
+        Assert.Equal(DeviceKind.Headset, target.Target.Device.Kind);
+
+        var transport = new BatteryTransportStub(_ => session);
+        var reading = await registry.ReadAsync(target, transport, null, CancellationToken.None);
+        Assert.Equal((byte?)0xFF, Assert.Single(transport.Opened).RequiredFeatureReportId);
+        Assert.Equal(expectedPercent, reading.Percentage);
+        Assert.Equal(expectedEstimated, reading.IsEstimated);
+        Assert.Equal((ChargingState)expectedCharging, reading.Charging);
+        Assert.Equal((LinkState)expectedLink, reading.Link);
+        Assert.True(session.Closed);
+    }
+
+    [Fact]
+    public async Task BlackSharkV2Pro2020RejectsStaleOfflineHeaderAndReplaysDiagnostics()
+    {
+        var receiver = new HidInterface("bs2020", "bs2020-path", 0x1532, 0x0528,
+            "Razer BlackShark V2 Pro", 0xFF00, 1, 0, 0, 64, 3);
+        // 实机关机过期头 FF 01 00 FE 12 04 1F 08 05 携带旧电量 0x50，绝不可复用。
+        var stale = Frame("FF0100FE12041F0805050309108850", 64);
+        var staleSession = new BatteryHidStub(_ => [stale, stale, stale], feature: true, expectedFeatureReportId: 0xFF);
+        var registry = new AdapterRegistry(new RazerHeadsetAdapter(TimeSpan.Zero));
+        var target = Assert.Single(registry.Detect(new([receiver], [], [])));
+        var offline = await registry.ReadAsync(target, new BatteryTransportStub(_ => staleSession), null, CancellationToken.None);
+        Assert.Equal(LinkState.Offline, offline.Link);
+        Assert.Null(offline.Percentage);
+
+        // 诊断导出与脱敏回放校验。
+        var okFrame = Frame("FF0F05FE12041F08050305010EC050", 64);
+        var report = await DiagnosticReport.GenerateAsync(new([receiver], [], []),
+            new BatteryTransportStub(_ => new BatteryHidStub(_ => [okFrame], feature: true, expectedFeatureReportId: 0xFF)));
+        var (replayInventory, replayTransport, _) = FakeReceiverTransport.FromReport(report);
+        var replayTarget = Assert.Single(AdapterRegistry.CreateDefault().Detect(replayInventory));
+        var replayReading = await AdapterRegistry.CreateDefault().ReadAsync(replayTarget, replayTransport, null, CancellationToken.None);
+        Assert.Equal(80, replayReading.Percentage);
+        Assert.Equal(ChargingState.NotCharging, replayReading.Charging);
+        replayTransport.AssertComplete();
     }
 }

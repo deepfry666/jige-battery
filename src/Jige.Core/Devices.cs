@@ -34,6 +34,7 @@ public sealed record PresenceUpdate(
     string ReceiverId, byte? Slot, string? DeviceId, LinkState Link, ReadIssue Issue = ReadIssue.None)
 {
     public BatteryReading? Battery { get; init; }
+    public DeviceConnection? Connection { get; init; }
 }
 
 public sealed record BatteryReading(

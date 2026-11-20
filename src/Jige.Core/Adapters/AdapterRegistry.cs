@@ -42,7 +42,7 @@ public sealed class AdapterRegistry
     /// <summary>只为支持的接收器家族或已收录接收器读取 HID 描述符；托盘、探针、诊断共用这一判定。</summary>
     public static bool IsKnownHidReceiver(ushort? vid, ushort? pid) =>
         vid == 0x361D || vid == 0x373B || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||
-        vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null || pid == 0x0565);
+        vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null || pid is 0x0565 or RazerHeadsetProtocol.BlackShark2020Pid);
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory)
