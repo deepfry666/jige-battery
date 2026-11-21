@@ -24,6 +24,8 @@ internal sealed record SavedRuntimeEstimate
     public double UsageTodayHours { get; init; }
     public double UsageDailyHours { get; init; }
     public int UsageDays { get; init; }
+    /// <summary>最近一次看到充电（含充满，或从电量回升推断出充过电）的时间。</summary>
+    public DateTimeOffset? LastChargeAt { get; init; }
 }
 
 /// <summary>当前放电段。时间口径为「设备在线时长」，休眠、离线与程序未运行期间不计时。</summary>
@@ -118,7 +120,7 @@ internal static class RuntimeEstimator
             return (state, 0);
 
         if (status.Charging is ChargingState.Charging or ChargingState.Full)
-            return (segment is null ? state : state with { Segment = null }, 0);
+            return (state with { Segment = null, LastChargeAt = now }, 0);
 
         int percent = last.Percentage;
         bool estimated = last.IsEstimated;
@@ -184,7 +186,7 @@ internal static class RuntimeEstimator
             int rise = percent - level;
             bool charged = estimated ? rise >= 5 : IsCoarse(state) || rise >= 3 || segment.PendingRise;
             if (charged)
-                return (state with { Segment = Start(percent, estimated, status.Device.Connection, now) }, delta);
+                return (state with { Segment = Start(percent, estimated, status.Device.Connection, now), LastChargeAt = now }, delta);
             return (state with { Segment = next with { PendingRise = !estimated } }, delta);
         }
 
@@ -338,6 +340,10 @@ internal static class RuntimeEstimator
         return new(RuntimeKind.Ready, hours, Days(state, hours));
     }
 
+    /// <summary>本机统计的日均在线时长；不足 3 个活跃日或太少时返回 null。</summary>
+    public static double? DailyHours(SavedRuntimeEstimate? state) =>
+        state is { UsageDays: >= MinUsageDays, UsageDailyHours: >= 1 / 6d } ? state.UsageDailyHours : null;
+
     private static double? Days(SavedRuntimeEstimate state, double hours)
     {
         if (state.UsageDays < MinUsageDays || state.UsageDailyHours < 1 / 6d)
@@ -374,6 +380,17 @@ internal static class RuntimeEstimator
         if (hours >= 995)
             return "999 小时以上";
         return $"约 {rounded:0} 小时";
+    }
+
+    /// <summary>悬停卡片里的「上次充电」文字。</summary>
+    public static string ChargedAgo(DateTimeOffset at, DateTimeOffset now)
+    {
+        var elapsed = now - at;
+        if (elapsed < TimeSpan.FromHours(1))
+            return "刚充过电";
+        if (elapsed < TimeSpan.FromDays(1))
+            return $"上次充电 {(int)elapsed.TotalHours} 小时前";
+        return $"上次充电 {(int)elapsed.TotalDays} 天前";
     }
 
     public static string FormatDays(double days) =>

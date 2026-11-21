@@ -23,7 +23,7 @@ internal sealed partial class PopupScene
                 PopupAction.TrayMode => SettingRow.TrayMode,
                 PopupAction.DisplayLocation => SettingRow.DisplayLocation,
                 PopupAction.Theme => SettingRow.Theme,
-                PopupAction.Threshold => SettingRow.Threshold,
+                PopupAction.Threshold or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
                 _ => null
             };
@@ -91,7 +91,7 @@ internal sealed partial class PopupScene
                 SettingRow.TrayMode => "显示哪些设备",
                 SettingRow.DisplayLocation => "显示位置",
                 SettingRow.Theme => "外观模式",
-                SettingRow.Threshold => "低电量提醒",
+                SettingRow.Threshold => "电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
                 SettingRow.AutoUpdate => "自动检查更新",
@@ -207,6 +207,15 @@ internal sealed partial class PopupScene
                     canvas.Text(choice.Label, 62, rect.Y, SettingsPanel.Right - 84, rect.Height, 13, colors.Ink,
                         ellipsis: true);
                     DrawCheckbox(canvas, SettingsPanel.Right - 16, rect.Y + 9, model.Settings.IsInTray(id), true, colors.Muted);
+                    continue;
+                }
+                if (choice.Target.Action is PopupAction.GameEntryReminder or PopupAction.FullChargeReminder)
+                {
+                    bool on = choice.Target.Action == PopupAction.GameEntryReminder
+                        ? model.Settings.GameEntryReminderEnabled : model.Settings.FullChargeReminder;
+                    canvas.Text(choice.Label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
+                        ellipsis: true);
+                    DrawCheckbox(canvas, SettingsPanel.Right - 16, rect.Y + 9, on, true, colors.Muted);
                     continue;
                 }
                 bool selected = IsSelected(choice.Target);
@@ -481,9 +490,24 @@ internal sealed partial class PopupScene
         }
 
         float prefix = canvas.Text($"{Presentation.Connection(device.Device)} · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
-        DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
+        float badgeWidth = DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
 
         float iconTop = y + 12.125f;
+        // 单台设备的低电量提醒阈值：点一下在「默认 → 5% → … → 30%」之间循环。
+        bool custom = model.Settings.DeviceThresholds.ContainsKey(id);
+        string thresholdLabel = custom ? $"提醒 {model.ThresholdFor(id)}%" : "提醒 默认";
+        float chipX = 59 + prefix + badgeWidth + 6;
+        float chipWidth = canvas.Measure(thresholdLabel, 10.5f, 600) + 12;
+        if (chipX + chipWidth <= (removable ? 212 : TrayCheckX - 4))
+        {
+            var chip = new HitBox(new PopupTarget(PopupAction.DeviceThreshold, DeviceId: id),
+                new(chipX, y + 31, chipWidth, 15.5f));
+            subButtons.Add(chip);
+            canvas.Fill(chip.X, chip.Y, chip.Width, chip.Height, 4, custom ? Dim(colors.AccentSoft) : Dim(colors.Chip));
+            ButtonBackground(canvas, chip, 4);
+            canvas.Text(thresholdLabel, chip.X, chip.Y, chip.Width, chip.Height, 10.5f,
+                custom ? Dim(colors.Accent) : Dim(colors.Secondary), 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         if (removable)
         {
             var remove = new HitBox(new PopupTarget(PopupAction.Remove, DeviceId: id), new(216, iconTop, 34, 30));

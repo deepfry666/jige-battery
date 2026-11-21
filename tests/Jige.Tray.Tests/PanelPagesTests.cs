@@ -42,14 +42,15 @@ public sealed class PanelPagesTests
         Assert.Equal(PanelLayout.SettingsHeight - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
 
         panel.Toggle(SettingRow.Threshold, 0, animate: false, selectedIndex: 1);
-        Assert.Equal(707 + extra, panel.Height);
-        Assert.Equal(707 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+        // 「电量提醒」展开 4 个阈值 + 2 个勾选项，可视区容纳 5 项。
+        Assert.Equal(741 + extra, panel.Height);
+        Assert.Equal(741 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
     }
 
     [Theory]
     [InlineData(0, 0, 571)]
-    [InlineData(50, 0.7944, 679)]
-    [InlineData(250, 1, 707)]
+    [InlineData(50, 0.7944, 706)]
+    [InlineData(250, 1, 741)]
     public void ResizeUsesPrototypeCurveAndKeepsBottomAgainstTray(int elapsed, double expected, int expectedHeight)
     {
         double eased = PanelLayout.Ease(elapsed / 250d);
@@ -71,7 +72,7 @@ public sealed class PanelPagesTests
     [InlineData((int)SettingRow.DisplayLocation, 639, 68, 180, 224, 296, 340, 384, 456, 500, 544)]
     [InlineData((int)SettingRow.TrayMode, 639, 68, 112, 224, 296, 340, 384, 456, 500, 544)]
     [InlineData((int)SettingRow.Theme, 673, 68, 112, 156, 330, 374, 418, 490, 534, 578)]
-    [InlineData((int)SettingRow.Threshold, 707, 68, 112, 156, 228, 408, 452, 524, 568, 612)]
+    [InlineData((int)SettingRow.Threshold, 741, 68, 112, 156, 228, 442, 486, 558, 602, 646)]
     [InlineData((int)SettingRow.PollInterval, 673, 68, 112, 156, 228, 272, 316, 490, 534, 578)]
     public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int height, params int[] tops)
     {
@@ -129,7 +130,7 @@ public sealed class PanelPagesTests
         panel.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         panel.Advance(50);
         float beforeSwitch = panel.Height;
-        Assert.InRange(beforeSwitch, 675, 683);
+        Assert.InRange(beforeSwitch, 702, 710);
         Assert.True(panel.OptionHitRect(SettingRow.Threshold, 3).Height is > 0 and < 34);
 
         panel.Toggle(SettingRow.PollInterval, 50, animate: true, selectedIndex: 1);

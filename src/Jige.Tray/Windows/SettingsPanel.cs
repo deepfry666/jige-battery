@@ -62,6 +62,13 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         new(new(PopupAction.Threshold, 30), "30%")
     ];
 
+    /// <summary>「电量提醒」展开后阈值下方的两个勾选项。</summary>
+    public static readonly SettingChoice[] ReminderToggleChoices =
+    [
+        new(new(PopupAction.GameEntryReminder), "进游戏时也提醒一次"),
+        new(new(PopupAction.FullChargeReminder), "充满时提醒拔线")
+    ];
+
     public static readonly SettingChoice[] PollChoices = TraySettings.PollIntervals.Select(seconds =>
         new SettingChoice(new(PopupAction.PollInterval, seconds),
             Presentation.Interval(seconds) + (seconds == 60 ? "（默认）" : ""))).ToArray();
@@ -100,7 +107,7 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         SettingRow.TrayMode => trayChoices,
         SettingRow.DisplayLocation => DisplayLocationChoices,
         SettingRow.Theme => ThemeChoices,
-        SettingRow.Threshold => ThresholdChoices,
+        SettingRow.Threshold => [.. ThresholdChoices, .. ReminderToggleChoices],
         SettingRow.PollInterval => PollChoices,
         _ => []
     };
@@ -250,11 +257,16 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
                 settings with { LowBatteryThreshold = target.Value },
             (SettingRow.PollInterval, PopupAction.PollInterval) when PollChoices.Any(choice => choice.Target == target) =>
                 settings with { PollSeconds = target.Value },
+            (SettingRow.Threshold, PopupAction.GameEntryReminder) =>
+                settings with { GameEntryReminder = !settings.GameEntryReminderEnabled },
+            (SettingRow.Threshold, PopupAction.FullChargeReminder) =>
+                settings with { FullChargeReminder = !settings.FullChargeReminder },
             _ => null
         };
         if (next is null)
             return false;
-        if (target.Action != PopupAction.TrayMode)
+        // 勾选类选项（托盘设备、两个提醒开关）保持展开，方便连续调整。
+        if (target.Action is not (PopupAction.TrayMode or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder))
             Collapse(time, animate);
         save(next);
         return true;

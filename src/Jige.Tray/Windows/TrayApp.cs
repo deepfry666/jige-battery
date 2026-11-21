@@ -27,6 +27,7 @@ internal sealed partial class TrayApp : IDisposable
     private const string HostClass = "Jige.Tray.Host";
     private const string PopupClass = "Jige.Tray.Popup";
     private const string HoverCardClass = "Jige.Tray.HoverCard";
+    private const string BannerClass = "Jige.Tray.GameBanner";
     private const string MenuClass = "Jige.Tray.Menu";
     private const uint TrayMessage = 0x8001;
     private const uint ResultMessage = 0x8002;
@@ -40,7 +41,7 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -80,6 +81,7 @@ internal sealed partial class TrayApp : IDisposable
     private bool foregroundPosted, locationPosted;
     private PopupWindow? popup;
     private HoverCardWindow? hoverCard;
+    private GameBannerWindow? gameBanner;
     private TrayMenuWindow? menu;
     private Point menuPoint;
     private uint? hoverIconId;
@@ -148,6 +150,8 @@ internal sealed partial class TrayApp : IDisposable
         Register(HostClass, &HostCallback);
         Register(PopupClass, &PopupCallback);
         Register(HoverCardClass, &HoverCardCallback);
+        // 横幅与悬停卡片同样不抢焦点、点击穿透，复用同一个消息处理。
+        Register(BannerClass, &HoverCardCallback);
         Register(MenuClass, &MenuCallback);
         Register(StripClass, &StripCallback);
         host = MakeWindow(HostClass, 0, WS_POPUP);
@@ -594,6 +598,11 @@ internal sealed partial class TrayApp : IDisposable
                     AdvanceHoverCard();
                     return true;
                 }
+                if (wParam.Value == BannerTimer)
+                {
+                    DestroyGameBanner();
+                    return true;
+                }
                 if (wParam.Value == MenuCloseTimer)
                 {
                     if (menu?.Closing == true)
@@ -759,6 +768,8 @@ internal sealed partial class TrayApp : IDisposable
         bool enteredGame = next.Game && !game.Game;
         game = next;
         events.LogGameMode(game);
+        if (enteredGame)
+            ShowGameEntryBanner(currentForeground);
         if (enteredGame && schedule.Running && !startedInGame && !schedule.StartedByUser)
             cancelWork = cancellation?.CancelAsync() ?? Task.CompletedTask;
 
@@ -826,8 +837,8 @@ internal sealed partial class TrayApp : IDisposable
             if (welcomePending && icons.AnyRegistered && !(nextWelcomeAttempt > now))
                 ShowWelcome();
             else if (!schedule.Running && !(nextPopupAttempt > now) &&
-                model.ReadyReminder(now, false) is { } ready)
-                ShowPopup(ready.Device.Id, null);
+                model.ReadyReminderKey(now, false) is { } readyKey)
+                ShowPopup(readyKey, null);
         }
         ScheduleWork(now, nowTick);
     }
@@ -1413,6 +1424,45 @@ internal sealed partial class TrayApp : IDisposable
         ArmTimer(HoverCloseTimer, HoverReleaseMs);
     }
 
+    /// <summary>
+    /// 刚进入游戏时，若有在用设备电量低（或预计不到 1 小时），在右下角弹一条不抢焦点的小横幅，几秒后自动消失。
+    /// 独占全屏游戏不叠窗口，等退出游戏后由常规低电量提醒补上。
+    /// </summary>
+    private void ShowGameEntryBanner(HWND foreground)
+    {
+        if (game.Status.Reason == GameDetectionReason.D3dFullscreen || !model.Settings.GameEntryReminderEnabled)
+            return;
+        var now = DateTimeOffset.UtcNow;
+        var warnings = model.TakeGameEntryWarnings(now);
+        if (warnings.Length == 0)
+            return;
+        var device = warnings[0];
+        try
+        {
+            DestroyGameBanner();
+            var extra = WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_TRANSPARENT | WS_EX_NOREDIRECTIONBITMAP;
+            HWND window = MakeWindow(BannerClass, extra, WS_POPUP | WS_THICKFRAME);
+            gameBanner = new GameBannerWindow(window, model);
+            gameBanner.Show(device, model.Runtime(device, now), warnings.Length - 1, foreground);
+            ArmTimer(BannerTimer, GameBannerWindow.VisibleMs);
+            Desktop.Log("显示进游戏低电量横幅");
+        }
+        catch (Exception error)
+        {
+            DestroyGameBanner();
+            Desktop.Log("显示进游戏低电量横幅失败", error);
+        }
+    }
+
+    private void DestroyGameBanner()
+    {
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, BannerTimer);
+        var previous = gameBanner;
+        gameBanner = null;
+        previous?.Dispose();
+    }
+
     private void DestroyHoverCard()
     {
         if (!host.IsNull)
@@ -1488,7 +1538,14 @@ internal sealed partial class TrayApp : IDisposable
             if (popup is not { } active)
                 return false;
             active.Show();
-            Desktop.Log(page == PanelPage.Welcome ? "显示首次使用引导" : automatic ? "显示低电量提醒" : "显示面板");
+            Desktop.Log(page == PanelPage.Welcome ? "显示首次使用引导" : automatic
+                ? $"显示{(noticeId is null ? "" : ReminderKeys.Parse(noticeId).Kind switch
+                {
+                    ReminderKind.Predicted => "预测",
+                    ReminderKind.FullCharge => "充满",
+                    _ => "低电量"
+                })}提醒"
+                : "显示面板");
             return true;
         }
         catch (Exception error)
@@ -1642,7 +1699,8 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme:
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme
+                or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder:
                 active.SelectSetting(target, ChangeSettings);
                 break;
             case PopupAction.GameSilent:
@@ -1659,6 +1717,9 @@ internal sealed partial class TrayApp : IDisposable
                 break;
             case PopupAction.RuntimeEstimate:
                 ChangeSettings(model.Settings with { ShowRuntimeEstimate = !model.Settings.ShowRuntimeEstimate });
+                break;
+            case PopupAction.DeviceThreshold when target.DeviceId is { } thresholdId:
+                ChangeSettings(model.Settings.CycleDeviceThreshold(thresholdId));
                 break;
             case PopupAction.TrayToggle when target.DeviceId is { } toggleId:
                 ChangeSettings(model.ToggleTrayDevice(toggleId));
@@ -2530,6 +2591,7 @@ internal sealed partial class TrayApp : IDisposable
             PInvoke.UnhookWinEvent(locationHook);
         DestroyMenu();
         DestroyHoverCard();
+        DestroyGameBanner();
         DestroyPopup();
         DisposeStrip();
         icons.Dispose();

@@ -132,7 +132,6 @@ internal static class HoverCardBuilder
 {
     public static HoverCardContent Build(TrayModel model, string? slotKey, DateTimeOffset now, bool forceList = false)
     {
-        int threshold = model.Settings.LowBatteryThreshold;
         bool isSingleDeviceSlot = !forceList && model.Settings.TrayMode == TrayDisplayMode.Custom &&
             !string.IsNullOrEmpty(slotKey) &&
             !StringComparer.OrdinalIgnoreCase.Equals(slotKey, TrayIconPlan.SingleKey);
@@ -143,7 +142,7 @@ internal static class HoverCardBuilder
                 item.IsActive && StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, slotKey));
             if (device is null)
                 return Empty();
-            return BuildSingle(model, device, threshold, now);
+            return BuildSingle(model, device, model.ThresholdFor(device.Device.Id), now);
         }
 
         if (forceList || model.Settings.TrayMode == TrayDisplayMode.LowestBattery)
@@ -158,7 +157,7 @@ internal static class HoverCardBuilder
                 return Empty();
 
             var rows = active.Take(HoverCardContent.MaxListRows)
-                .Select(device => BuildRow(model, device, threshold, now))
+                .Select(device => BuildRow(model, device, model.ThresholdFor(device.Device.Id), now))
                 .ToArray();
             int overflow = Math.Max(0, active.Length - HoverCardContent.MaxListRows);
             return new(
@@ -199,7 +198,7 @@ internal static class HoverCardBuilder
             Tone: tone,
             FilledCells: Presentation.FilledCells(device.Percentage, 10),
             IsCharging: device.IsCharging,
-            StatusLine: SingleStatusLine(device, tone, now),
+            StatusLine: SingleStatusLine(device, tone, now, model.LastCharged(device.Device.Id)),
             Rows: [],
             TotalActiveCount: 1,
             OverflowCount: 0,
@@ -241,8 +240,11 @@ internal static class HoverCardBuilder
         TotalActiveCount: 0,
         OverflowCount: 0);
 
-    internal static string SingleStatusLine(DeviceStatus device, BatteryTone tone, DateTimeOffset now)
+    internal static string SingleStatusLine(DeviceStatus device, BatteryTone tone, DateTimeOffset now,
+        DateTimeOffset? lastCharge = null)
     {
+        bool charging = device.Fresh && (device.IsFull || device.IsCharging);
+        string? charged = !charging && lastCharge is { } at && at <= now ? RuntimeEstimator.ChargedAgo(at, now) : null;
         List<string> parts = [];
         if (device.Fresh && device.IsFull)
             parts.Add("已充满");
@@ -252,14 +254,21 @@ internal static class HoverCardBuilder
             parts.Add("电量低");
         else if (tone == BatteryTone.Warning)
             parts.Add("电量偏低");
-        else if (device.Link != LinkState.Asleep)
+        else if (device.Link != LinkState.Asleep && charged is null)
             parts.Add(device.Last?.IsEstimated == true ? "电压估算" : "在线");
 
         if (device.Link == LinkState.Asleep)
             parts.Add("休眠中");
+        if (charged is not null)
+            parts.Add(charged);
 
         if (device.Last is { } last)
-            parts.Add(ReadAge(last.ReadAt, now));
+        {
+            string age = ReadAge(last.ReadAt, now);
+            // 已显示「上次充电」时，刚读到的读数不再重复写「刚刚读取」，避免单行放不下。
+            if (charged is null || age != "刚刚读取")
+                parts.Add(age);
+        }
         else
             parts.Add("等待读取");
 
