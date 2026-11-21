@@ -1,0 +1,475 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>几格 · Windows 外设电量显示</title>
+  <meta name="description" content="几格把无线鼠标、键盘和耳机的电量放到 Windows 任务栏上。不用开着厂商驱动，电量低了提醒充电，打游戏时不打扰。免费开源。">
+  <meta name="theme-color" content="#0c0c0b">
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+
+  <!-- 背景氛围层：随指针柔摆的丝绸光浪 + 暖调视差漫射光 -->
+  <div class="bg-fx" aria-hidden="true">
+    <div class="bg-wash bg-wash-1" id="bgWash1"></div>
+    <div class="bg-wash bg-wash-2" id="bgWash2"></div>
+    <div class="bg-wash bg-wash-3" id="bgWash3"></div>
+    <canvas class="bg-canvas" id="bgCanvas"></canvas>
+    <div class="bg-spotlight" id="bgSpotlight"></div>
+  </div>
+
+  <!-- 顶部导航：首屏置顶居中，下滑后向右上角丝滑缩放收拢 -->
+  <header class="nav" id="siteNav">
+    <div class="nav-dock" id="navDock">
+      <div class="nav-inner">
+        <a class="wordmark" href="#top" aria-label="几格 首页">
+          <img class="wordmark-logo" src="assets/app-icon.svg" width="28" height="28" alt="">
+          <span class="wordmark-text">几格</span>
+        </a>
+
+        <nav class="nav-links" id="navLinks" aria-label="页面导航">
+          <span class="nav-pill" id="navPill" aria-hidden="true"></span>
+          <a href="#demo">体验</a>
+          <a href="#features">特性</a>
+          <a href="#devices">设备</a>
+          <a href="#changelog">更新</a>
+          <a href="#faq">常见问题</a>
+          <a href="https://github.com/deepfry666/jige-battery" target="_blank" rel="noopener noreferrer">GitHub</a>
+        </nav>
+
+        <div class="nav-right">
+          <a class="btn btn-small" data-download href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/Jige-Setup-0.2.10-x64.exe">下载</a>
+        </div>
+      </div>
+      <div class="read-progress" id="readProgress" aria-hidden="true"></div>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- 首屏：居中对称构图 + 交互式真实桌面舞台 -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="wrap hero-center">
+        <div class="hero-kicker enter enter-1">
+          <span class="kicker-dot" aria-hidden="true"></span>
+          <span class="mono kicker-ver" data-version>v0.2.10</span>
+          <span class="kicker-sep" aria-hidden="true">/</span>
+          <span>Windows 10 &amp; 11</span>
+          <span class="kicker-sep" aria-hidden="true">/</span>
+          <span>开源免费</span>
+        </div>
+
+        <h1 id="hero-title" class="hero-title enter enter-2">不开厂商驱动，也能看电量</h1>
+
+        <p class="hero-sub enter enter-3">
+          把无线鼠标、键盘和耳机的电量放上 <span class="nowrap">Windows 任务栏</span>。
+        </p>
+
+        <div class="hero-actions enter enter-4">
+          <a class="btn btn-primary" data-download href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/Jige-Setup-0.2.10-x64.exe">
+            <svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8m0 0 3.5-3.5M8 10 4.5 6.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>下载 Windows 版</span>
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/deepfry666/jige-battery" target="_blank" rel="noopener noreferrer">
+            <svg class="icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 1.2a6.8 6.8 0 0 0-2.15 13.25c.34.06.46-.15.46-.33v-1.26c-1.88.41-2.28-.8-2.28-.8-.31-.78-.75-.99-.75-.99-.62-.42.04-.41.04-.41.68.05 1.04.7 1.04.7.61 1.04 1.6.74 1.99.57.06-.44.24-.74.43-.91-1.5-.17-3.08-.75-3.08-3.35 0-.74.26-1.35.7-1.82-.07-.17-.3-.86.07-1.79 0 0 .57-.18 1.87.7a6.5 6.5 0 0 1 3.4 0c1.3-.88 1.87-.7 1.87-.7.37.93.14 1.62.07 1.79.44.47.7 1.08.7 1.82 0 2.61-1.58 3.18-3.09 3.35.24.21.46.63.46 1.27v1.88c0 .18.12.4.47.33A6.8 6.8 0 0 0 8 1.2Z"/></svg>
+            <span>在 GitHub 查看</span>
+          </a>
+        </div>
+
+        <ul class="hero-meta mono enter enter-5">
+          <li data-version>v0.2.10</li>
+          <li data-size>5.0 MB</li>
+          <li>Win 10 22H2 / 11 (x64)</li>
+          <li>国内镜像直连</li>
+        </ul>
+
+        <p class="hero-fallback" data-fallback hidden>国内镜像暂时读不到最新版本信息，也可以 <a href="https://github.com/deepfry666/jige-battery/releases/latest" target="_blank" rel="noopener noreferrer">从 GitHub 下载</a>。</p>
+
+        <!-- 交互式真实界面舞台 -->
+        <div class="stage-wrap enter enter-6" id="demo">
+          <div class="stage-tabs" id="stageTabs" role="tablist" aria-label="交互场景切换">
+            <span class="stage-tab-slider" id="stageTabSlider" aria-hidden="true"></span>
+            <button type="button" class="stage-tab is-active" role="tab" aria-selected="true" data-scene="panel">主面板</button>
+            <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="hover">悬停卡片</button>
+            <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="strip">任务栏直读条</button>
+            <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="game">全屏游戏免打扰</button>
+          </div>
+
+          <div class="stage-shell" id="stageShell">
+            <div class="stage-rim" aria-hidden="true"></div>
+            <div class="stage" id="stage">
+              <!-- 沉稳暗调桌面壁纸 -->
+              <div class="stage-wallpaper" aria-hidden="true"></div>
+
+              <!-- 左侧桌面情景卡 -->
+              <div class="stage-side" id="stageSide">
+                <div class="stage-side-badge">
+                  <span class="side-dot" aria-hidden="true"></span>
+                  <span>厂商驱动已关闭 · 直连 USB 接收器</span>
+                </div>
+                <p class="stage-side-title" id="stageHintTitle">所有无线外设，一处看全</p>
+                <p class="stage-side-desc" id="stageHint">点击右侧面板里任意设备行可切换顶部主卡片，也可点击下方按钮触发互动。</p>
+                <div class="stage-side-actions">
+                  <button type="button" class="side-btn" id="simTriggerToast">触发低电量提醒</button>
+                  <button type="button" class="side-btn" id="simToggleCharge">切换耳机充电</button>
+                </div>
+              </div>
+
+              <!-- 游戏中延迟提示条 -->
+              <div class="sim-queued" id="simQueued" aria-live="polite">
+                <span class="sim-queued-dot" aria-hidden="true"></span>
+                <span>游戏中：低电量提醒已推迟，退出全屏后再弹出</span>
+              </div>
+
+              <!-- 模拟全屏游戏遮罩 -->
+              <div class="sim-game" id="simGame" aria-hidden="true">
+                <div class="sim-crosshair" aria-hidden="true"></div>
+                <div class="sim-game-hud">
+                  <div class="sim-game-badge">独占全屏游戏中</div>
+                  <p>托盘已自动隐藏 · 弹窗静默 · 查询放慢至 5 分钟</p>
+                  <button type="button" class="sim-exit-btn" id="simExitGame">退出全屏，查看延迟提醒</button>
+                </div>
+              </div>
+
+              <!-- 真实风格主弹出面板（Flyout） -->
+              <div class="sim-flyout is-open" id="simFlyout" role="region" aria-label="几格主面板演示">
+                <div class="fo-head">
+                  <div class="fo-title">几格</div>
+                  <div class="fo-time" id="simTime">刚刚更新</div>
+                  <button type="button" class="fo-icon-btn" id="simRefresh" title="刷新电量" aria-label="刷新电量">
+                    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M12.2 1.8v2.6H9.6"/></svg>
+                  </button>
+                </div>
+                <div class="fo-hero" id="simHeroCard"></div>
+                <div class="fo-list" id="simDeviceList"></div>
+                <div class="fo-foot">
+                  <span class="fo-foot-meta">离线设备（1）</span>
+                  <span class="fo-foot-link">管理设备</span>
+                </div>
+              </div>
+
+              <!-- 真实风格悬停卡片 -->
+              <div class="sim-hcard" id="simHoverCard" role="status" aria-live="polite"></div>
+
+              <!-- 真实风格低电量提醒 Toast -->
+              <div class="sim-toast" id="simToast" role="status" aria-live="polite">
+                <div class="toast-head">
+                  <img src="assets/app-icon.svg" width="16" height="16" alt="">
+                  <span>几格</span>
+                  <button type="button" class="toast-close" id="simToastClose" aria-label="关闭提醒">×</button>
+                </div>
+                <div class="toast-body">
+                  <div class="toast-ico" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v6.5" stroke-linecap="round"/></svg>
+                  </div>
+                  <div class="toast-copy">
+                    <strong>鼠标该充电了</strong>
+                    <span>ATK 鼠标只剩 12%</span>
+                  </div>
+                </div>
+                <div class="toast-actions">
+                  <button type="button" class="toast-btn" id="simToastLater">1 小时后提醒</button>
+                  <button type="button" class="toast-btn toast-btn-pri" id="simToastOk">知道了</button>
+                </div>
+              </div>
+
+              <!-- 模拟 Windows 11 任务栏 -->
+              <div class="sim-taskbar" id="simTaskbar">
+                <div class="tb-center" aria-hidden="true">
+                  <div class="tb-app tb-start"><i></i></div>
+                  <div class="tb-app"><i></i></div>
+                  <div class="tb-app"><i></i></div>
+                  <div class="tb-app"><i></i></div>
+                </div>
+
+                <div class="tb-right">
+                  <!-- 0.2.10 任务栏直读条 -->
+                  <div class="tb-strip" id="simStrip" aria-label="Windows 11 任务栏直读条演示"></div>
+
+                  <!-- 托盘区域 -->
+                  <div class="tb-tray">
+                    <div class="tb-chev" aria-hidden="true">
+                      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8l4-4 4 4"/></svg>
+                    </div>
+                    <div class="tb-icons" id="simTrayIcons"></div>
+                    <div class="tb-sys" aria-hidden="true">
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
+                      <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
+                    </div>
+                    <div class="tb-clock mono" id="simClock">20:30<br>2026/11/20</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="stage-caption">实时交互演示 · 基于几格真实界面样式构建，点击上方标签或任务栏图标即可体验（演示数据）</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 核心特性：居中标题 + 2x2 对称 Bento 卡片网格 -->
+    <section class="section" id="features" aria-labelledby="features-title">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-index mono">01 / 核心原理</span>
+          <h2 id="features-title">驱动调好，就可以关了</h2>
+          <p class="sec-lead">在厂商软件里把灵敏度和回报率设好以后，几格直接向 USB 接收器查询电量。后台少一个沉重的厂商常驻程序。</p>
+        </div>
+
+        <div class="bento-grid">
+          <!-- 卡片 1：只读直连 -->
+          <article class="bento-card reveal" data-spotlight>
+            <div class="bento-vis vis-pipeline" aria-hidden="true">
+              <div class="pipe-node">
+                <span class="pipe-ico">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="7" y="4" width="10" height="12" rx="2"/><path d="M9 16v3a1 1 0 0 0 1 1h4a1 1 0 0 0 1-1v-3M10 8h.01M14 8h.01"/></svg>
+                </span>
+                <span class="pipe-label">USB 接收器</span>
+              </div>
+              <div class="pipe-track">
+                <span class="pipe-pulse"></span>
+                <span class="pipe-tag">只读查询</span>
+              </div>
+              <div class="pipe-node pipe-node-accent">
+                <span class="pipe-ico">
+                  <img src="assets/app-icon.svg" width="24" height="24" alt="">
+                </span>
+                <span class="pipe-label">几格托盘</span>
+              </div>
+            </div>
+            <div class="bento-body">
+              <h3>只读查询，从不改设置</h3>
+              <p>只发送白名单内的电量与状态指令，绝不写入 DPI、回报率或宏配置，查完即释放设备；厂商软件打开时自动退让。</p>
+            </div>
+          </article>
+
+          <!-- 卡片 2：直读条 + 水位图标 + Win10 实机对比 -->
+          <article class="bento-card reveal" data-spotlight>
+            <div class="bento-vis vis-indicators">
+              <div class="ind-row">
+                <span class="ind-badge mono">Win 11 直读条</span>
+                <div class="ind-strip-demo" id="bentoStripDemo" aria-hidden="true"></div>
+              </div>
+              <div class="ind-row">
+                <span class="ind-badge mono">水位图标</span>
+                <div class="ind-tray-demo" id="bentoTrayDemo" aria-hidden="true"></div>
+                <figure class="ind-real-chip" title="Windows 10 任务栏 100% 缩放实机截图">
+                  <img src="assets/real-tray-win10.png" width="72" height="39" alt="Windows 10 任务栏实机截图：键盘图标白色充足，鼠标图标黄色偏低" decoding="async">
+                  <figcaption>Win10 实机</figcaption>
+                </figure>
+              </div>
+            </div>
+            <div class="bento-body">
+              <h3>扫一眼，就知道还剩几格</h3>
+              <p>Windows 11 可在通知区左侧直接横排显示图标和百分比；Windows 10 或空间紧张时自动切换底部填充的水位图标，红黄绿一眼分辨。</p>
+            </div>
+          </article>
+
+          <!-- 卡片 3：全屏游戏免打扰 -->
+          <article class="bento-card reveal" data-spotlight>
+            <div class="bento-vis vis-game" aria-hidden="true">
+              <div class="game-pill">
+                <span class="game-dot"></span>
+                <span>全屏游戏检测已开启</span>
+              </div>
+              <div class="game-metrics">
+                <div class="gm-item"><span>低电弹窗</span><strong>自动推迟</strong></div>
+                <div class="gm-item"><span>轮询频率</span><strong class="mono">5 min</strong></div>
+                <div class="gm-item"><span>焦点占用</span><strong class="mono">0 次</strong></div>
+              </div>
+            </div>
+            <div class="bento-body">
+              <h3>全屏游戏，绝不打扰</h3>
+              <p>开黑打排位时不弹窗、不切出画面，自动把查询放慢到 5 分钟一次。低电量提醒会安静排队，等你回到桌面再提示。</p>
+            </div>
+          </article>
+
+          <!-- 卡片 4：零遥测开源 -->
+          <article class="bento-card reveal" data-spotlight>
+            <div class="bento-vis vis-privacy" aria-hidden="true">
+              <div class="priv-ring">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v6c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3z"/><path d="M9 12.2l2 2 4-4.2"/></svg>
+              </div>
+              <div class="priv-tags mono">
+                <span>0 后台联网</span>
+                <span>无遥测</span>
+                <span data-size>5.0 MB</span>
+                <span>MIT License</span>
+              </div>
+            </div>
+            <div class="bento-body">
+              <h3>纯本地运行，轻量透明</h3>
+              <p>NativeAOT 原生编译，平时不发起任何网络请求。只有你手动点击「检查更新」才连接国内镜像；诊断报告导出前先由你亲自审阅。</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- 设备支持列表 -->
+    <section class="section" id="devices" aria-labelledby="devices-title">
+      <div class="wrap">
+        <div class="sec-head reveal">
+          <span class="sec-index mono">02 / 设备兼容</span>
+          <h2 id="devices-title">一个工具，看全桌面外设</h2>
+          <p class="sec-lead">支持主流 2.4 GHz USB 接收器与 Windows 蓝牙电量读取。「已实机验证」为作者真机实测确认，「按资料适配」依据公开协议实现。</p>
+        </div>
+
+        <div class="glass-panel reveal">
+          <ul class="devices">
+            <li class="device">
+              <span class="device-brand">Sony INZONE</span>
+              <span class="device-models">INZONE H9 一代（PC 档接收器）。INZONE Hub 运行时自动退让</span>
+              <span class="tag tag-verified">已实机验证</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">游狼 G-Wolves</span>
+              <span class="device-models">HTX Ultra 8K；同家族 Fenrir Pro 8K、HTM Plus、HSK Pro 2.0 8K 及 21 款旧协议型号</span>
+              <span class="tag tag-verified">HTX Ultra 8K 已实机验证</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">罗技 Logitech</span>
+              <span class="device-models">Bolt、Unifying、Nano、LIGHTSPEED 接收器；G533、G535、G733、G PRO X 等耳机。MX Keys S / MX Anywhere 3S 日常在用</span>
+              <span class="tag">按资料适配</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">雷蛇 Razer</span>
+              <span class="device-models">72 款鼠标、15 款键盘，含 HyperPolling 接收器；BlackShark V2 Pro (2020)、V2 HyperSpeed 耳机</span>
+              <span class="tag">按资料适配</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">ATK</span>
+              <span class="device-models">F1 Ultimate、ATK ZERO 及多款共用接收器，同家族未收录接收器也能自动识别</span>
+              <span class="tag">按资料适配</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">Finalmouse</span>
+              <span class="device-models">UltralightX（ULX）2.4 GHz 接收器及同家族接收器</span>
+              <span class="tag">按资料适配</span>
+            </li>
+            <li class="device">
+              <span class="device-brand">蓝牙设备</span>
+              <span class="device-models">Windows 系统能读到电量的蓝牙鼠标、键盘和耳机，可在设置里随时关闭显示</span>
+              <span class="tag">按资料适配</span>
+            </li>
+          </ul>
+        </div>
+
+        <p class="sec-more reveal">
+          <a href="https://github.com/deepfry666/jige-battery/blob/main/docs/devices.md" target="_blank" rel="noopener noreferrer">
+            <span>查看完整支持设备清单</span>
+            <svg class="arrow" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 8h10m0 0-4-4m4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        </p>
+      </div>
+    </section>
+
+    <!-- 最新更新 -->
+    <section class="section" id="changelog" aria-labelledby="changelog-title">
+      <div class="wrap wrap-narrow">
+        <div class="sec-head reveal">
+          <span class="sec-index mono">03 / 版本动态</span>
+          <h2 id="changelog-title">最新更新 <span class="ver-chip mono" data-version>v0.2.10</span></h2>
+          <p class="sec-lead">安装后在几格里点「检查更新」即可无损升级，所有设置与设备备注都会保留。</p>
+        </div>
+
+        <div class="glass-panel release-panel reveal">
+          <ul class="changes" data-changes>
+            <li>新增任务栏直读条，在通知区左侧直接显示设备图标和电量百分比。空间不足时自动使用托盘图标，也可在「设置 → 显示位置」切换。</li>
+            <li>修复：0.2.9 的托盘图标没填色的部分几乎看不见。现在未填部分清楚显示为灰色。</li>
+            <li>修复：鼠标在多个设备图标之间移动时，悬停卡片闪烁、切换卡顿。</li>
+          </ul>
+          <div class="release-foot">
+            <span>每次 GitHub 发布正式版后自动同步到国内镜像</span>
+            <a href="https://github.com/deepfry666/jige-battery/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">
+              <span>完整更新记录</span>
+              <svg class="arrow" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 8h10m0 0-4-4m4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 常见问题 -->
+    <section class="section" id="faq" aria-labelledby="faq-title">
+      <div class="wrap wrap-narrow">
+        <div class="sec-head reveal">
+          <span class="sec-index mono">04 / 常见疑问</span>
+          <h2 id="faq-title">你可能想确认的事</h2>
+        </div>
+
+        <div class="glass-panel faq-panel reveal">
+          <details>
+            <summary>Windows 提示「Windows 已保护你的电脑」怎么办？</summary>
+            <div class="faq-body">
+              <p>安装包暂未购买商业代码签名证书，首次运行时 Windows SmartScreen 可能拦一下。点「更多信息」，再点「仍要运行」即可。不放心的话，可以先下载 <a data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/SHA256SUMS.txt">SHA256SUMS.txt</a> 在 PowerShell 里核对安装包哈希。</p>
+            </div>
+          </details>
+          <details>
+            <summary>为什么 Windows 10 上没有任务栏直读条？</summary>
+            <div class="faq-body">
+              <p>Windows 10 的任务栏结构与 Windows 11 不同，几格会自动改用托盘水位图标显示电量。悬停卡片、主面板与低电量提醒全部照常可用。</p>
+            </div>
+          </details>
+          <details>
+            <summary>要一直开着厂商驱动吗？</summary>
+            <div class="faq-body">
+              <p>不用。在厂商驱动里调好 DPI、回报率、灯光后就可以关掉。官方软件打开时可能会占用接收器，此时几格会自动退让并保留上次读数。</p>
+            </div>
+          </details>
+          <details>
+            <summary>会收集或上传我的数据吗？</summary>
+            <div class="faq-body">
+              <p>不会。几格平时完全不联网。诊断报告只在你主动导出时生成并保存在本机，先用记事本打开给你核对，不含序列号、电脑名、用户名或任何键鼠输入。</p>
+            </div>
+          </details>
+          <details>
+            <summary>我的设备不在列表里怎么办？</summary>
+            <div class="faq-body">
+              <p>可以在几格里导出诊断报告，到 GitHub 提交设备适配反馈。详细步骤见 <a href="https://github.com/deepfry666/jige-battery/blob/main/CONTRIBUTING.md" target="_blank" rel="noopener noreferrer">CONTRIBUTING.md</a>。</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- 底部下载收尾 -->
+    <section class="section closer-sec" aria-labelledby="closer-title">
+      <div class="wrap">
+        <div class="closer-card reveal">
+          <div class="closer-glow" aria-hidden="true"></div>
+          <span class="sec-index mono">DOWNLOAD</span>
+          <h2 id="closer-title">看清每一台外设还剩几格电</h2>
+          <p class="sec-lead">国内镜像高速直连，无需代理。默认安装到当前用户目录，不需要管理员权限。</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" data-download href="https://download.imfourj.cn/jige-battery/releases/v0.2.10/Jige-Setup-0.2.10-x64.exe">
+              <svg class="icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 2v8m0 0 3.5-3.5M8 10 4.5 6.5M3 13.5h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>下载 <span class="mono" data-version>v0.2.10</span></span>
+            </a>
+            <a class="btn btn-ghost" href="https://github.com/deepfry666/jige-battery/releases" target="_blank" rel="noopener noreferrer">查看全部版本</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="assets/app-icon.svg" width="24" height="24" alt="几格 标志">
+        <span>几格 / Jige Battery · FourJ 作品 · 与各外设厂商无关联</span>
+      </div>
+      <nav class="footer-links" aria-label="页脚链接">
+        <a href="https://github.com/deepfry666/jige-battery" target="_blank" rel="noopener noreferrer">GitHub</a>
+        <a href="https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md" target="_blank" rel="noopener noreferrer">隐私说明</a>
+        <a href="https://github.com/deepfry666/jige-battery/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">MIT 许可证</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>

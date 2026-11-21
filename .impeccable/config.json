@@ -29,6 +29,24 @@
         ],
         "createdAt": "2026-11-19T10:57:16.368Z",
         "reason": "Claude: all three hits are dark-theme tokens (#f3f3f3/#c5c5c5/#a0a0a0) measured against an assumed white page; the page switches color-scheme to dark with those tokens and they sit on dark surfaces, checked in dark-mode preview"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "ui variable\",\"segoe ui\",\"pingfang sc\",sans-serif",
+        "files": [
+          "design/mockups/tray-icon-v3.html"
+        ],
+        "createdAt": "2026-11-20T10:06:01.219Z",
+        "reason": "Claude: internal design-decision mockups for the app's tray icon, not part of the site; DESIGN.md governs site/ only"
+      },
+      {
+        "rule": "design-system-font",
+        "value": "ui variable\",\"segoe ui\",\"pingfang sc\",sans-serif",
+        "files": [
+          "design/mockups/tray-v4-claude.html"
+        ],
+        "createdAt": "2026-11-20T10:06:01.240Z",
+        "reason": "Claude: internal design-decision mockups for the app's tray icon, not part of the site; DESIGN.md governs site/ only"
       }
     ]
   }
