@@ -5,7 +5,7 @@
 几格在 Windows 任务栏上显示无线鼠标、键盘和耳机的电量：不用打开厂商驱动，看一眼就知道「还剩几格电」。电量低时提醒你充电，打游戏时不打扰。
 
 - 官网：**https://jige.imfourj.cn**（国内直接访问，下载按钮自动指向最新版）
-- 最新正式版：**v0.2.16**（[更新记录](CHANGELOG.md)）
+- 最新正式版：**v0.2.17**（[更新记录](CHANGELOG.md)）
 - 系统要求：Windows 10 22H2 或 Windows 11，64 位
 - 只读：只查询电量和状态，不改任何设备设置
 - 开源：[MIT 许可证](LICENSE)
@@ -14,15 +14,15 @@
 
 | 渠道 | 安装包 | 校验文件 |
 | --- | --- | --- |
-| **国内镜像**（无需代理） | [Jige-Setup-0.2.16-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.16/Jige-Setup-0.2.16-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.16/SHA256SUMS.txt) |
+| **国内镜像**（无需代理） | [Jige-Setup-0.2.17-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.17/Jige-Setup-0.2.17-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt) |
 | GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) | 同页附带 |
 
-国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，在几格里点「检查更新」即可升级，不用再来这里下载。
+国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，几格默认每天自动检查更新并在后台预下载，点一下提示即可升级，不用再来这里下载。
 
 下载后可以在 PowerShell 核对散列，结果应与 `SHA256SUMS.txt` 里的一致：
 
 ```powershell
-Get-FileHash .\Jige-Setup-0.2.16-x64.exe -Algorithm SHA256
+Get-FileHash .\Jige-Setup-0.2.17-x64.exe -Algorithm SHA256
 ```
 
 ## 界面预览
