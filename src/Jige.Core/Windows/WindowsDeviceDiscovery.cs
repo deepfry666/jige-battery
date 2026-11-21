@@ -128,8 +128,14 @@ public static partial class WindowsDeviceDiscovery
                 }
 
                 var node = new Native.DeviceData { Size = (uint)sizeof(Native.DeviceData) };
-                Native.GetInterfaceDetail(set, in info, null, 0, out uint size, null);
-                if (size < 8)
+                const uint maxDetailBytes = 64 * 1024;
+                if (Native.GetInterfaceDetail(set, in info, null, 0, out uint size, null) == 0 &&
+                    Marshal.GetLastPInvokeError() != 122)
+                {
+                    warnings.Add(WindowsErrors.Last("读取设备路径长度").Message);
+                    continue;
+                }
+                if (size < 8 || size > maxDetailBytes)
                 {
                     warnings.Add(WindowsErrors.Last("读取设备路径长度").Message);
                     continue;
@@ -251,8 +257,11 @@ public static partial class WindowsDeviceDiscovery
     private static unsafe string[] ReadHardwareIds(nint set, Native.DeviceData node)
     {
         const uint hardwareId = 1;
-        Native.GetRegistryProperty(set, node, hardwareId, out _, null, 0, out uint size);
-        if (size < 2)
+        const uint maxPropertyBytes = 64 * 1024;
+        if (Native.GetRegistryProperty(set, node, hardwareId, out _, null, 0, out uint size) == 0 &&
+            Marshal.GetLastPInvokeError() != 122)
+            return [];
+        if (size < 2 || size > maxPropertyBytes)
             return [];
         var buffer = new byte[size];
         fixed (byte* data = buffer)

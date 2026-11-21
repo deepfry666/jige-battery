@@ -34,23 +34,26 @@ public sealed partial class DeviceTopologyCache(
     private UnknownReceiverInfo[] cachedUnknowns = [];
     private int cachedUnknownCount;
     private Dictionary<string, (ushort? Vid, ushort? Pid, int Count)>? lastReceivers;
-    private bool dirty = true;
+    private int generation = 1;
+    private int scannedGeneration;
 
-    public bool IsDirty => Volatile.Read(ref dirty);
+    public bool IsDirty => Volatile.Read(ref generation) != Volatile.Read(ref scannedGeneration);
 
     /// <summary>仅把外部 USB/蓝牙 HID 的厂商自定义集合计入未识别接收器，避免笔记本内置 I2C/ACPI 触控板等误报。</summary>
     public static bool IsUnknownReceiverCandidate(HidInterface hid) =>
         hid.UsagePage is >= 0xFF00 && hid.IsExternalReceiverBus;
 
     /// <summary>标记缓存失效（收到插拔通知、休眠唤醒、设备断开错误或用户点「重新检测」时调用）。</summary>
-    public void Invalidate() => Volatile.Write(ref dirty, true);
+    public void Invalidate() => Interlocked.Increment(ref generation);
 
     public async Task<TopologySnapshot> GetOrScanAsync(bool forceRefresh, CancellationToken cancellationToken)
     {
         await gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            if (!forceRefresh && !Volatile.Read(ref dirty) && cachedInventory is not null && cachedDetected is not null)
+            int targetGeneration = Volatile.Read(ref generation);
+            if (!forceRefresh && targetGeneration == Volatile.Read(ref scannedGeneration) &&
+                cachedInventory is not null && cachedDetected is not null)
                 return new(cachedInventory, cachedDetected, cachedUnknownCount, [], cachedUnknowns, Scanned: false);
 
             var inventory = await scan(cancellationToken).ConfigureAwait(false);
@@ -78,8 +81,9 @@ public sealed partial class DeviceTopologyCache(
             cachedDetected = detected;
             cachedUnknownCount = unknownReceivers.Count;
             cachedUnknowns = unknowns.DistinctBy(item => item.Signature, StringComparer.OrdinalIgnoreCase).ToArray();
-            // 若本次枚举出现警告，保留 dirty 让下次轮询补救；枚举正常则锁定缓存。
-            Volatile.Write(ref dirty, inventory.Warnings.Count > 0);
+            // 若本次枚举出现警告，不推进代次让下次轮询补救；枚举期间若收到新的 Invalidate()，targetGeneration 也会小于当前 generation。
+            if (inventory.Warnings.Count == 0)
+                Volatile.Write(ref scannedGeneration, targetGeneration);
             return new(inventory, detected, cachedUnknownCount, changes, cachedUnknowns, Scanned: true);
         }
         finally

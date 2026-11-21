@@ -29,24 +29,24 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
     public bool Contains(Point point) => visible is { } r &&
         point.X >= r.Left && point.X < r.Right && point.Y >= r.Top && point.Y < r.Bottom;
 
+    public void DisposeGraphics()
+    {
+        layer?.Dispose();
+        layer = null;
+        composition?.Dispose();
+        composition = null;
+        previous = [];
+        previousScale = 0;
+        previousDark = false;
+        layerWidth = 0;
+    }
+
     public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
     {
         if (layer is null || previousScale != scale || previousDark != dark ||
             !previous.AsSpan().SequenceEqual(devices))
         {
-            composition ??= new(handle, 1);
-            if (layer is null || layerWidth != bounds.Width || previousScale != scale)
-            {
-                layer?.Dispose();
-                layer = new(composition, composition.Root, 0, 0, bounds.Width, bounds.Height);
-                layerWidth = bounds.Width;
-            }
-            uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
-            layer.Draw(canvas => canvas.PixelBitmap(pixels, bounds.Width, bounds.Height));
-            composition.Commit();
-            previous = devices;
-            previousDark = dark;
-            previousScale = scale;
+            RenderWithRecovery(devices, layout, bounds, dark, scale);
         }
 
         if (visible != bounds)
@@ -57,6 +57,34 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_SHOWWINDOW))
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
             visible = bounds;
+        }
+    }
+
+    private void RenderWithRecovery(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
+    {
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                composition ??= new(handle, 1);
+                if (layer is null || layerWidth != bounds.Width || previousScale != scale)
+                {
+                    layer?.Dispose();
+                    layer = new(composition, composition.Root, 0, 0, bounds.Width, bounds.Height);
+                    layerWidth = bounds.Width;
+                }
+                uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
+                layer.Draw(canvas => canvas.PixelBitmap(pixels, bounds.Width, bounds.Height));
+                composition.Commit();
+                previous = devices;
+                previousDark = dark;
+                previousScale = scale;
+                return;
+            }
+            catch (Exception error) when (attempt == 0 && Graphics.IsDeviceLost(error) && PInvoke.IsWindow(handle))
+            {
+                DisposeGraphics();
+            }
         }
     }
 

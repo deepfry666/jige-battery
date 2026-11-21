@@ -38,7 +38,13 @@ internal sealed class PollSchedule(long createdMs)
     public void Request(bool userInitiated = true, bool rescan = false)
     {
         if (rescan)
+        {
             forceRescan = true;
+            urgentRescan = true;
+            requested = true;
+            userRequested |= userInitiated;
+            return;
+        }
         if (Running)
             return;
         requested = true;

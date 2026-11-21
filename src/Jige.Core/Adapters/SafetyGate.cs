@@ -12,8 +12,10 @@ public sealed class SafetyGateStore
     public const int MaxBlockedEntries = 64;
 
     private readonly object gate = new();
-    private readonly Dictionary<string, string> blocked = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Reason, long Order)> blocked = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<SafetyGateRejection> rejections = [];
+    private long nextOrder;
+    private long version;
 
     public event Action<SafetyGateRejection>? Rejected;
 
@@ -32,7 +34,15 @@ public sealed class SafetyGateStore
     public bool IsBlocked(string signature, out string? reason)
     {
         lock (gate)
-            return blocked.TryGetValue(signature, out reason);
+        {
+            if (blocked.TryGetValue(signature, out var entry))
+            {
+                reason = entry.Reason;
+                return true;
+            }
+            reason = null;
+            return false;
+        }
     }
 
     public int BlockedCount
@@ -44,7 +54,17 @@ public sealed class SafetyGateStore
         }
     }
 
-    /// <summary>第三道安全门：记录回复不符合协议的接收器，持久化后重启依然生效。</summary>
+    /// <summary>每次运行期拦截表变化（新增拦截或清空）单调递增，用于脏检查，Load 恢复不递增。</summary>
+    public long Version
+    {
+        get
+        {
+            lock (gate)
+                return version;
+        }
+    }
+
+    /// <summary>第三道安全门：记录回复不符合协议的接收器，内存中持续生效，持久化按最新序号保留上限条数。</summary>
     public bool Block(HidInterface hid, string reason)
     {
         string signature = Signature(hid);
@@ -53,13 +73,8 @@ public sealed class SafetyGateStore
         {
             if (blocked.ContainsKey(signature))
                 return false;
-            if (blocked.Count >= MaxBlockedEntries)
-            {
-                // 上限保护，避免拦截表无限增长。
-                string oldest = blocked.Keys.First();
-                blocked.Remove(oldest);
-            }
-            blocked[signature] = reason;
+            blocked[signature] = (reason, ++nextOrder);
+            version++;
             added = true;
         }
         if (added)
@@ -85,12 +100,13 @@ public sealed class SafetyGateStore
         lock (gate)
         {
             blocked.Clear();
+            nextOrder = 0;
             foreach (var (signature, reason) in entries)
             {
                 if (blocked.Count >= MaxBlockedEntries)
                     break;
                 if (!string.IsNullOrWhiteSpace(signature) && !string.IsNullOrWhiteSpace(reason))
-                    blocked[signature.Trim()] = reason.Trim();
+                    blocked[signature.Trim()] = (reason.Trim(), ++nextOrder);
             }
         }
     }
@@ -98,7 +114,15 @@ public sealed class SafetyGateStore
     public Dictionary<string, string> Snapshot()
     {
         lock (gate)
-            return new(blocked, StringComparer.OrdinalIgnoreCase);
+        {
+            var persisted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            // 取最新 MaxBlockedEntries 条后按原先后顺序写出，避免重启 Load 递增编号后新旧次序反转。
+            foreach (var pair in blocked.OrderByDescending(item => item.Value.Order)
+                         .Take(MaxBlockedEntries)
+                         .OrderBy(item => item.Value.Order))
+                persisted[pair.Key] = pair.Value.Reason;
+            return persisted;
+        }
     }
 
     public SafetyGateRejection[] RecentRejections()
@@ -113,6 +137,8 @@ public sealed class SafetyGateStore
         lock (gate)
         {
             bool had = blocked.Count > 0 || rejections.Count > 0;
+            if (blocked.Count > 0)
+                version++;
             blocked.Clear();
             rejections.Clear();
             return had;

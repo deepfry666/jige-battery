@@ -135,6 +135,15 @@ internal static class MouseBatteryProtocol
         return TryBitMouseStrict(frame, hasChecksum, charging, out value);
     }
 
+    /// <summary>识别 BitMouse 通道上的主动推送帧（0x73），不视为非法协议回复。</summary>
+    public static bool IsBitMousePush(ReadOnlySpan<byte> frame)
+    {
+        if (frame.Length != 64 || frame[0] != 8)
+            return false;
+        return (frame[1] == 0x72 && frame[2] == 0x73) ||
+               (frame[2] == 0x72 && frame[3] == 0x73 && frame[1] == BitMouseChecksum(frame[2..]));
+    }
+
     private static bool TryBitMouseStrict(ReadOnlySpan<byte> frame, bool withChecksum, bool charging, out byte value)
     {
         value = 0;

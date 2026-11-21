@@ -46,6 +46,8 @@ internal sealed unsafe class Composition : IDisposable
             IDCompositionTarget* destination = null;
             // 合成树在原生子窗口下面，行内 EDIT 可以自行绘制文字与光标。
             device->CreateTargetForHwnd(hwnd, false, &destination);
+            if (destination == null)
+                throw new InvalidOperationException("窗口合成目标为空");
             target = destination;
             fonts = new TextFactory();
             Root = new(this, null, 0, 0, 0, 0);
@@ -69,7 +71,12 @@ internal sealed unsafe class Composition : IDisposable
 
     private int Pixels(float value) => (int)MathF.Round(value * Scale, MidpointRounding.AwayFromZero);
 
-    public void Commit() => device->Commit();
+    public void Commit()
+    {
+        if (device == null)
+            throw new ObjectDisposedException(nameof(Composition));
+        device->Commit();
+    }
 
     public void Dispose()
     {
@@ -97,6 +104,8 @@ internal sealed unsafe class Composition : IDisposable
             baseY = composition.Pixels(y);
             IDCompositionVisual2* visual = null;
             composition.device->CreateVisual(&visual);
+            if (visual == null)
+                throw new InvalidOperationException("合成图层为空");
             Visual = visual;
             try
             {
@@ -107,6 +116,8 @@ internal sealed unsafe class Composition : IDisposable
                     IDCompositionSurface* bitmap = null;
                     composition.device->CreateSurface((uint)composition.Pixels(width), (uint)composition.Pixels(height),
                         DXGI_FORMAT.DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_ALPHA_MODE.DXGI_ALPHA_MODE_PREMULTIPLIED, &bitmap);
+                    if (bitmap == null)
+                        throw new InvalidOperationException("图层表面为空");
                     surface = bitmap;
                     Visual->SetContent((IUnknown*)surface);
                 }
@@ -124,10 +135,15 @@ internal sealed unsafe class Composition : IDisposable
 
         public void Draw(Action<Canvas> draw)
         {
+            if (surface == null)
+                throw new InvalidOperationException("图层表面不可用");
             var iid = ID2D1DeviceContext.IID_Guid;
             // 请求 Direct2D 上下文时由 DirectComposition 配对 BeginDraw 和 EndDraw。
             surface->BeginDraw(null, in iid, out var drawing, out var offset);
+            if (drawing == null)
+                throw new InvalidOperationException("Direct2D 绘制上下文为空");
             var render = (ID2D1RenderTarget*)drawing;
+            bool threw = false;
             try
             {
                 render->SetDpi(96, 96);
@@ -140,10 +156,24 @@ internal sealed unsafe class Composition : IDisposable
                 using var canvas = new Canvas(render, composition.fonts!);
                 draw(canvas);
             }
+            catch
+            {
+                threw = true;
+                throw;
+            }
             finally
             {
                 Graphics.Release(render);
-                surface->EndDraw();
+                if (threw)
+                {
+                    // 避免 EndDraw 的 COMException 吞掉 draw(canvas) 抛出的原始异常。
+                    try { surface->EndDraw(); }
+                    catch { }
+                }
+                else
+                {
+                    surface->EndDraw();
+                }
             }
         }
 
@@ -187,6 +217,8 @@ internal sealed unsafe class Composition : IDisposable
             {
                 IDCompositionEffectGroup* group = null;
                 composition.device->CreateEffectGroup(&group);
+                if (group == null)
+                    throw new InvalidOperationException("图层透明效果为空");
                 opacity = group;
                 Visual->SetEffect((IDCompositionEffect*)group);
             }

@@ -148,9 +148,16 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
             if (!hasLocation)
                 bounds = Desktop.TaskbarAnchor();
             var appearance = Presentation.Icon(slot.Device, darkTaskbar, threshold);
-            icon.Update(appearance, IconSize(bounds), slot.Tooltip);
-            if (!hasLocation && icon.TryGetRect(out var registeredBounds))
-                icon.Update(appearance, IconSize(registeredBounds), slot.Tooltip);
+            try
+            {
+                icon.Update(appearance, IconSize(bounds), slot.Tooltip);
+                if (!hasLocation && icon.TryGetRect(out var registeredBounds))
+                    icon.Update(appearance, IconSize(registeredBounds), slot.Tooltip);
+            }
+            catch (Exception error) when (error is System.Runtime.InteropServices.ExternalException or InvalidOperationException or UnauthorizedAccessException)
+            {
+                Desktop.Log("更新单个托盘图标失败", error);
+            }
         }
 
         // 先注册新图标，再移除旧图标，最后一台设备断开时面板入口仍然可用。

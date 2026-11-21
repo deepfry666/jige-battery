@@ -23,15 +23,15 @@ The one thing visitors must remember: **不开厂商驱动也能看电量.** 几
 
 ## Operating Context
 
-- Windows 10 22H2 / Windows 11, x64. Taskbar strip (Windows 11 only) left of the notification area; on Windows 10, or when there is no room, per-device tray icons whose silhouettes fill bottom-up with battery level. Hover card, main panel, settings, low-battery reminder.
+- Windows 10 22H2 / Windows 11, x64. Taskbar strip (Windows 11 preferred; automatically falls back to per-device tray icons when taskbar UIA/space is unavailable, e.g. Windows 10) left of the notification area, whose silhouettes fill bottom-up with battery level. Hover card, main panel, settings, low-battery reminder.
 - Never disturbs games: no popups while a fullscreen game runs; polling slows to 5 minutes.
-- Updates only when the user clicks 检查更新: domestic mirror first, GitHub fallback, size + SHA-256 verified.
+- Auto-checks updates daily by default (can be turned off in Settings; installation is always user-clicked): domestic mirror first, GitHub fallback, size + SHA-256 verified for download integrity and release consistency.
 - Downloads: domestic mirror `download.imfourj.cn` (version metadata at `/latest.json`, proxied same-origin on the site) and GitHub Releases.
 
 ## Capabilities and Constraints
 
-- Read-only: only battery/status queries; never changes device settings; no telemetry, no background network except the user-initiated update check; diagnostics generated only on demand and shown before sharing.
-- Device coverage and verification levels are authoritative in README.md / docs/devices.md. Only INZONE H9 gen 1 and G-Wolves HTX Ultra 8K are "已实机验证"; Logitech MX Keys S / MX Anywhere 3S are in daily use on Windows 10; everything else is "仅按资料".
+- Read-only: only battery/status queries; never changes device settings; no telemetry; network traffic is strictly limited to release update checks (daily by default when enabled, or manual) and user-approved downloads; diagnostics generated only on demand and shown before sharing.
+- Device coverage and verification levels are authoritative in README.md / docs/devices.md. Hardware-verified ("已实机验证") entries currently cover Sony INZONE H9 gen 1, G-Wolves HTX Ultra 8K, Razer BlackShark V3 Pro (`1532:0577`), and ASUS ROG wireless keyboard (`0B05:1934`); Logitech MX Keys S / MX Anywhere 3S are in daily use on Windows 10; everything else is "同家族推定" or "仅按资料".
 - Installer is not code-signed; Windows SmartScreen may warn.
 - Site constraints: static files on nginx; strict CSP (`script-src 'self'`, `style-src 'self'`, no inline scripts/styles); no third-party resources (no Google Fonts/CDNs/analytics) because visitors are in China; Chinese copy.
 

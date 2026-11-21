@@ -101,14 +101,14 @@
               </div>
               <div class="stage-tabs" id="stageTabs" role="tablist" aria-label="交互场景切换">
                 <span class="stage-tab-slider" id="stageTabSlider" aria-hidden="true"></span>
-                <button type="button" class="stage-tab is-active" role="tab" aria-selected="true" data-scene="panel">主面板</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="hover">悬停卡片</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="strip">任务栏直读条</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" data-scene="game">全屏游戏</button>
+                <button type="button" class="stage-tab is-active" role="tab" aria-selected="true" aria-controls="stage" tabindex="0" data-scene="panel">主面板</button>
+                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="hover">悬停卡片</button>
+                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="strip">任务栏直读条</button>
+                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="game">全屏游戏</button>
               </div>
             </div>
 
-            <div class="stage" id="stage">
+            <div class="stage" id="stage" role="tabpanel" aria-label="交互演示画布">
               <div class="stage-wallpaper" aria-hidden="true"></div>
 
               <!-- 左侧桌面说明与快捷交互 -->
@@ -158,8 +158,8 @@
                 </div>
               </div>
 
-              <!-- 悬停卡片 -->
-              <div class="sim-hcard" id="simHoverCard" role="status" aria-live="polite"></div>
+              <!-- 悬停卡片（纯视觉演示，同信息已在主面板可读） -->
+              <div class="sim-hcard" id="simHoverCard" aria-hidden="true"></div>
 
               <!-- 低电量提醒 Toast -->
               <div class="sim-toast" id="simToast" role="status" aria-live="polite">
@@ -355,7 +355,7 @@
             <li class="device">
               <span class="device-brand">ASUS ROG</span>
               <span class="device-models">ROG 无线键盘：Falchion、Azoth、Claymore II、Strix Scope II 96 等</span>
-              <span class="tag tag-verified">ROG 无线键盘已实机验证</span>
+              <span class="tag tag-verified">ROG 0B05:1934 已实机验证</span>
             </li>
             <li class="device">
               <span class="device-brand">VXE · VGN · Scyrox</span>
@@ -431,7 +431,7 @@
             <details>
               <summary>Windows 提示「Windows 已保护你的电脑」怎么办？</summary>
               <div class="faq-body">
-                <p>安装包暂未购买商业代码签名证书，浏览器下载和首次运行时可能会各拦一次：浏览器选「保留 → 显示详细信息 → 仍然保留」，系统弹窗点「更多信息 → 仍要运行」。完整图文步骤见 <a href="download.html">下载与安装指南</a>，也可以先下载 <a data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt">SHA256SUMS.txt</a> 核对安装包哈希。</p>
+                <p>安装包暂未购买商业代码签名证书，浏览器下载和首次运行时可能会各拦一次：浏览器选「保留 → 显示详细信息 → 仍然保留」，系统弹窗点「更多信息 → 仍要运行」。完整图文步骤见 <a href="download.html">下载与安装指南</a><span data-verify-block>，也可以先下载 <a data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt">SHA256SUMS.txt</a> 核对安装包哈希</span>。</p>
               </div>
             </details>
             <details>

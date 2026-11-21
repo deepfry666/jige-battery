@@ -40,7 +40,7 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9, AutoUpdateTimer = 10;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -69,9 +69,11 @@ internal sealed partial class TrayApp : IDisposable
     private readonly ConcurrentQueue<Action> updateCallbacks = new();
     private readonly HINSTANCE instance;
     private readonly uint taskbarCreated;
+    private readonly uint wakeMessage;
     private readonly TrayIconManager icons;
     private HWND host;
     private HDEVNOTIFY hidNotify, comNotify;
+    private bool sessionNotifyRegistered;
     private HWND foreground;
     private HWINEVENTHOOK foregroundHook, locationHook;
     private uint locationProcess, locationThread;
@@ -114,24 +116,30 @@ internal sealed partial class TrayApp : IDisposable
     private bool UpdateActive => updateState.IsBusy;
     private int cleanupAttempts;
     private bool exitRequested;
+    private string? pendingInstallerPackage;
     private string? settingsError;
     private readonly bool configLoaded;
     private bool startedInGame;
     private CancellationTokenSource? cancellation;
     private CancellationTokenSource? heartbeatCancellation;
+    private Task pollTask = Task.CompletedTask;
+    private Task heartbeatTask = Task.CompletedTask;
     private Task cancelWork = Task.CompletedTask;
     private Task stateWrite = Task.CompletedTask;
+    private long lastSavedGateVersion;
 
     private unsafe TrayApp()
     {
         instance = (HINSTANCE)PInvoke.GetModuleHandle(default(PCWSTR));
         taskbarCreated = PInvoke.RegisterWindowMessage("TaskbarCreated");
+        wakeMessage = PInvoke.RegisterWindowMessage("Jige.Tray.Wake");
         configLoaded = files.TryLoadSettings(out var settings, Desktop.Log);
         welcomePending = settings.WelcomeShown == false;
         diagnostics = new(files.DiagnosticsPath);
         var state = files.LoadState(ref settings, Desktop.Log);
         model = new(settings, state);
         gates = new(model.InitialBlockedReceivers);
+        lastSavedGateVersion = gates.Version;
         gates.Rejected += events.LogSafetyGateRejection;
         poll = new(gates, model.SavedLogitechSlots());
         darkTaskbar = Desktop.DarkTaskbar;
@@ -145,40 +153,89 @@ internal sealed partial class TrayApp : IDisposable
         host = MakeWindow(HostClass, 0, WS_POPUP);
         icons = new(host, TrayMessage);
         RegisterDeviceNotifications();
+        sessionNotifyRegistered = PInvoke.WTSRegisterSessionNotification(host, 0);
     }
 
     public static int Run(bool afterSetup)
     {
-        using var singleton = new Mutex(true, @"Local\Jige.Battery.Tray", out bool first);
-        if (!first)
-            return 0;
         if (!afterSetup && Mutex.TryOpenExisting(@"Local\Jige.Battery.Setup", out var setup))
         {
             setup.Dispose();
+            WakeExistingInstance();
+            Desktop.Log("检测到安装或更新正在进行，本次启动已跳过");
             return 0;
         }
 
-        PInvoke.SetProcessDpiAwarenessContext(new DPI_AWARENESS_CONTEXT(-4)); // PerMonitorV2
-        var hr = PInvoke.CoInitializeEx(COINIT.COINIT_APARTMENTTHREADED);
-        if (hr.Failed)
-            return 1;
+        string? pendingInstaller = null;
+        int exitCode;
+        using (var singleton = new Mutex(true, @"Local\Jige.Battery.Tray", out bool first))
+        {
+            bool ownsMutex = first;
+            if (!first)
+            {
+                if (!afterSetup)
+                {
+                    WakeExistingInstance();
+                    return 0;
+                }
+                try
+                {
+                    ownsMutex = singleton.WaitOne(TimeSpan.FromSeconds(35));
+                }
+                catch (AbandonedMutexException)
+                {
+                    ownsMutex = true;
+                }
+                if (!ownsMutex)
+                {
+                    Desktop.Log("更新后接管托盘失败：旧实例在 35 秒内未退出");
+                    return 0;
+                }
+            }
 
-        try
-        {
-            using var app = new TrayApp();
-            current = app;
-            return app.Loop();
+            PInvoke.SetProcessDpiAwarenessContext(new DPI_AWARENESS_CONTEXT(-4)); // PerMonitorV2
+            var hr = PInvoke.CoInitializeEx(COINIT.COINIT_APARTMENTTHREADED);
+            if (hr.Failed)
+                return 1;
+
+            try
+            {
+                using var app = new TrayApp();
+                current = app;
+                exitCode = app.Loop();
+                pendingInstaller = app.pendingInstallerPackage;
+            }
+            catch (Exception error)
+            {
+                Desktop.Log("托盘启动失败", error);
+                exitCode = 1;
+            }
+            finally
+            {
+                current = null;
+                PInvoke.CoUninitialize();
+                if (ownsMutex)
+                {
+                    try { singleton.ReleaseMutex(); }
+                    catch (ApplicationException) { }
+                }
+            }
         }
-        catch (Exception error)
-        {
-            Desktop.Log("托盘启动失败", error);
-            return 1;
-        }
-        finally
-        {
-            current = null;
-            PInvoke.CoUninitialize();
-        }
+
+        // 先彻底释放并销毁单实例互斥量再拉起静默安装器，避免 Inno Setup 的 AppMutex 门与托盘退出产生竞态。
+        if (pendingInstaller is not null)
+            LaunchInstallerAfterShutdown(pendingInstaller);
+        return exitCode;
+    }
+
+    private static void WakeExistingInstance()
+    {
+        uint wake = PInvoke.RegisterWindowMessage("Jige.Tray.Wake");
+        if (wake == 0)
+            return;
+        var existing = PInvoke.FindWindow(HostClass, null);
+        if (!existing.IsNull && !PInvoke.PostMessage(existing, wake, 1u, default))
+            Desktop.Log($"唤醒已有实例失败（Win32 {Marshal.GetLastPInvokeError()}）");
     }
 
     private unsafe int Loop()
@@ -414,6 +471,13 @@ internal sealed partial class TrayApp : IDisposable
             ProcessWork();
             return true;
         }
+        if (wakeMessage != 0 && message == wakeMessage)
+        {
+            DestroyMenu();
+            DestroyPopup();
+            ShowPopup(null, null);
+            return true;
+        }
 
         switch (message)
         {
@@ -460,14 +524,30 @@ internal sealed partial class TrayApp : IDisposable
                     ArmTimer(DeviceChangeTimer, 1_200);
                 return true;
             case 0x0218: // WM_POWERBROADCAST（C2：睡眠/休眠恢复）
-                if (wParam.Value is 0x0012 or 0x0007) // PBT_APMRESUMEAUTOMATIC / PBT_APMRESUMESUSPEND
+                if (wParam.Value is 0x0012 or 0x0007 or 0x0006) // PBT_APMRESUMEAUTOMATIC / RESUMESUSPEND / RESUMECRITICAL
                 {
                     Desktop.Log("系统从睡眠恢复，立即重新枚举并查询");
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
+                    stripWindow?.DisposeGraphics();
                     RefreshStripGeometry();
+                    RefreshIcon();
                     ProcessWork();
                     ScheduleAutoUpdate();
+                    return true;
+                }
+                return false;
+            case 0x02B1: // WM_WTSSESSION_CHANGE（锁屏解锁、本地重连或 RDP 切换后重建图形并失效拓扑）
+                if (wParam.Value is 0x1 or 0x3 or 0x5 or 0x8) // WTS_CONSOLE_CONNECT / REMOTE_CONNECT / SESSION_LOGON / SESSION_UNLOCK
+                {
+                    Desktop.Log("系统会话恢复，刷新设备与图形表面");
+                    poll.InvalidateTopology();
+                    schedule.NotifyPowerResume();
+                    stripWindow?.DisposeGraphics();
+                    RefreshStripGeometry();
+                    RefreshIcon();
+                    ScheduleDesktopRefresh(resetPopup: true);
+                    ProcessWork();
                 }
                 return true;
             case 0x0113: // WM_TIMER
@@ -494,9 +574,17 @@ internal sealed partial class TrayApp : IDisposable
                     FlushDesktopRefresh();
                     return true;
                 }
+                if (wParam.Value == StripRetryTimer)
+                {
+                    RefreshStripGeometry();
+                    RefreshIcon();
+                    return true;
+                }
                 if (wParam.Value == IconRetryTimer)
                 {
                     iconRetryArmed = false;
+                    if (StripGeometryPending)
+                        RefreshStripGeometry();
                     RefreshIcon();
                 }
                 if (wParam.Value == CloseTimer && popup?.Closing == true)
@@ -519,7 +607,7 @@ internal sealed partial class TrayApp : IDisposable
                 ScheduleDesktopRefresh(resetPopup: false);
                 return true;
             case 0x001A: // WM_SETTINGCHANGE（D3：仅响应与界面外观/工作区相关的系统设置，并加防抖合并重建）
-                string? area = lParam.Value == 0 ? null : Marshal.PtrToStringUni(lParam.Value);
+                string? area = wParam.Value == 0 && lParam.Value != 0 ? Marshal.PtrToStringUni(lParam.Value) : null;
                 if (DesktopRefreshDebouncer.IsRelevantSettingChange(wParam.Value, area))
                 {
                     RefreshTaskbarTheme();
@@ -614,31 +702,45 @@ internal sealed partial class TrayApp : IDisposable
     private void RefreshIcon()
     {
         RefreshStrip();
-        if (!stripDisplay.ShowTrayIcons || StripGeometryPending)
+        if (!stripDisplay.ShowTrayIcons || StripGeometryPending && !StripGeometryTimedOut)
         {
             icons.Clear();
             StopIconRetry();
             if (hoverIconId is not null)
                 DestroyHoverCard();
+            if (StripGeometryPending && !StripGeometryTimedOut)
+                ArmTimer(IconRetryTimer, 3_000);
             return;
         }
         if (iconRetryArmed && !icons.AnyRegistered)
             return;
-        // H1：不设 NIF_SHOWTIP，szTip 始终保留供读屏软件使用。
-        icons.Sync(model, darkTaskbar, suppressTooltip: false);
+        try
+        {
+            // H1：不设 NIF_SHOWTIP，szTip 始终保留供读屏软件使用。
+            icons.Sync(model, darkTaskbar, suppressTooltip: false);
+        }
+        catch (Exception error) when (error is ExternalException or InvalidOperationException or UnauthorizedAccessException)
+        {
+            Desktop.Log("同步托盘图标失败，将重试", error);
+            ArmIconRetry();
+            return;
+        }
         if (hoverIconId is uint hovered && !icons.TryGetSlotKey(hovered, out _))
             DestroyHoverCard();
         if (icons.AllRegistered)
             StopIconRetry();
         else
-        {
-            if (iconFailures == 0)
-                Desktop.Log("托盘图标注册失败，将重试");
-            uint delay = iconFailures switch { 0 => 2_000u, 1 => 5_000u, 2 => 10_000u, _ => 60_000u };
-            iconFailures = Math.Min(3, iconFailures + 1);
-            iconRetryArmed = true;
-            ArmTimer(IconRetryTimer, delay);
-        }
+            ArmIconRetry();
+    }
+
+    private void ArmIconRetry()
+    {
+        if (iconFailures == 0)
+            Desktop.Log("托盘图标注册失败，将重试");
+        uint delay = iconFailures switch { 0 => 2_000u, 1 => 5_000u, 2 => 10_000u, _ => 60_000u };
+        iconFailures = Math.Min(3, iconFailures + 1);
+        iconRetryArmed = true;
+        ArmTimer(IconRetryTimer, delay);
     }
 
     private void StopIconRetry()
@@ -685,7 +787,7 @@ internal sealed partial class TrayApp : IDisposable
         ReadGameMode();
         var now = DateTimeOffset.UtcNow;
         long nowTick = Environment.TickCount64;
-        bool expired = model.ExpireReadings(now);
+        bool expired = model.ExpireReadings(now, game.Game);
         // R2：连续休眠超过 10 分钟仍无回复的设备转为离线显示。
         bool sleepTimedOut = model.AdvanceSleepTimeouts(now, events.LogDeviceLinkChange);
         if (expired || sleepTimedOut)
@@ -792,7 +894,7 @@ internal sealed partial class TrayApp : IDisposable
         cancelWork = Task.CompletedTask;
         var token = source.Token;
         var destination = host;
-        _ = Task.Run(async () =>
+        pollTask = Task.Run(async () =>
         {
             PollResult? result;
             DetectedDevice[] pushTargets = [];
@@ -842,8 +944,9 @@ internal sealed partial class TrayApp : IDisposable
             events.FlushReadFailuresIfDue(nowTick);
 
             bool shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
-                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets);
-            if (shouldSave || gates.BlockedCount != model.InitialBlockedReceivers.Count)
+                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets, result.Complete,
+                result.IncompleteReceivers);
+            if (shouldSave || gates.Version != Volatile.Read(ref lastSavedGateVersion))
                 SaveState();
             RefreshIcon();
             StartPushListeners(pushTargets);
@@ -860,7 +963,7 @@ internal sealed partial class TrayApp : IDisposable
     private void StartHeartbeat(long nowTick, IReadOnlySet<string>? onlyDeviceIds = null, bool inputWake = false)
     {
         schedule.StartHeartbeat(nowTick, inputWake);
-        bool pausedPush = inputWake && currentPushTargets.Length > 0;
+        bool pausedPush = currentPushTargets.Length > 0 && (inputWake || onlyDeviceIds is not null);
         if (pausedPush)
             StopPushListeners();
         var stoppingPush = pausedPush ? pushTask : Task.CompletedTask;
@@ -869,7 +972,7 @@ internal sealed partial class TrayApp : IDisposable
         heartbeatCancellation = source;
         var token = source.Token;
         var destination = host;
-        _ = Task.Run(async () =>
+        heartbeatTask = Task.Run(async () =>
         {
             PresenceUpdate[] updates;
             try
@@ -918,6 +1021,7 @@ internal sealed partial class TrayApp : IDisposable
             if (needsRefresh)
                 schedule.Request(userInitiated: false);
         }
+        MaybeSaveGates();
         ProcessWork();
     }
 
@@ -996,6 +1100,13 @@ internal sealed partial class TrayApp : IDisposable
             schedule.Request(userInitiated: false);
             ProcessWork();
         }
+        MaybeSaveGates();
+    }
+
+    private void MaybeSaveGates()
+    {
+        if (gates.Version != Volatile.Read(ref lastSavedGateVersion))
+            SaveState();
     }
 
     private static async Task DisposeCancellation(CancellationTokenSource source, Task cancelling)
@@ -1012,27 +1123,34 @@ internal sealed partial class TrayApp : IDisposable
 
     private void SaveState()
     {
+        long gateVersion = gates.Version;
         var snapshot = model.Snapshot(gates.Snapshot());
         var previous = stateWrite;
         stateWrite = Task.Run(async () =>
         {
-            await previous.ConfigureAwait(false);
+            try { await previous.ConfigureAwait(false); }
+            catch { }
             try
             {
                 files.SaveState(snapshot);
+                Interlocked.Exchange(ref lastSavedGateVersion, gateVersion);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
                 Desktop.Log("保存电量记录失败", error);
             }
+            catch (Exception error)
+            {
+                Desktop.Log("保存电量记录发生异常", error);
+            }
         });
     }
 
-    private bool SaveSettings(TraySettings settings)
+    private bool SaveSettings(TraySettings settings, bool userInitiated = false)
     {
         try
         {
-            files.SaveSettings(settings);
+            files.SaveSettings(settings, userInitiated, Desktop.Log);
             settingsError = null;
             return true;
         }
@@ -1072,7 +1190,7 @@ internal sealed partial class TrayApp : IDisposable
             RenderPopup();
             return false;
         }
-        if (!SaveSettings(settings))
+        if (!SaveSettings(settings, userInitiated: true))
         {
             if (autostartChanged)
                 UpdateAutostart(model.Settings.StartWithWindows);
@@ -1920,8 +2038,7 @@ internal sealed partial class TrayApp : IDisposable
                     RenderPopup();
                 });
             }
-            catch (Exception error) when (error is IOException or InvalidDataException or JsonException or
-                HttpRequestException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+            catch (Exception error)
             {
                 string message = UpdateViewState.ExplainError(error);
                 string kind = error.GetType().Name;
@@ -2015,17 +2132,29 @@ internal sealed partial class TrayApp : IDisposable
                     return;
                 }
 
+                string? preparedPackage = null;
                 bool launched = UpdateInstallation.Run(
                     files.Updates,
                     () => ready is not null && UpdateFiles.TryReverify(ready)
                         ? ready.Path
                         : client.DownloadAsync(update, files.Updates, progress, timeout.Token).GetAwaiter().GetResult(),
                     () => exitRequested || token.IsCancellationRequested,
-                    LaunchInstaller);
-                if (launched)
+                    package =>
+                    {
+                        if (!File.Exists(package))
+                            throw new IOException("更新安装包不存在。");
+                        preparedPackage = package;
+                    });
+                if (launched && preparedPackage is not null)
                 {
                     PostUpdateCallback(() =>
                     {
+                        if (opId != updateOperationId || exitRequested || token.IsCancellationRequested)
+                        {
+                            files.Updates.TryClear();
+                            return;
+                        }
+                        pendingInstallerPackage = preparedPackage;
                         exitRequested = true;
                         DestroyMenu();
                         DestroyHoverCard();
@@ -2061,8 +2190,7 @@ internal sealed partial class TrayApp : IDisposable
                     RenderPopup();
                 });
             }
-            catch (Exception error) when (error is IOException or InvalidDataException or JsonException or
-                HttpRequestException or UnauthorizedAccessException or Win32Exception or InvalidOperationException)
+            catch (Exception error)
             {
                 string message = UpdateViewState.ExplainError(error);
                 string kind = error.GetType().Name;
@@ -2178,14 +2306,36 @@ internal sealed partial class TrayApp : IDisposable
             action();
     }
 
-    private static void LaunchInstaller(string package)
+    private static void LaunchInstallerAfterShutdown(string package)
     {
-        var start = new ProcessStartInfo(package)
+        try
         {
-            ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART" },
-            UseShellExecute = false
-        };
-        using var installer = Process.Start(start) ?? throw new InvalidOperationException("无法启动几格安装器。");
+            var start = new ProcessStartInfo(package)
+            {
+                ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/JIGERESTART" },
+                UseShellExecute = false
+            };
+            using var installer = Process.Start(start) ?? throw new Win32Exception(0, "无法启动几格安装器。");
+        }
+        catch (Exception error)
+        {
+            Desktop.Log("启动静默安装器失败，尝试恢复托盘程序", error);
+            try
+            {
+                if (Environment.ProcessPath is { Length: > 0 } self && File.Exists(self))
+                {
+                    using var restored = Process.Start(new ProcessStartInfo(self)
+                    {
+                        ArgumentList = { "--after-setup" },
+                        UseShellExecute = false
+                    });
+                }
+            }
+            catch (Exception restoreError)
+            {
+                Desktop.Log("恢复托盘程序失败", restoreError);
+            }
+        }
     }
 
     private sealed class DirectProgress<T>(Action<T> onReport) : IProgress<T>
@@ -2380,6 +2530,11 @@ internal sealed partial class TrayApp : IDisposable
         DestroyPopup();
         DisposeStrip();
         icons.Dispose();
+        if (sessionNotifyRegistered && !host.IsNull)
+        {
+            PInvoke.WTSUnRegisterSessionNotification(host);
+            sessionNotifyRegistered = false;
+        }
         var window = host;
         host = default;
         PInvoke.DestroyWindow(window);
@@ -2397,15 +2552,29 @@ internal sealed partial class TrayApp : IDisposable
         {
             updateCancellation = null;
             updateCts.Cancel();
-            try { updateWork.GetAwaiter().GetResult(); }
+            try { updateWork.Wait(TimeSpan.FromSeconds(2)); }
             catch { }
             updateCts.Dispose();
         }
         diagnosticCancellation.Cancel();
-        diagnostics.Work?.GetAwaiter().GetResult();
+        long shutdownDeadline = Environment.TickCount64 + 3_000;
+        foreach (var (name, task) in new (string Name, Task Work)[]
+        {
+            ("轮询", pollTask),
+            ("心跳", heartbeatTask),
+            ("推送", pushTask),
+            ("状态写盘", stateWrite),
+            ("诊断导出", diagnostics.Work ?? Task.CompletedTask)
+        })
+        {
+            int remaining = (int)Math.Max(0, shutdownDeadline - Environment.TickCount64);
+            try
+            {
+                if (!task.Wait(remaining))
+                    Desktop.Log($"退出等待{name}超时，已直接退出");
+            }
+            catch { }
+        }
         diagnosticCancellation.Dispose();
-        try { pushTask.GetAwaiter().GetResult(); }
-        catch { }
-        stateWrite.GetAwaiter().GetResult();
     }
 }

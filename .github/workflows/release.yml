@@ -5,6 +5,10 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: release-stable
+  cancel-in-progress: false
+
 permissions:
   contents: read
 
@@ -14,6 +18,7 @@ jobs:
     timeout-minutes: 25
     outputs:
       version: ${{ steps.version.outputs.number }}
+      is_latest: ${{ steps.publish.outputs.is_latest }}
     permissions:
       contents: write
     steps:
@@ -32,6 +37,16 @@ jobs:
             throw "正式版标签必须使用 vX.Y.Z 格式"
           }
           $version = $tag.Substring(1)
+          [xml]$props = Get-Content Directory.Build.props -Raw -Encoding utf8
+          $propsVersion = ($props.Project.PropertyGroup.VersionPrefix | Select-Object -First 1).Trim()
+          if ($propsVersion -ne $version) {
+            throw "Directory.Build.props 中的 VersionPrefix ($propsVersion) 与标签 $version 不一致"
+          }
+          $iss = Get-Content installer/jige.iss -Raw -Encoding utf8
+          $issMatch = [regex]::Match($iss, '(?m)^\s*#define\s+AppVersion\s+"([^"]+)"')
+          if (-not $issMatch.Success -or $issMatch.Groups[1].Value -ne $version) {
+            throw "installer/jige.iss 中的 AppVersion ($($issMatch.Groups[1].Value)) 与标签 $version 不一致"
+          }
           $notes = Get-Content CHANGELOG.md -Raw -Encoding utf8
           $heading = [regex]::Escape("## [$version]")
           $section = [regex]::Match($notes, "(?ms)^$heading[^\S\r\n]*\r?\n(.*?)(?=^## |\z)")
@@ -103,17 +118,51 @@ jobs:
           $name = "Jige-Setup-${env:JIGE_VERSION}-x64.exe"
           $hash = (Get-FileHash "artifacts/release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $name" | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
-      - name: 创建 GitHub 正式 Release
+      - name: 创建或更新 GitHub 正式 Release
+        id: publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           JIGE_VERSION: ${{ steps.version.outputs.number }}
         run: |
-          gh release create $env:GITHUB_REF_NAME "artifacts/release/Jige-Setup-${env:JIGE_VERSION}-x64.exe" artifacts/release/SHA256SUMS.txt --repo $env:GITHUB_REPOSITORY --verify-tag --latest --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
+          $tag = $env:GITHUB_REF_NAME
+          $installer = "artifacts/release/Jige-Setup-${env:JIGE_VERSION}-x64.exe"
+          $checksums = 'artifacts/release/SHA256SUMS.txt'
+          $targetVer = [version]$env:JIGE_VERSION
+          $latestFlag = '--latest'
+          $isLatest = 'true'
+          $latestTag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq '.tagName' 2>$null
+          if ($LASTEXITCODE -eq 0 -and $latestTag -cmatch '\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') {
+            $currentLatest = [version]$latestTag.Substring(1)
+            if ($targetVer -lt $currentLatest) {
+              $latestFlag = '--latest=false'
+              $isLatest = 'false'
+            }
+          }
+
+          gh release view $tag --repo $env:GITHUB_REPOSITORY > $null 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release edit $tag --repo $env:GITHUB_REPOSITORY $latestFlag --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($latestFlag -eq '--latest=false') {
+              $afterLatest = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq '.tagName' 2>$null
+              if ($LASTEXITCODE -eq 0 -and $afterLatest -eq $tag) {
+                throw "重发旧版本 $tag 时不应覆盖 Latest 指向，请检查 gh release edit 行为。"
+              }
+            }
+          } else {
+            # 首次发布一次性携带安装包与校验文件，让 gh release create 原子上传后再公开，避免空 Release 窗口。
+            gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --verify-tag $latestFlag --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          "is_latest=$isLatest" >> $env:GITHUB_OUTPUT
 
   sync-mirror:
     name: 同步正式版到国内镜像
     needs: release
+    if: needs.release.outputs.is_latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -130,7 +179,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${MIRROR_HOST}" ] || [ -z "${MIRROR_SSH_KEY}" ] || [ -z "${MIRROR_KNOWN_HOSTS}" ]; then
-            echo "::notice::未配置国内镜像同步密钥，跳过同步。"
+            if [ "${GITHUB_REPOSITORY}" = "deepfry666/jige-battery" ]; then
+              echo "::error::主仓库缺少国内镜像同步密钥，禁止静默跳过以免国内用户停更。"
+              exit 1
+            fi
+            echo "::notice::Fork 仓库未配置国内镜像同步密钥，跳过同步。"
             exit 0
           fi
 
@@ -151,6 +204,7 @@ jobs:
             fi
             sleep 5
           done
+          (cd "$workdir/pkg" && sha256sum -c SHA256SUMS.txt)
           body=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
           exe_size=$(stat -c %s "$workdir/pkg/$exe")
           sums_size=$(stat -c %s "$workdir/pkg/SHA256SUMS.txt")
@@ -205,4 +259,9 @@ jobs:
             sleep 5
           done
 
-          curl -fsSL --retry 3 --retry-delay 3 --max-time 20 "https://download.imfourj.cn/jige-battery/latest.json" | jq -e --arg tag "$tag" '.tag_name == $tag' >/dev/null
+          curl -fsSL --retry 3 --retry-delay 3 --max-time 20 "https://download.imfourj.cn/jige-battery/latest.json" \
+            | jq -e --arg tag "$tag" --arg exe "$exe" --argjson exe_size "$exe_size" --argjson sums_size "$sums_size" '
+              .tag_name == $tag and
+              any(.assets[]; .name == $exe and .size == $exe_size) and
+              any(.assets[]; .name == "SHA256SUMS.txt" and .size == $sums_size)
+            ' >/dev/null

@@ -23,13 +23,27 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
     {
         private static readonly Guid BgraPixelFormat = new("6fddc324-4e03-4bfe-b185-3d77768dc910");
 
+        private sealed class SurfaceSlot(IWICBitmap* bitmap, ID2D1RenderTarget* renderTarget, Canvas canvas) : IDisposable
+        {
+            public IWICBitmap* Bitmap { get; private set; } = bitmap;
+            public ID2D1RenderTarget* RenderTarget { get; private set; } = renderTarget;
+            public Canvas Canvas { get; } = canvas;
+
+            public void Dispose()
+            {
+                Canvas.Dispose();
+                Graphics.Release(RenderTarget);
+                RenderTarget = null;
+                Graphics.Release(Bitmap);
+                Bitmap = null;
+            }
+        }
+
+        private const int MaxCachedSizes = 4;
         public IWICImagingFactory* Wic;
         public ID2D1Factory* D2D;
         public TextFactory Fonts;
-        private IWICBitmap* bitmap;
-        private ID2D1RenderTarget* renderTarget;
-        private Canvas? canvas;
-        private int surfaceSize;
+        private readonly Dictionary<int, SurfaceSlot> surfaces = [];
 
         public ScalableFactories()
         {
@@ -58,15 +72,17 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
 
         public void AcquireSurface(int size, out IWICBitmap* outBitmap, out ID2D1RenderTarget* outTarget, out Canvas outCanvas)
         {
-            if (surfaceSize == size && bitmap != null && renderTarget != null && canvas is not null)
+            if (surfaces.TryGetValue(size, out var cached))
             {
-                outBitmap = bitmap;
-                outTarget = renderTarget;
-                outCanvas = canvas;
+                outBitmap = cached.Bitmap;
+                outTarget = cached.RenderTarget;
+                outCanvas = cached.Canvas;
                 return;
             }
 
-            ReleaseSurface();
+            if (surfaces.Count >= MaxCachedSizes)
+                ReleaseSurfaces();
+
             IWICBitmap* nextBitmap = null;
             ID2D1RenderTarget* nextTarget = null;
             try
@@ -84,13 +100,11 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
                 };
                 D2D->CreateWicBitmapRenderTarget(nextBitmap, in properties, &nextTarget);
                 var nextCanvas = new Canvas(nextTarget, Fonts);
-                bitmap = nextBitmap;
-                renderTarget = nextTarget;
-                canvas = nextCanvas;
-                surfaceSize = size;
-                outBitmap = bitmap;
-                outTarget = renderTarget;
-                outCanvas = canvas;
+                var slot = new SurfaceSlot(nextBitmap, nextTarget, nextCanvas);
+                surfaces[size] = slot;
+                outBitmap = slot.Bitmap;
+                outTarget = slot.RenderTarget;
+                outCanvas = slot.Canvas;
             }
             catch
             {
@@ -100,22 +114,18 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             }
         }
 
-        public void InvalidateSurface() => ReleaseSurface();
+        public void InvalidateSurface() => ReleaseSurfaces();
 
-        private void ReleaseSurface()
+        private void ReleaseSurfaces()
         {
-            canvas?.Dispose();
-            canvas = null;
-            Graphics.Release(renderTarget);
-            renderTarget = null;
-            Graphics.Release(bitmap);
-            bitmap = null;
-            surfaceSize = 0;
+            foreach (var slot in surfaces.Values)
+                slot.Dispose();
+            surfaces.Clear();
         }
 
         public void Dispose()
         {
-            ReleaseSurface();
+            ReleaseSurfaces();
             Fonts.Dispose();
             Graphics.Release(D2D);
             D2D = null;
@@ -184,15 +194,23 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             }
         }
 
-        if (changed)
+        if (registered)
         {
-            if (!icon.IsNull)
-                PInvoke.DestroyIcon(icon);
-            icon = newIcon;
-            appearance = next;
-            size = nextSize;
+            if (changed)
+            {
+                if (!icon.IsNull)
+                    PInvoke.DestroyIcon(icon);
+                icon = newIcon;
+                appearance = next;
+                size = nextSize;
+            }
+            tip = nextTip;
         }
-        tip = nextTip;
+        else if (changed && !newIcon.IsNull)
+        {
+            // Shell_NotifyIcon 失败时销毁新图标并保留旧图标句柄与状态，避免失败窗口内旧句柄被提前销毁。
+            PInvoke.DestroyIcon(newIcon);
+        }
     }
 
     private NOTIFYICONDATAW Data() => new() { cbSize = (uint)sizeof(NOTIFYICONDATAW), hWnd = window, uID = id };
@@ -238,10 +256,11 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             maskBits.Clear();
             for (int y = 0; y < size; y++)
             {
+                int maskRow = y * stride;
                 for (int x = 0; x < size; x++)
                 {
                     if ((pixels[y * size + x] >> 24) == 0)
-                        maskBits[y * stride + x / 8] |= (byte)(0x80 >> (x % 8));
+                        maskBits[maskRow + x / 8] |= (byte)(0x80 >> (x % 8));
                 }
             }
 

@@ -108,7 +108,7 @@ internal sealed record UpdateSource(string Name, Uri LatestUri, string AssetBase
         "GitHub",
         new("https://api.github.com/repos/deepfry666/jige-battery/releases/latest"),
         AvailableUpdate.Repository + "/releases/download/",
-        ["github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
+        ["api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com"]);
 
     public bool IsAllowedHost(string host) => AllowedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
 
@@ -195,7 +195,7 @@ internal static class UpdateInstallation
         finally
         {
             if (!started)
-                files.Clear();
+                files.TryClear();
         }
     }
 }
@@ -204,9 +204,12 @@ internal sealed class UpdateFiles(string path)
 {
     public string PreparePackage(string name)
     {
-        Clear();
+        TryClear();
         Directory.CreateDirectory(path);
-        return Path.Combine(path, name);
+        string target = Path.Combine(path, name);
+        if (File.Exists(target))
+            File.Delete(target);
+        return target;
     }
 
     public void Clear()
@@ -217,7 +220,19 @@ internal sealed class UpdateFiles(string path)
         }
         catch (DirectoryNotFoundException)
         {
-            // 首次运行或之前已清理。
+            // 首次运行或之前已经清理。
+        }
+    }
+
+    public void TryClear()
+    {
+        try
+        {
+            Clear();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // 下载失败或取消后的善后清理不得覆盖原异常；占用中的文件交由后续 CleanupUpdates 重试。
         }
     }
 
@@ -285,6 +300,7 @@ internal sealed class UpdateClient(
     {
         var client = new HttpClient(new SocketsHttpHandler
         {
+            // 禁止自动跟随跳转：所有 3xx 重定向必须由 GetFollowAsync 逐跳校验 HTTPS 与源白名单。
             AllowAutoRedirect = false,
             UseCookies = false,
             ConnectTimeout = TimeSpan.FromSeconds(15)
@@ -299,35 +315,48 @@ internal sealed class UpdateClient(
 
     public async Task<AvailableUpdate?> CheckAsync(Version current, CancellationToken token)
     {
+        bool anySucceeded = false;
         for (int i = 0; i < sources.Count; i++)
         {
             var source = sources[i];
             bool hasFallback = i + 1 < sources.Count;
-            using var attemptCts = hasFallback ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
-            if (attemptCts is not null && primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan)
+            // 有备用源或前序源已成功确认“当前已是最新”时，为本次查询设置独立超时预算，避免备用源挂死拖垮整体检查。
+            bool useAttemptTimeout = (hasFallback || anySucceeded) &&
+                primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan;
+            using var attemptCts = useAttemptTimeout ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
+            if (attemptCts is not null)
                 attemptCts.CancelAfter(primaryCheckTimeout);
             var attemptToken = attemptCts?.Token ?? token;
 
             try
             {
-                return await CheckSourceAsync(source, current, attemptToken).ConfigureAwait(false);
+                var found = await CheckSourceAsync(source, current, attemptToken).ConfigureAwait(false);
+                anySucceeded = true;
+                // 若首选源已找到严格高于当前版本的新正式版，直接采用以保持镜像优先策略；
+                // 仅当该源返回 null（可能镜像滞后）时继续向回退源确认是否存在更高版本。
+                if (found is not null)
+                    return found;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 throw;
             }
-            catch (Exception error) when (hasFallback && IsFallbackEligible(error, token))
+            catch (Exception error) when ((hasFallback || anySucceeded) && IsFallbackEligible(error, token))
             {
-                // 国内镜像超时、连接失败或返回无效内容时，静默回退 GitHub。
+                // 国内镜像超时、连接失败或返回无效内容时静默回退 GitHub；
+                // 若首选源已成功确认无新版而回退源（如 GitHub）不可达，返回 null 而不误报错误。
             }
         }
 
+        if (anySucceeded)
+            return null;
         throw new InvalidOperationException("未配置有效的更新源。");
     }
 
     private async Task<AvailableUpdate?> CheckSourceAsync(UpdateSource source, Version current, CancellationToken token)
     {
-        using var response = await http.GetAsync(source.LatestUri, token).ConfigureAwait(false);
+        using var response = await GetFollowAsync(source.LatestUri, source, HttpCompletionOption.ResponseContentRead, token)
+            .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
             throw new InvalidDataException($"{source.Name} 上暂时没有可访问的正式版本。");
         response.EnsureSuccessStatusCode();
@@ -363,16 +392,16 @@ internal sealed class UpdateClient(
     private async Task<VerifiedPackage> DownloadFromSourceAsync(AvailableUpdate update, UpdateFiles files,
         IProgress<UpdateProgress>? progress, CancellationToken token)
     {
-        string path = files.PreparePackage(update.Installer.Name!);
         var source = update.EffectiveSource;
         try
         {
+            string path = files.PreparePackage(update.Installer.Name!);
             progress?.Report(new(0, update.Installer.Size, Verifying: false));
             using var checksums = new MemoryStream();
             await CopyAssetAsync(update.Checksums, source, checksums, onBytes: null, token).ConfigureAwait(false);
             string manifest = System.Text.Encoding.UTF8.GetString(checksums.GetBuffer(), 0, (int)checksums.Length);
             var hash = UpdateFiles.ReadChecksum(manifest, update.Installer.Name!);
-            await using (var file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 64 * 1024, useAsync: true))
             {
                 await CopyAssetAsync(update.Installer, source, file,
@@ -386,7 +415,7 @@ internal sealed class UpdateClient(
         }
         catch
         {
-            files.Clear();
+            files.TryClear();
             throw;
         }
     }
@@ -394,21 +423,22 @@ internal sealed class UpdateClient(
     private static bool IsFallbackEligible(Exception error, CancellationToken outerToken) => error switch
     {
         OperationCanceledException => !outerToken.IsCancellationRequested,
-        HttpRequestException or IOException or JsonException or InvalidDataException => true,
+        HttpRequestException or HttpIOException or JsonException or InvalidDataException or
+            CryptographicException or UriFormatException => true,
         _ => false
     };
 
-    private async Task CopyAssetAsync(ReleaseAsset asset, UpdateSource source, Stream destination,
-        Action<long>? onBytes, CancellationToken token)
+    private async Task<HttpResponseMessage> GetFollowAsync(Uri initialUrl, UpdateSource source,
+        HttpCompletionOption completion, CancellationToken token)
     {
-        var url = new Uri(asset.DownloadUrl!);
+        var url = initialUrl;
         for (int redirect = 0; redirect <= 3; redirect++)
         {
-            using var response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token)
-                .ConfigureAwait(false);
+            var response = await http.GetAsync(url, completion, token).ConfigureAwait(false);
             if ((int)response.StatusCode is 301 or 302 or 303 or 307 or 308 &&
                 response.Headers.Location is { } location)
             {
+                response.Dispose();
                 url = new Uri(url, location);
                 // 仅允许同一更新源白名单内的 HTTPS 默认端口跳转。
                 if (url.Scheme != Uri.UriSchemeHttps || !url.IsDefaultPort || url.UserInfo.Length != 0 ||
@@ -416,26 +446,32 @@ internal sealed class UpdateClient(
                     throw new InvalidDataException("发行资源跳转到了未知的下载地址。");
                 continue;
             }
-
-            response.EnsureSuccessStatusCode();
-            if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
-                throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
-            await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
-            byte[] buffer = new byte[64 * 1024];
-            long total = 0;
-            int read;
-            while ((read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
-            {
-                total += read;
-                if (total > asset.Size)
-                    break;
-                await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
-                onBytes?.Invoke(total);
-            }
-            if (total != asset.Size)
-                throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
-            return;
+            return response;
         }
-        throw new InvalidDataException("发行资源的下载跳转次数过多。");
+        throw new InvalidDataException("发行资源跳转次数过多。");
+    }
+
+    private async Task CopyAssetAsync(ReleaseAsset asset, UpdateSource source, Stream destination,
+        Action<long>? onBytes, CancellationToken token)
+    {
+        using var response = await GetFollowAsync(new Uri(asset.DownloadUrl!), source,
+            HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
+            throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
+        await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+        byte[] buffer = new byte[64 * 1024];
+        long total = 0;
+        int read;
+        while ((read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
+        {
+            total += read;
+            if (total > asset.Size)
+                break;
+            await destination.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
+            onBytes?.Invoke(total);
+        }
+        if (total != asset.Size)
+            throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
     }
 }

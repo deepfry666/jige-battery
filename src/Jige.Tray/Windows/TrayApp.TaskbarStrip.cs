@@ -21,11 +21,44 @@ internal sealed partial class TrayApp
     private HWND stripOwner;
     private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
         stripGeometryPending, stripFallbackLogged;
+    private long stripGeometryPendingSinceMs;
+    private int stripAutomationFailures;
+    private long stripAutomationNextRetryMs;
     private bool StripGeometryPending => model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
         stripGeometryPending;
+    private bool StripGeometryTimedOut => StripGeometryPending &&
+        Environment.TickCount64 - stripGeometryPendingSinceMs >= 3_000;
     private string? DisplayLocationFallbackReason =>
-        model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar && stripDisplay.IsFallback && !StripGeometryPending
+        model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar && stripDisplay.IsFallback &&
+        (!StripGeometryPending || StripGeometryTimedOut)
             ? stripDisplay.Description : null;
+
+    private TaskbarStripAutomation? EnsureStripAutomation(bool forceRecreate = false)
+    {
+        if (stripAutomation is { Alive: true } && !forceRecreate)
+            return stripAutomation;
+
+        long now = Environment.TickCount64;
+        if (stripAutomation is not null)
+        {
+            stripAutomation.Dispose();
+            stripAutomation = null;
+            if (!forceRecreate)
+            {
+                stripAutomationFailures = Math.Min(3, stripAutomationFailures + 1);
+                uint delay = stripAutomationFailures switch { 1 => 2_000u, 2 => 5_000u, _ => 15_000u };
+                stripAutomationNextRetryMs = now + delay;
+            }
+        }
+        if (!forceRecreate && now < stripAutomationNextRetryMs)
+        {
+            ArmTimer(StripRetryTimer, (uint)Math.Clamp(stripAutomationNextRetryMs - now, 500, 15_000));
+            return null;
+        }
+
+        stripAutomation = new(host, StripGeometryMessage);
+        return stripAutomation;
+    }
 
     private void RefreshStripGeometry()
     {
@@ -48,14 +81,14 @@ internal sealed partial class TrayApp
         if (owner.IsNull)
             stripGeometryPending = false;
         else if (ownerChanged)
+        {
             stripGeometryPending = true;
+            stripGeometryPendingSinceMs = Environment.TickCount64;
+        }
         if (!owner.IsNull && !appBarSubscribed)
             appBarSubscribed = TaskbarStripShell.Subscribe(host, StripAppBarMessage);
         if (stripAutomation is not null || !owner.IsNull)
-        {
-            stripAutomation ??= new(host, StripGeometryMessage);
-            stripAutomation.Request(owner, reset: retryWindow);
-        }
+            EnsureStripAutomation()?.Request(owner, reset: retryWindow);
     }
 
     private void RecoverStrip()
@@ -67,7 +100,7 @@ internal sealed partial class TrayApp
         stripGeometry = default;
         stripGeometryPending = false;
         DestroyStripWindow();
-        stripAutomation?.Request(default, reset: true);
+        EnsureStripAutomation()?.Request(default, reset: true);
     }
 
     private void HandleStripAppBar(nuint notification)
@@ -100,8 +133,15 @@ internal sealed partial class TrayApp
     {
         if (stripAutomation?.Take() is not { } geometry || model.Settings.DisplayLocation != TrayDisplayLocation.Taskbar)
             return;
-        if (!geometry.Owner.IsNull && geometry.Owner != stripOwner)
+        if (geometry.Owner.IsNull)
             return;
+        if (geometry.Owner != stripOwner)
+        {
+            if (!stripOwner.IsNull)
+                EnsureStripAutomation()?.Request(stripOwner, reset: true);
+            return;
+        }
+        stripAutomationFailures = 0;
         bool wasPending = stripGeometryPending;
         stripGeometryPending = false;
         var previous = stripWindow?.VisibleBounds;
@@ -216,6 +256,8 @@ internal sealed partial class TrayApp
 
     private void StopStripTracking()
     {
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, StripRetryTimer);
         DestroyStripWindow();
         stripAutomation?.Request(default);
         stripGeometry = default;

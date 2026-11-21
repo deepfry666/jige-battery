@@ -75,6 +75,8 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
 
         if (endpoint.Path.Length == 0)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, endpoint.MetadataError ?? "串口设备路径不可用");
+        if (DeviceCatalog.IsDisabledPath(endpoint, out var disabled))
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, $"已识别，暂未启用：{disabled!.Reason}");
 
         // INZONE Hub 正在运行时主动退让，不打开独占串口，避免与官方驱动冲突。
         if (isInzoneHubRunning())

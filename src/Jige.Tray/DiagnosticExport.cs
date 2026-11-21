@@ -72,7 +72,14 @@ internal sealed class DiagnosticExport(string path)
         }
         finally
         {
-            File.Delete(temporary);
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 }

@@ -110,8 +110,12 @@ function CloseHandle(Handle: THandle): Boolean;
 
 var
   OperationGate: THandle;
+  OperationOwned: Boolean;
   InitialConfig: Boolean;
   IsUpgrade: Boolean;
+  TrayWasRunning: Boolean;
+  SetupCompleted: Boolean;
+  UninstallCompleted: Boolean;
   PreviousInstallDir: String;
 
 // 同一个互斥量串行化安装与卸载，并阻止托盘在文件替换期间从快捷方式或自启启动。
@@ -122,6 +126,7 @@ begin
   OperationGate := CreateNamedMutex(0, 0, '{#SetupGate}');
   ErrorCode := DLLGetLastError();
   Result := (OperationGate <> 0) and (ErrorCode <> 183); // ERROR_ALREADY_EXISTS
+  OperationOwned := Result;
   if not Result then
     SuppressibleMsgBox('几格安装或卸载正在进行，或无法取得安装锁。请稍后再试。', mbError, MB_OK, IDOK);
 end;
@@ -135,12 +140,12 @@ begin
   end;
 end;
 
-procedure CloseTray;
+procedure CloseTray(MaxAttempts: Integer);
 var
   Host: HWND;
   Attempt: Integer;
 begin
-  for Attempt := 1 to 80 do
+  for Attempt := 1 to MaxAttempts do
   begin
     if not CheckForMutexes('{#TrayMutex}') then
       Exit;
@@ -153,6 +158,33 @@ begin
     Sleep(100);
   end;
   // AppMutex 会继续阻止安装或卸载，直到托盘关闭。
+end;
+
+function HasCmdSwitch(const Flag: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), Flag) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TryRestoreTray(const CandidateDir: String);
+var
+  ExePath: String;
+  ResultCode: Integer;
+begin
+  if CheckForMutexes('{#TrayMutex}') then
+    Exit;
+  ExePath := AddBackslash(Trim(CandidateDir)) + 'Jige.exe';
+  if (Trim(CandidateDir) <> '') and FileExists(ExePath) then
+    Exec(ExePath, '--after-setup', Trim(CandidateDir), SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 function CanWriteToTargetDir(const TargetDir: String): Boolean;
@@ -183,7 +215,14 @@ begin
   Result := BeginOperation;
   if Result then
   begin
-    CloseTray;
+    SetupCompleted := False;
+    TrayWasRunning := CheckForMutexes('{#TrayMutex}') or HasCmdSwitch('/JIGERESTART');
+    // Inno Setup 在 InitializeSetup 之后立即检查 AppMutex，因此静默与交互模式均需在此关闭托盘；
+    // 若用户中途取消安装，DeinitializeSetup 会在释放安装锁后按 TrayWasRunning 自动拉回托盘。
+    if WizardSilent then
+      CloseTray(300)
+    else
+      CloseTray(80);
     InitialConfig := not FileExists(ExpandConstant('{#DataDir}\config.json'));
     IsUpgrade := RegKeyExists(HKCU, '{#UninstallKey}');
     PreviousInstallDir := '';
@@ -242,6 +281,8 @@ begin
   if CurStep <> ssPostInstall then
     Exit;
 
+  SetupCompleted := True;
+
   if not InitialConfig then
   begin
     // 若用户更换了安装目录且此前已启用开机自启，同步更新自启路径。
@@ -276,29 +317,53 @@ begin
 end;
 
 procedure DeinitializeSetup;
+var
+  RestoreDir: String;
 begin
+  // 必须先释放安装锁，再按需拉回托盘；且仅当本实例持有锁、未完成安装且安装前托盘在运行时恢复。
   EndOperation;
+  if OperationOwned and (not SetupCompleted) and TrayWasRunning then
+  begin
+    RestoreDir := Trim(PreviousInstallDir);
+    if RestoreDir = '' then
+      RestoreDir := ExpandConstant('{app}');
+    TryRestoreTray(RestoreDir);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
 begin
   Result := BeginOperation;
+  if Result then
+  begin
+    UninstallCompleted := False;
+    TrayWasRunning := CheckForMutexes('{#TrayMutex}');
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Folder: String;
-  RemoveData: Boolean;
+  RemoveData, KeepData: Boolean;
 begin
   if CurUninstallStep = usAppMutexCheck then
-    CloseTray;
+  begin
+    if UninstallSilent then
+      CloseTray(300)
+    else
+      CloseTray(80);
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
+  UninstallCompleted := True;
   Folder := ExpandConstant('{#DataDir}');
   if not DirExists(Folder) then
     Exit;
+  KeepData := HasCmdSwitch('/KEEPDATA');
   RemoveData := UninstallSilent;
-  if not RemoveData then
+  if KeepData then
+    RemoveData := False;
+  if (not RemoveData) and (not UninstallSilent) and (not KeepData) then
     RemoveData := MsgBox('同时删除几格的设置和电量记录吗？', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
   if RemoveData and not DelTree(Folder, True, True, True) then
     SuppressibleMsgBox('未能删除全部几格数据，可能有文件仍在使用。', mbError, MB_OK, IDOK);
@@ -307,4 +372,6 @@ end;
 procedure DeinitializeUninstall;
 begin
   EndOperation;
+  if OperationOwned and (not UninstallCompleted) and TrayWasRunning then
+    TryRestoreTray(ExpandConstant('{app}'));
 end;

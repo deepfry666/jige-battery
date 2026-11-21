@@ -473,7 +473,11 @@ public static class DiagnosticReport
             }
             // 报告 ID 约束只在打开句柄时使用，归回添加约束前的枚举端点。
             var endpoint = NormalizeEndpoint(item.Endpoint);
-            string id = ids[endpoint];
+            string id = ids.TryGetValue(endpoint, out var mapped)
+                ? mapped
+                : endpoint is HidInterface h
+                    ? $"H?{h.UsagePage:X4}:{h.Usage:X4}/{h.InterfaceNumber:X2}"
+                    : "S?";
             string code = item.NativeCode?.ToString(CultureInfo.InvariantCulture) ?? "-";
             string argument = item.Argument?.ToString(CultureInfo.InvariantCulture) ?? "-";
             string hex = safe.Length == 0 ? "-" : Convert.ToHexString(safe);
