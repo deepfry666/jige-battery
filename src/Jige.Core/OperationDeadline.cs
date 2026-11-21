@@ -15,7 +15,7 @@ internal static class OperationDeadline
         {
             return await work.WaitAsync(token).ConfigureAwait(false);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested && token.IsCancellationRequested)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException();
         }
@@ -27,7 +27,18 @@ internal static class OperationDeadline
 
     private static async Task DisposeWhenCompleteAsync(Task work, CancellationTokenSource deadline)
     {
-        await work.ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-        deadline.Dispose();
+        try
+        {
+            await work.WaitAsync(TimeSpan.FromSeconds(30)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+        catch (TimeoutException)
+        {
+            // 同步原生调用长时间未返回时，仍释放 linked CTS，避免父 token 回调链持续增长。
+        }
+        finally
+        {
+            try { deadline.Dispose(); }
+            catch (ObjectDisposedException) { }
+        }
     }
 }

@@ -8,13 +8,14 @@ on:
 
 concurrency:
   group: prerelease-build
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
   prerelease:
+    if: github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 25
     permissions:
@@ -132,15 +133,9 @@ jobs:
           $checksums = 'artifacts/release/SHA256SUMS.txt'
           $keep = @('Jige-Setup-prerelease-x64.exe', 'SHA256SUMS.txt')
 
-          # 将滚动标签指向当前 main 提交（不匹配 release.yml 的 v* 触发规则）。
-          git tag -f $tag $env:GITHUB_SHA
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git push --force origin "refs/tags/$tag"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
           gh release view $tag --repo $env:GITHUB_REPOSITORY > $null 2>&1
           if ($LASTEXITCODE -eq 0) {
-            # 删除旧附件，避免历史构建附件累积。
+            # 先上传替换附件，再移动滚动标签，避免中途中断时标签指向无附件提交。
             $existing = gh release view $tag --repo $env:GITHUB_REPOSITORY --json assets --jq '.assets[].name'
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             foreach ($asset in $existing) {
@@ -151,9 +146,17 @@ jobs:
             }
             gh release upload $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --clobber
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git tag -f $tag $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push --force origin "refs/tags/$tag"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
+            git tag -f $tag $env:GITHUB_SHA
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            git push --force origin "refs/tags/$tag"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -176,7 +179,11 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${MIRROR_HOST}" ] || [ -z "${MIRROR_SSH_KEY}" ] || [ -z "${MIRROR_KNOWN_HOSTS}" ]; then
-            echo "::notice::未配置国内镜像同步密钥，跳过同步。"
+            if [ "${GITHUB_REPOSITORY}" = "deepfry666/jige-battery" ]; then
+              echo "::error::主仓库缺少国内镜像同步密钥，禁止静默跳过。"
+              exit 1
+            fi
+            echo "::notice::Fork 仓库未配置国内镜像同步密钥，跳过同步。"
             exit 0
           fi
 

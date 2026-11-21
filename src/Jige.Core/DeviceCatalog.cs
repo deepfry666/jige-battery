@@ -406,8 +406,32 @@ public static class DeviceCatalog
     {
         if (endpoint is HidInterface hid)
             return IsDisabledPath(hid, out disabled);
+        if (endpoint is UsbSerialPort serial)
+        {
+            foreach (var id in serial.HardwareIds)
+            {
+                if (TryParseUsbVidPid(id, out ushort vid, out ushort pid) &&
+                    FindDisabledPath(vid, pid) is { } match)
+                {
+                    disabled = match;
+                    return true;
+                }
+            }
+        }
         disabled = null;
         return false;
+    }
+
+    private static bool TryParseUsbVidPid(string hardwareId, out ushort vid, out ushort pid)
+    {
+        vid = 0;
+        pid = 0;
+        int vidIdx = hardwareId.IndexOf("VID_", StringComparison.OrdinalIgnoreCase);
+        int pidIdx = hardwareId.IndexOf("PID_", StringComparison.OrdinalIgnoreCase);
+        if (vidIdx < 0 || pidIdx < 0 || vidIdx + 8 > hardwareId.Length || pidIdx + 8 > hardwareId.Length)
+            return false;
+        return ushort.TryParse(hardwareId.AsSpan(vidIdx + 4, 4), System.Globalization.NumberStyles.HexNumber, null, out vid) &&
+               ushort.TryParse(hardwareId.AsSpan(pidIdx + 4, 4), System.Globalization.NumberStyles.HexNumber, null, out pid);
     }
 
     public static string TierLabel(VerificationTier tier) => tier switch

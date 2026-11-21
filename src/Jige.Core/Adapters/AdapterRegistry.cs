@@ -2,6 +2,7 @@ namespace Jige.Core.Adapters;
 
 public sealed record DetectedDevice(IDeviceAdapter Adapter, DeviceTarget Target)
 {
+    public bool IsMultiDevice => Adapter is IMultiDeviceAdapter;
     public PresenceProbeKind PresenceKind =>
         Adapter is IPresenceAdapter presence ? presence.PresenceKind : PresenceProbeKind.FullPollOnly;
 }
@@ -118,6 +119,11 @@ public sealed class AdapterRegistry
             };
             return new(device.Target.Endpoint.ReceiverId, null, device.Target.Device.Id, link, error.Issue);
         }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 心跳阶段遇到非传输类异常时视作本次无结论，避免短暂把在线设备打成 Unknown 引起界面闪烁。
+            return null;
+        }
     }
 
     public Task ListenPushAsync(
@@ -130,13 +136,17 @@ public sealed class AdapterRegistry
         DetectedDevice device, IReceiverTransport transport, FrameTrace? trace, CancellationToken token) =>
         [await ReadAsync(device, transport, trace, token).ConfigureAwait(false)];
 
+    internal static TimeSpan ReadBudget(IDeviceAdapter adapter) =>
+        adapter is IMultiDeviceAdapter ? TimeSpan.FromSeconds(13.5) : TimeSpan.FromSeconds(7);
+
     private static async Task<T> ReadWithDeadlineAsync<T>(DetectedDevice device,
         Func<CancellationToken, ValueTask<T>> read, Func<BatteryReading, T> failure, CancellationToken cancellationToken)
     {
+        var budget = ReadBudget(device.Adapter);
         try
         {
             return await OperationDeadline.RunAsync(token => ReadLockedAsync(device.Target.Endpoint.ReceiverId, read, token),
-                TimeSpan.FromSeconds(7), cancellationToken).ConfigureAwait(false);
+                budget, cancellationToken).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -145,6 +155,11 @@ public sealed class AdapterRegistry
         catch (TransportException error)
         {
             return failure(Failure(device.Target, error.Issue, error.Message));
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            var issue = error is ObjectDisposedException ? ReadIssue.Disconnected : ReadIssue.InvalidResponse;
+            return failure(Failure(device.Target, issue, $"适配器读取异常（{error.GetType().Name}）"));
         }
     }
 

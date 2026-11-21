@@ -342,11 +342,11 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 {
                     foreach (var sibling in siblingInputs)
                     {
-                        if (sibling.InputLength is not > 0)
+                        if (sibling.InputLength is not > 0 || sibling.FeatureOnly)
                             continue;
                         try
                         {
-                            var siblingSession = transport.OpenHid(sibling, token);
+                            var siblingSession = transport.OpenHid(sibling with { InputOnly = true }, token);
                             var siblingBuffer = new byte[sibling.InputLength.Value];
                             var read = siblingSession.ReadInputAsync(siblingBuffer, token).AsTask();
                             siblingListeners.Add((siblingSession, siblingBuffer, read));
@@ -390,9 +390,12 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                         ? await session.ReadInputAsync(report, token).ConfigureAwait(false)
                         : await pending.ConfigureAwait(false);
                     pending = null;
+                    var span = report.AsSpan(0, count);
+                    trace?.Invoke(FrameDirection.Received, span);
+                    if (route.Family == MouseFamily.BitMouse && MouseBatteryProtocol.IsBitMousePush(span))
+                        continue;
                     sawReply = true;
-                    trace?.Invoke(FrameDirection.Received, report.AsSpan(0, count));
-                    var reply = Decode(report.AsSpan(0, count), route, charging);
+                    var reply = Decode(span, route, charging);
                     if (reply.Level.HasValue || reply.Asleep)
                         return reply;
                     continue;

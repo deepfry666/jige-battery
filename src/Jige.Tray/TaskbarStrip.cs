@@ -79,10 +79,11 @@ internal readonly record struct TaskbarStripPalette(Color Foreground, Color Warn
         ? new(new(0xf0ece4), Palette.Create(true).Warning, new(0xff8080), new(0x4ce07a), new(0x393e4c))
         : new(new(0x211d19), Palette.Create(false).Warning, new(0xb42318), new(0x0f7b38), new(0xd2d2d2));
 
-    public (Color Icon, Color Text) Ink(BatteryTone tone) => tone switch
+    public (Color Icon, Color Text) Ink(BatteryTone tone, bool showBolt = true) => tone switch
     {
         BatteryTone.Warning => (Warning, Warning),
         BatteryTone.Low => (Low, Low),
+        BatteryTone.Charging when !showBolt => (Foreground, Foreground),
         BatteryTone.Charging => (Foreground, Charging),
         _ => (Foreground, Foreground)
     };

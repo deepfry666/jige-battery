@@ -113,12 +113,16 @@ internal sealed class TrayModel
         return end > 0 && id.IndexOf('/') < end ? id[..end] : null;
     }
 
-    public bool ExpireReadings(DateTimeOffset now)
+    private static readonly TimeSpan FutureClockSkew = TimeSpan.FromMinutes(5);
+    private bool inGameMode;
+
+    public bool ExpireReadings(DateTimeOffset now, bool game = false)
     {
+        inGameMode = game;
         bool changed = false;
         foreach (var (id, device) in devices)
         {
-            if (device is { Fresh: true, Last: { } last } && IsExpired(last, now))
+            if (device is { Fresh: true, Last: { } last } && IsExpired(last, now, game))
             {
                 devices[id] = device.Device.UsesPassiveBatteryReports
                     ? device with { Fresh = false, Link = LinkState.Asleep, Charging = ChargingState.Unknown }
@@ -316,26 +320,29 @@ internal sealed class TrayModel
         DateTimeOffset now,
         int unknownReceivers = 0,
         Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null,
-        IReadOnlySet<string>? liveTargets = null) =>
-        ApplyReadings(readings, scanFailed, now, unknownReceivers, onLinkChanged, liveTargets, completePoll: true);
+        IReadOnlySet<string>? liveTargets = null,
+        bool completePoll = true) =>
+        ApplyReadings(readings, scanFailed, now, unknownReceivers, onLinkChanged, liveTargets,
+            mergeChannels: true, sweepMissing: completePoll);
 
     private bool ApplyReadings(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now,
         int unknownReceivers, Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged,
-        IReadOnlySet<string>? liveTargets, bool completePoll)
+        IReadOnlySet<string>? liveTargets, bool mergeChannels, bool sweepMissing)
     {
         ScanFailed = scanFailed;
         if (!scanFailed || unknownReceivers > 0)
             UnknownReceivers = unknownReceivers;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool anyFresh = false, meaningfulChange = false, removedChanged = false;
-        if (completePoll)
+        if (mergeChannels)
         {
             readings = MergeLogitechCableReadings(readings, ref meaningfulChange);
             readings = MergeRazerCableReadings(readings, ref meaningfulChange);
         }
+        var maxAllowedReadAt = now + TimeSpan.FromMinutes(5);
         foreach (var input in readings)
         {
-            var reading = input;
+            var reading = input.ReadAt > maxAllowedReadAt ? input with { ReadAt = now } : input;
             var device = reading.Device;
             if (!IsShown(device) || device.Id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
                 !device.Id.Contains('/') && reading.Percentage is null)
@@ -421,7 +428,7 @@ internal sealed class TrayModel
                 meaningfulChange = true;
         }
 
-        var missing = completePoll ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [];
+        var missing = sweepMissing ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [];
         var latestSlots = liveTargets is not null && missing.Length > 0 ? LatestLogitechSlots() : null;
         var seenSlots = latestSlots is { Count: > 0 } ?
             seen.Select(LogitechReceiverSlot).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
@@ -453,7 +460,7 @@ internal sealed class TrayModel
         if (anyFresh)
             UpdatedAt = now;
         // 移除后已消失的设备无需继续保留标记。再次识别时重新出现。
-        if (completePoll && !scanFailed)
+        if (sweepMissing && !scanFailed)
             removedChanged |= removedOffline.RemoveWhere(id => !seen.Contains(id)) > 0;
 
         TrimHistory();
@@ -618,7 +625,8 @@ internal sealed class TrayModel
                     if (battery.Device.Connection != DeviceConnection.Bluetooth && !battery.Device.UsesPassiveBatteryReports)
                         battery = battery with { Device = known.Device };
                 }
-                uiChanged |= ApplyReadings([battery], ScanFailed, now, UnknownReceivers, onLinkChanged, null, completePoll: false);
+                uiChanged |= ApplyReadings([battery], ScanFailed, now, UnknownReceivers, onLinkChanged, null,
+                    mergeChannels: false, sweepMissing: false);
                 continue;
             }
             var matches = FindMatchingDeviceIds(update);
@@ -800,17 +808,20 @@ internal sealed class TrayModel
     private bool CanRemind(DeviceStatus device, DateTimeOffset now) =>
         device is { Fresh: true, Link: LinkState.Online, IsCharging: false, IsFull: false, Last: { } last } &&
         last.Percentage <= Settings.LowBatteryThreshold &&
-        !IsExpired(last, now);
+        !IsExpired(last, now, inGameMode);
 
-    private bool IsExpired(SavedBattery last, DateTimeOffset now) =>
-        now - last.ReadAt > TimeSpan.FromSeconds(2 * Settings.PollSeconds);
+    private TimeSpan ReadingTtl(bool game) =>
+        TimeSpan.FromSeconds(2 * (game ? Math.Max(Settings.PollSeconds, Settings.GamePollSeconds) : Settings.PollSeconds));
+
+    private bool IsExpired(SavedBattery last, DateTimeOffset now, bool game = false) =>
+        now - last.ReadAt > ReadingTtl(game) || last.ReadAt - now > FutureClockSkew;
 
     public DateTimeOffset? ReminderExpires(string id)
     {
         if (devices.GetValueOrDefault(id)?.Last is not { } last)
             return null;
         // 用时间差判断读数是否过期；定时器遇到不合理的未来记录直接略过。
-        var ttl = TimeSpan.FromSeconds(2 * Settings.PollSeconds).Add(TimeSpan.FromTicks(1));
+        var ttl = ReadingTtl(inGameMode).Add(TimeSpan.FromTicks(1));
         return last.ReadAt <= DateTimeOffset.MaxValue - ttl ? last.ReadAt + ttl : null;
     }
 

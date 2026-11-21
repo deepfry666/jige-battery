@@ -27,6 +27,19 @@ internal static unsafe class Graphics
             throw new COMException($"{operation}失败（{result}）", result);
     }
 
+    /// <summary>
+    /// 仅白名单判定可重建的图形设备丢失错误（显式排除 DXGI_ERROR_NOT_CURRENTLY_AVAILABLE 0x887A0022
+    /// 以免 RDP 场景死循环，并排除 D2DERR_WRONG_STATE 等调用顺序缺陷）。
+    /// </summary>
+    public static bool IsDeviceLost(HRESULT result) => result.Value is
+        unchecked((int)0x8899000C) or // D2DERR_RECREATE_TARGET
+        unchecked((int)0x887A0005) or // DXGI_ERROR_DEVICE_REMOVED
+        unchecked((int)0x887A0006) or // DXGI_ERROR_DEVICE_HUNG
+        unchecked((int)0x887A0007);   // DXGI_ERROR_DEVICE_RESET
+
+    public static bool IsDeviceLost(Exception error) =>
+        error is COMException com && IsDeviceLost(new HRESULT(com.HResult));
+
     public static D2D_RECT_F Rect(float x, float y, float width, float height) =>
         new() { left = x, top = y, right = x + width, bottom = y + height };
 
@@ -179,6 +192,8 @@ internal sealed unsafe class Canvas : IDisposable
         this.fonts = fonts;
         ID2D1SolidColorBrush* value = null;
         target->CreateSolidColorBrush(Graphics.Ink(new(0)), null, &value);
+        if (value == null)
+            throw new InvalidOperationException("画刷创建结果为空");
         brush = value;
         target->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE.D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
     }
@@ -273,6 +288,8 @@ internal sealed unsafe class Canvas : IDisposable
         };
         fixed (byte* pixels = source)
             target->CreateBitmap(new() { width = width, height = height }, pixels, width * 4, in format, &bitmap);
+        if (bitmap == null)
+            throw new InvalidOperationException("位图资源创建结果为空");
         try
         {
             var bounds = Graphics.Rect(x, y, w, h);

@@ -654,7 +654,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
-            results.Add(AdapterRegistry.Failure(target, ReadIssue.Timeout, "HID++ 接收器扫描超时"));
+            if (results.Count == 0)
+                results.Add(AdapterRegistry.Failure(target, ReadIssue.Timeout, "HID++ 接收器扫描超时"));
         }
         catch (TransportException error) when (target.Device.Connection == DeviceConnection.Bluetooth &&
             error.Issue is ReadIssue.Disconnected or ReadIssue.IoError)

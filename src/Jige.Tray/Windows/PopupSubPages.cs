@@ -377,7 +377,8 @@ internal sealed partial class PopupScene
     {
         canvas.Text("点名称可改名，勾选在托盘显示，眼睛控制是否出现在", 17, 59, 310, 18, 12, colors.Muted);
         canvas.Text("面板里。", 17, 77, 310, 18, 12, colors.Muted);
-        for (int i = 0; i < size.Rows; i++)
+        int visibleRows = Math.Min(size.Rows, Math.Max(0, devices.Length - offset));
+        for (int i = 0; i < visibleRows; i++)
         {
             var device = devices[i + offset];
             DrawDevice(canvas, i, device);

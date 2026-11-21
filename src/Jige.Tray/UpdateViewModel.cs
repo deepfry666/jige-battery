@@ -120,7 +120,10 @@ internal sealed record UpdateViewState(
         HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError } => "无法与更新服务器建立安全连接。",
         HttpRequestException or HttpIOException => "无法连接更新服务器，或下载连接已经中断。",
         JsonException => "无法读取更新服务器返回的发行信息。",
-        _ => string.IsNullOrWhiteSpace(error.Message) ? "检查或更新时发生未知错误。" : error.Message
+        InvalidDataException when !string.IsNullOrWhiteSpace(error.Message) => error.Message,
+        IOException or UnauthorizedAccessException => "无法读写更新缓存，请检查磁盘空间后重试。",
+        System.ComponentModel.Win32Exception => "无法启动更新程序。",
+        _ => "检查或更新时发生未知错误。"
     };
 }
 

@@ -8,12 +8,25 @@
   /* ---------------------------------------------------------
      1. 自动同步最新正式版（同源 /latest.json -> 国内镜像）
      --------------------------------------------------------- */
-  function safeHttps(value) {
+  function safeReleaseUrl(value) {
     try {
-      return typeof value === "string" && new URL(value).protocol === "https:";
+      if (typeof value !== "string") return false;
+      var parsed = new URL(value);
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password) return false;
+      if (parsed.port !== "" && parsed.port !== "443") return false;
+      var decoded = decodeURIComponent(parsed.pathname);
+      if (/(^|\/)\.\.(\/|$)/.test(decoded) || decoded.indexOf("\\") !== -1) return false;
+      var host = parsed.hostname.toLowerCase();
+      if (host === "download.imfourj.cn") return decoded.indexOf("/jige-battery/") === 0;
+      if (host === "github.com") return decoded.indexOf("/deepfry666/jige-battery/releases/download/") === 0;
+      return false;
     } catch (_) {
       return false;
     }
+  }
+
+  function safeFilename(name) {
+    return typeof name === "string" && /^[-A-Za-z0-9._ ]+\.exe$/i.test(name);
   }
 
   function megabytes(bytes) {
@@ -33,27 +46,39 @@
 
   function applyLatest(data) {
     if (!data || !Array.isArray(data.assets)) return showFallback();
+    var version = typeof data.tag_name === "string" && data.tag_name.trim() ? data.tag_name.trim() : "";
+    var expectedExe = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)
+      ? "Jige-Setup-" + version.slice(1) + "-x64.exe"
+      : null;
     var exe = null;
     var sums = null;
     data.assets.forEach(function (a) {
       if (!a || typeof a.name !== "string") return;
-      if (/\.exe$/i.test(a.name)) exe = a;
+      if (expectedExe ? a.name === expectedExe : /^Jige-Setup-[^/\\]+-x64\.exe$/i.test(a.name)) exe = a;
       if (/^SHA256SUMS\.txt$/i.test(a.name)) sums = a;
     });
-    if (!exe || !safeHttps(exe.browser_download_url)) return showFallback();
+    if (!exe || typeof exe.size !== "number" || !isFinite(exe.size) || exe.size <= 0 ||
+      !safeReleaseUrl(exe.browser_download_url)) return showFallback();
 
-    var version = typeof data.tag_name === "string" && data.tag_name.trim() ? data.tag_name.trim() : "";
+    var hasValidSums = !!(sums && safeReleaseUrl(sums.browser_download_url));
     each("[data-download]", function (el) { el.href = exe.browser_download_url; });
-    if (sums && safeHttps(sums.browser_download_url)) {
+    if (hasValidSums) {
       each("[data-sha]", function (el) { el.href = sums.browser_download_url; });
+      each("[data-verify-block]", function (el) { el.hidden = false; });
+    } else {
+      each("[data-verify-block]", function (el) { el.hidden = true; });
     }
     if (version) each("[data-version]", function (el) { el.textContent = version; });
     var size = megabytes(exe.size);
     if (size) each("[data-size]", function (el) { el.textContent = size; });
-    each("[data-filename]", function (el) { el.textContent = exe.name; });
-    each("[data-hash-cmd]", function (el) {
-      el.textContent = 'Get-FileHash "$HOME\\Downloads\\' + exe.name + '" -Algorithm SHA256';
-    });
+    if (safeFilename(exe.name)) {
+      each("[data-filename]", function (el) { el.textContent = exe.name; });
+      if (hasValidSums) {
+        each("[data-hash-cmd]", function (el) {
+          el.textContent = 'Get-FileHash "$HOME\\Downloads\\' + exe.name + '" -Algorithm SHA256';
+        });
+      }
+    }
 
     if (typeof data.body === "string") {
       var lines = data.body
@@ -75,7 +100,7 @@
   if (typeof fetch === "function") {
     var controller = typeof AbortController === "function" ? new AbortController() : null;
     var timer = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
-    fetch("/latest.json", { cache: "no-cache", signal: controller ? controller.signal : undefined })
+    fetch(new URL("latest.json", document.baseURI).href, { cache: "no-cache", signal: controller ? controller.signal : undefined })
       .then(function (r) { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(applyLatest)
       .catch(showFallback)
@@ -434,13 +459,13 @@
     }
 
     var stripCls = stateKey === "low" ? "is-low" : (stateKey === "charge" ? "is-charge" : (stateKey === "warn" ? "is-warn" : ""));
-    var mouseCol = stateKey === "low" ? "#ff99a4" : "#f5f5f5";
+    var mouseCol = stateKey === "low" ? "#ff99a4" : (stateKey === "warn" ? "#fce100" : (stateKey === "charge" ? "#6ccb5f" : "#f5f5f5"));
     labStrip.innerHTML =
       '<span class="strip-item">' + solidGlyphSvg("keyboard", "#f5f5f5", 15) + "<span>82%</span></span>" +
       '<span class="strip-sep"></span>' +
       '<span class="strip-item ' + stripCls + '">' + solidGlyphSvg("mouse", mouseCol, 15) + (labCharging ? '<span class="strip-bolt">⚡</span>' : "") + "<span>" + p + "%</span></span>" +
       '<span class="strip-sep"></span>' +
-      '<span class="strip-item is-charge">' + solidGlyphSvg("headset", "#f5f5f5", 15) + '<span class="strip-bolt">⚡</span><span>48%</span></span>';
+      '<span class="strip-item is-charge">' + solidGlyphSvg("headset", "#6ccb5f", 15) + '<span class="strip-bolt">⚡</span><span>48%</span></span>';
 
     labTrays.innerHTML =
       '<span class="lab-tray-item">' + trayIconSvg("mouse", p, stateKey, 24) + "<span>鼠标</span></span>" +
@@ -645,8 +670,8 @@
       var sHtml = "";
       stripDevs.forEach(function (d, idx) {
         if (idx > 0) sHtml += '<span class="strip-sep" aria-hidden="true"></span>';
-        var itemCls = d.state === "low" ? "is-low" : (d.state === "charge" ? "is-charge" : "");
-        var glyphCol = d.state === "low" ? "#ff99a4" : "#f3f3f3";
+        var itemCls = d.state === "low" ? "is-low" : (d.state === "warn" ? "is-warn" : (d.state === "charge" ? "is-charge" : ""));
+        var glyphCol = d.state === "low" ? "#ff99a4" : (d.state === "warn" ? "#fce100" : (d.state === "charge" ? "#6ccb5f" : "#f3f3f3"));
         sHtml +=
           '<button type="button" class="strip-item ' + itemCls + '" data-strip-dev="' + d.id + '" title="' + d.name + " " + d.pct + '%">' +
             solidGlyphSvg(d.kind, glyphCol, 14) +
@@ -710,6 +735,7 @@
       var on = tabs[i].getAttribute("data-scene") === scene;
       tabs[i].classList.toggle("is-active", on);
       tabs[i].setAttribute("aria-selected", on ? "true" : "false");
+      tabs[i].tabIndex = on ? 0 : -1;
     }
     syncStageSlider(false);
 
@@ -745,7 +771,21 @@
   }
 
   for (var t = 0; t < tabs.length; t += 1) {
-    tabs[t].addEventListener("click", function () { setScene(this.getAttribute("data-scene")); });
+    (function (idx) {
+      tabs[idx].addEventListener("click", function () { setScene(this.getAttribute("data-scene")); });
+      tabs[idx].addEventListener("keydown", function (ev) {
+        var next = -1;
+        if (ev.key === "ArrowRight") next = (idx + 1) % tabs.length;
+        else if (ev.key === "ArrowLeft") next = (idx - 1 + tabs.length) % tabs.length;
+        else if (ev.key === "Home") next = 0;
+        else if (ev.key === "End") next = tabs.length - 1;
+        if (next >= 0) {
+          ev.preventDefault();
+          setScene(tabs[next].getAttribute("data-scene"));
+          tabs[next].focus();
+        }
+      });
+    })(t);
   }
 
   var refreshBtn = document.getElementById("simRefresh");

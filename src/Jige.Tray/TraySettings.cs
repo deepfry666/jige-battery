@@ -263,11 +263,37 @@ internal sealed class TrayFiles(string folder)
         }
     }
 
-    public void SaveSettings(TraySettings settings)
+    private bool TryBackupLockedConfig(Action<string, Exception>? log)
     {
-        if (preserveConfig)
+        if (!File.Exists(ConfigPath))
+            return true;
+        try
+        {
+            string backup = Path.Combine(folder, $"config.locked-{DateTime.UtcNow:yyyyMMdd-HHmmss-fffffff}.json");
+            File.Copy(ConfigPath, backup, overwrite: true);
+            foreach (string old in Directory.EnumerateFiles(folder, "config.locked-*.json")
+                         .OrderByDescending(file => file, StringComparer.OrdinalIgnoreCase).Skip(3))
+            {
+                try { File.Delete(old); }
+                catch (Exception cleanupError) when (cleanupError is IOException or UnauthorizedAccessException) { }
+            }
+            return true;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            log?.Invoke("备份原配置失败，继续保护原文件", error);
+            return false;
+        }
+    }
+
+    public void SaveSettings(TraySettings settings) => SaveSettings(settings, userInitiated: false, log: null);
+
+    public void SaveSettings(TraySettings settings, bool userInitiated, Action<string, Exception>? log = null)
+    {
+        if (preserveConfig && !(userInitiated && TryBackupLockedConfig(log)))
             throw new IOException("原设置尚未备份");
         Write(ConfigPath, settings, TrayJsonContext.Default.TraySettings);
+        preserveConfig = false;
     }
 
     /// <summary>D1（#21）：写盘前先序列化并与现有 state.json 字节比较，内容完全一致时跳过写盘。</summary>
@@ -313,11 +339,24 @@ internal sealed class TrayFiles(string folder)
         try
         {
             File.WriteAllBytes(temporary, payload);
-            File.Move(temporary, path, overwrite: true);
+            if (File.Exists(path))
+            {
+                try { File.Replace(temporary, path, null, ignoreMetadataErrors: true); }
+                catch (FileNotFoundException) { File.Move(temporary, path); }
+            }
+            else
+                File.Move(temporary, path);
         }
         finally
         {
-            File.Delete(temporary);
+            try
+            {
+                if (File.Exists(temporary))
+                    File.Delete(temporary);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 }

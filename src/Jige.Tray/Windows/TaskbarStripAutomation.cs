@@ -22,8 +22,11 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     private readonly AutoResetEvent changed = new(false);
     private HWND requested;
     private TaskbarStripGeometry? pending, lastPublished;
-    private bool posted, disposed, reconnect;
+    private bool posted, disposed, changedDisposed, reconnect;
+    private bool alive = true;
     private string? lastErrorLog;
+
+    public bool Alive => Volatile.Read(ref alive);
 
     public TaskbarStripAutomation(HWND host, uint message)
     {
@@ -36,7 +39,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     {
         lock (sync)
         {
-            if (disposed)
+            if (disposed || changedDisposed)
                 return;
             if (requested != owner || reset)
             {
@@ -44,7 +47,8 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                 requested = owner;
                 reconnect = true;
             }
-            changed.Set();
+            try { changed.Set(); }
+            catch (ObjectDisposedException) { }
         }
     }
 
@@ -63,13 +67,17 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     {
         lock (sync)
         {
-            if (!disposed)
-                changed.Set();
+            if (disposed || changedDisposed)
+                return;
+            try { changed.Set(); }
+            catch (ObjectDisposedException) { }
         }
     }
 
     private void Publish(HWND owner, TaskbarStripGeometry geometry)
     {
+        if (geometry.Owner.IsNull)
+            return;
         lock (sync)
         {
             if (disposed || reconnect || requested != owner || lastPublished == geometry)
@@ -108,10 +116,12 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                     continue;
 
                 TaskbarStripGeometry geometry = default;
+                bool hasShellGeometry = false;
                 try
                 {
                     if (!TaskbarStripShell.TryRead(owner, out geometry, out var nativeTray))
                         continue;
+                    hasShellGeometry = !geometry.Owner.IsNull;
                     if (nativeTray is not null)
                         geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, []) };
                     Graphics.Check(initialized, "初始化任务栏 UI Automation");
@@ -133,22 +143,46 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                     // Explorer may be restarting or have an unavailable provider. The
                     // next Shell or UI Automation notification can supply fresh bounds.
                     Disconnect(automation, ref root);
-                    LogErrorOnce("读取任务栏布局失败", error);
+                    try { LogErrorOnce("读取任务栏布局失败", error); }
+                    catch { }
                 }
                 finally
                 {
-                    Publish(owner, geometry);
+                    if (hasShellGeometry)
+                        Publish(owner, geometry);
                 }
             }
         }
+        catch (Exception error)
+        {
+            try { LogErrorOnce("任务栏 UI Automation 线程异常退出", error); }
+            catch { }
+        }
         finally
         {
-            Disconnect(automation, ref root);
-            Graphics.Release(automation);
-            if (initialized.Succeeded)
-                PInvoke.CoUninitialize();
             lock (sync)
-                changed.Dispose();
+            {
+                disposed = true;
+                Volatile.Write(ref alive, false);
+            }
+            try
+            {
+                Disconnect(automation, ref root);
+                Graphics.Release(automation);
+                if (initialized.Succeeded)
+                    PInvoke.CoUninitialize();
+            }
+            catch
+            {
+            }
+            finally
+            {
+                lock (sync)
+                {
+                    changedDisposed = true;
+                    changed.Dispose();
+                }
+            }
         }
     }
 
@@ -298,7 +332,11 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
             if (disposed)
                 return;
             disposed = true;
-            changed.Set();
+            if (!changedDisposed)
+            {
+                try { changed.Set(); }
+                catch (ObjectDisposedException) { }
+            }
         }
     }
 

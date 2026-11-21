@@ -121,7 +121,7 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
                         ? "雷蛇 07:84 通道被其他程序占用，未确认充电状态"
                         : $"雷蛇 07:84 未确认充电状态（状态 {power.Status:X2}，值 {power.Value:X2}）";
             }
-            catch (TransportException error) when (error.Issue is not ReadIssue.Disconnected)
+            catch (TransportException error)
             {
                 chargingDetail = error.Message;
             }

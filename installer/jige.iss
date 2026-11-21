@@ -100,6 +100,7 @@ Filename: "{app}\Jige.exe"; Parameters: "--after-setup"; WorkingDir: "{app}"; De
 [UninstallDelete]
 ; 覆盖更新不再重建桌面快捷方式，而 UninstallLogMode=overwrite 会重置卸载日志，因此显式登记清理项。
 Type: files; Name: "{autodesktop}\几格.lnk"
+Type: files; Name: "{app}\.jige-dir-check-*.tmp"
 Type: dirifempty; Name: "{app}"
 
 [Code]
@@ -110,8 +111,12 @@ function CloseHandle(Handle: THandle): Boolean;
 
 var
   OperationGate: THandle;
+  OperationOwned: Boolean;
   InitialConfig: Boolean;
   IsUpgrade: Boolean;
+  TrayWasRunning: Boolean;
+  SetupCompleted: Boolean;
+  UninstallCompleted: Boolean;
   PreviousInstallDir: String;
 
 // 同一个互斥量串行化安装与卸载，并阻止托盘在文件替换期间从快捷方式或自启启动。
@@ -122,6 +127,7 @@ begin
   OperationGate := CreateNamedMutex(0, 0, '{#SetupGate}');
   ErrorCode := DLLGetLastError();
   Result := (OperationGate <> 0) and (ErrorCode <> 183); // ERROR_ALREADY_EXISTS
+  OperationOwned := Result;
   if not Result then
     SuppressibleMsgBox('几格安装或卸载正在进行，或无法取得安装锁。请稍后再试。', mbError, MB_OK, IDOK);
 end;
@@ -135,12 +141,12 @@ begin
   end;
 end;
 
-procedure CloseTray;
+procedure CloseTray(MaxAttempts: Integer);
 var
   Host: HWND;
   Attempt: Integer;
 begin
-  for Attempt := 1 to 80 do
+  for Attempt := 1 to MaxAttempts do
   begin
     if not CheckForMutexes('{#TrayMutex}') then
       Exit;
@@ -153,6 +159,65 @@ begin
     Sleep(100);
   end;
   // AppMutex 会继续阻止安装或卸载，直到托盘关闭。
+end;
+
+function HasCmdSwitch(const Flag: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+  begin
+    if CompareText(ParamStr(I), Flag) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+  end;
+end;
+
+function IsSafeDifferentInstallDir(const OldDir, CurrentDir: String): Boolean;
+var
+  OldNorm, CurNorm, ProbeName, CurProbe, OldProbe: String;
+begin
+  Result := False;
+  OldNorm := RemoveBackslashUnlessRoot(Trim(OldDir));
+  CurNorm := RemoveBackslashUnlessRoot(Trim(CurrentDir));
+  if (OldNorm = '') or (CurNorm = '') then
+    Exit;
+  if CompareText(CurNorm, OldNorm) = 0 then
+    Exit;
+  // 跳过 8.3 短路径名及父子嵌套目录，防止误删刚安装的文件或目录结构。
+  if (Pos('~', OldNorm) > 0) or (Pos('~', CurNorm) > 0) then
+    Exit;
+  if (CompareText(Copy(CurNorm, 1, Length(OldNorm) + 1), OldNorm + '\') = 0) or
+    (CompareText(Copy(OldNorm, 1, Length(CurNorm) + 1), CurNorm + '\') = 0) then
+    Exit;
+  if (not DirExists(OldNorm)) or (not DirExists(CurNorm)) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  // 在当前安装目录写临时标记并检查旧目录是否可见，避免 NTFS 联结/符号链接/subst 指向同一物理目录时误删新装文件。
+  ProbeName := '.jige-dir-check-' + GetDateTimeString('yyyymmddhhnnss', '-', '-') + '.tmp';
+  CurProbe := AddBackslash(CurNorm) + ProbeName;
+  OldProbe := AddBackslash(OldNorm) + ProbeName;
+  if not SaveStringToFile(CurProbe, '', False) then
+    Exit;
+  Result := not FileExists(OldProbe);
+  DeleteFile(CurProbe);
+end;
+
+procedure TryRestoreTray(const CandidateDir: String);
+var
+  ExePath: String;
+  ResultCode: Integer;
+begin
+  if CheckForMutexes('{#TrayMutex}') then
+    Exit;
+  ExePath := AddBackslash(Trim(CandidateDir)) + 'Jige.exe';
+  if (Trim(CandidateDir) <> '') and FileExists(ExePath) then
+    Exec(ExePath, '--after-setup', Trim(CandidateDir), SW_SHOWNORMAL, ewNoWait, ResultCode);
 end;
 
 function CanWriteToTargetDir(const TargetDir: String): Boolean;
@@ -183,7 +248,11 @@ begin
   Result := BeginOperation;
   if Result then
   begin
-    CloseTray;
+    SetupCompleted := False;
+    TrayWasRunning := CheckForMutexes('{#TrayMutex}') or HasCmdSwitch('/JIGERESTART');
+    // 仅静默升级在向导前关闭托盘（最长 30 秒）；交互安装推迟到 PrepareToInstall，避免用户取消时托盘消失或长时间无窗口。
+    if WizardSilent then
+      CloseTray(300);
     InitialConfig := not FileExists(ExpandConstant('{#DataDir}\config.json'));
     IsUpgrade := RegKeyExists(HKCU, '{#UninstallKey}');
     PreviousInstallDir := '';
@@ -210,17 +279,11 @@ begin
 end;
 
 function ShouldUpdateExistingDesktopIcon: Boolean;
-var
-  CurrentDir, OldDir: String;
 begin
   Result := False;
   if not IsUpgrade then
     Exit;
-  OldDir := RemoveBackslashUnlessRoot(Trim(PreviousInstallDir));
-  if OldDir = '' then
-    Exit;
-  CurrentDir := RemoveBackslashUnlessRoot(Trim(ExpandConstant('{app}')));
-  if CompareText(CurrentDir, OldDir) = 0 then
+  if not IsSafeDifferentInstallDir(PreviousInstallDir, ExpandConstant('{app}')) then
     Exit;
   Result := FileExists(ExpandConstant('{autodesktop}\几格.lnk'));
 end;
@@ -237,16 +300,29 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 var
-  Folder, Config, AutoStart, ExistingRun: String;
+  Folder, Config, AutoStart, ExistingRun, OldDir, CurrentDir: String;
 begin
   if CurStep <> ssPostInstall then
     Exit;
 
+  SetupCompleted := True;
+
   if not InitialConfig then
   begin
-    // 若用户更换了安装目录且此前已启用开机自启，同步更新自启路径。
+    // 若用户更换了安装目录且此前已启用开机自启，同步更新自启路径，并安全清理旧目录中几格自有文件。
     if RegQueryStringValue(HKCU, '{#RunKey}', '{#RunName}', ExistingRun) and (Trim(ExistingRun) <> '') then
       RegWriteStringValue(HKCU, '{#RunKey}', '{#RunName}', '"' + ExpandConstant('{app}\Jige.exe') + '"');
+    OldDir := RemoveBackslashUnlessRoot(Trim(PreviousInstallDir));
+    CurrentDir := RemoveBackslashUnlessRoot(Trim(ExpandConstant('{app}')));
+    if IsUpgrade and DirExists(OldDir) and FileExists(AddBackslash(CurrentDir) + 'Jige.exe') and
+      IsSafeDifferentInstallDir(OldDir, CurrentDir) then
+    begin
+      DeleteFile(AddBackslash(OldDir) + 'Jige.exe');
+      DeleteFile(AddBackslash(OldDir) + 'LICENSE');
+      DeleteFile(AddBackslash(OldDir) + 'unins000.exe');
+      DeleteFile(AddBackslash(OldDir) + 'unins000.dat');
+      RemoveDir(OldDir);
+    end;
     Exit;
   end;
 
@@ -271,34 +347,60 @@ end;
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
+  if not WizardSilent then
+    CloseTray(80);
   if CheckForMutexes('{#TrayMutex}') then
     Result := '几格仍在运行。请先退出托盘程序，再安装。';
 end;
 
 procedure DeinitializeSetup;
+var
+  RestoreDir: String;
 begin
+  // 必须先释放安装锁，再按需拉回托盘；且仅当本实例持有锁、未完成安装且安装前托盘在运行时恢复。
   EndOperation;
+  if OperationOwned and (not SetupCompleted) and TrayWasRunning then
+  begin
+    RestoreDir := Trim(PreviousInstallDir);
+    if RestoreDir = '' then
+      RestoreDir := ExpandConstant('{app}');
+    TryRestoreTray(RestoreDir);
+  end;
 end;
 
 function InitializeUninstall: Boolean;
 begin
   Result := BeginOperation;
+  if Result then
+  begin
+    UninstallCompleted := False;
+    TrayWasRunning := CheckForMutexes('{#TrayMutex}');
+  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Folder: String;
-  RemoveData: Boolean;
+  RemoveData, KeepData: Boolean;
 begin
   if CurUninstallStep = usAppMutexCheck then
-    CloseTray;
+  begin
+    if UninstallSilent then
+      CloseTray(300)
+    else
+      CloseTray(80);
+  end;
   if CurUninstallStep <> usPostUninstall then
     Exit;
+  UninstallCompleted := True;
   Folder := ExpandConstant('{#DataDir}');
   if not DirExists(Folder) then
     Exit;
+  KeepData := HasCmdSwitch('/KEEPDATA');
   RemoveData := UninstallSilent;
-  if not RemoveData then
+  if KeepData then
+    RemoveData := False;
+  if (not RemoveData) and (not UninstallSilent) and (not KeepData) then
     RemoveData := MsgBox('同时删除几格的设置和电量记录吗？', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
   if RemoveData and not DelTree(Folder, True, True, True) then
     SuppressibleMsgBox('未能删除全部几格数据，可能有文件仍在使用。', mbError, MB_OK, IDOK);
@@ -307,4 +409,6 @@ end;
 procedure DeinitializeUninstall;
 begin
   EndOperation;
+  if OperationOwned and (not UninstallCompleted) and TrayWasRunning then
+    TryRestoreTray(ExpandConstant('{app}'));
 end;

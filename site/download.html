@@ -95,7 +95,7 @@
               <li data-version>v0.2.17</li>
               <li data-size>5.0 MB</li>
               <li>免管理员权限</li>
-              <li><a class="guide-meta-link" data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt">SHA256SUMS.txt</a></li>
+              <li data-verify-block><a class="guide-meta-link" data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt">SHA256SUMS.txt</a></li>
             </ul>
             <p class="guide-dl-status" data-dl-status hidden aria-live="polite">已开始下载 <span class="mono" data-filename>Jige-Setup-0.2.17-x64.exe</span>。如果浏览器右上角弹出拦截提示，请直接看下方第 1 步。</p>
             <p class="hero-fallback" data-fallback hidden>国内镜像暂时读不到最新版本信息，也可以 <a href="https://github.com/deepfry666/jige-battery/releases/latest" target="_blank" rel="noopener noreferrer">从 GitHub 下载最新正式版</a>。</p>
@@ -342,7 +342,7 @@
             <li>只向 USB 接收器发只读电量查询，不修改设备设置，也不上传任何本机数据；联网只为每天检查一次更新，可在设置里关闭。</li>
           </ul>
 
-          <div class="guide-verify-box">
+          <div class="guide-verify-box" data-verify-block>
             <p class="guide-verify-label">不放心的话，下载后可在 PowerShell 运行下面命令，与 <a data-sha href="https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt">SHA256SUMS.txt</a> 逐字核对：</p>
             <div class="code-box">
               <pre><code data-hash-cmd>Get-FileHash "$HOME\Downloads\Jige-Setup-0.2.17-x64.exe" -Algorithm SHA256</code></pre>

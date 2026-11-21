@@ -106,7 +106,7 @@ internal static class TaskbarStripPixels
         var palette = TaskbarStripPalette.Create(dark);
         foreach (var segment in layout.Segments)
         {
-            var (icon, text) = palette.Ink(segment.Device.Tone);
+            var (icon, text) = palette.Ink(segment.Device.Tone, segment.Device.ShowBolt);
             var shape = segment.Device.IsPlaceholder ? Battery : segment.Device.Kind switch
             {
                 DeviceKind.Keyboard => Keyboard,
