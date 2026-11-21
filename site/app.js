@@ -385,7 +385,7 @@
   });
 
   /* ---------------------------------------------------------
-     4. 真实设备像素剪影 + 交互舞台 + 可拖动电量水位试验台
+     4. 首屏交互舞台（任务栏直读条为程序真实导出的像素图）
      --------------------------------------------------------- */
   var ICONS = {
     mouse: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="6" y="2.5" width="12" height="19" rx="6"/><path d="M12 2.5v6.5" stroke-linecap="round"/></svg>',
@@ -393,110 +393,11 @@
     keyboard: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="2.5" y="6" width="19" height="12" rx="2.5"/><path d="M6 10h.01M9.3 10h.01M12.6 10h.01M15.9 10h.01M18 10h.01M8 14.2h8"/></svg>'
   };
 
-  var TRAY_PIXELS = {
-    mouse: ["..XXXXXX..", ".XXXXXXXX.", "XXXX..XXXX", "XXXX..XXXX", "XXXX..XXXX", "XXXXXXXXXX", "..........", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", "XXXXXXXXXX", ".XXXXXXXX.", "..XXXXXX.."],
-    keyboard: [".XXXXXXXXXXXXX.", "XXXXXXXXXXXXXXX", "XX.X.X.X.X.X.XX", "XXXXXXXXXXXXXXX", "XXX.X.X.X.X.XXX", "XXXXXXXXXXXXXXX", "XXXX.......XXXX", "XXXXXXXXXXXXXXX", ".XXXXXXXXXXXXX."],
-    headset: [".....XXXXXX.....", "...XXXXXXXXXX...", "..XXX......XXX..", ".XXX........XXX.", ".XX..........XX.", ".XX..........XX.", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", "XXXXX......XXXXX", ".XXX........XXX."]
-  };
-
-  var STATE_COLOR_HEX = { low: "#ff99a4", warn: "#fce100", charge: "#6ccb5f", ok: "#f5f5f5" };
-
-  function trayIconSvg(kind, pct, stateKey, displaySize) {
-    var rows = TRAY_PIXELS[kind] || TRAY_PIXELS.mouse;
-    var w = rows[0].length;
-    var h = rows.length;
-    var x = Math.floor((16 - w) / 2);
-    var y = Math.floor((16 - h) / 2);
-    var filledRows = pct > 0 ? Math.max(1, Math.round(pct * h / 100)) : 0;
-    var waterline = y + h - filledRows;
-    var fullInk = STATE_COLOR_HEX[stateKey] || "#f5f5f5";
-    var dimInk = "rgba(255,255,255,0.28)";
-    var rects = "";
-    for (var j = 0; j < h; j += 1) {
-      var row = rows[j];
-      for (var i = 0; i < w; i += 1) {
-        if (row.charAt(i) === "X") {
-          var fill = (y + j) < waterline ? dimInk : fullInk;
-          rects += '<rect x="' + (x + i) + '" y="' + (y + j) + '" width="1" height="1" fill="' + fill + '"/>';
-        }
-      }
-    }
-    var sz = displaySize || 16;
-    return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">' + rects + "</svg>";
-  }
-
-  function solidGlyphSvg(kind, colorHex, displaySize) {
-    var rows = TRAY_PIXELS[kind] || TRAY_PIXELS.mouse;
-    var w = rows[0].length;
-    var h = rows.length;
-    var x = Math.floor((16 - w) / 2);
-    var y = Math.floor((16 - h) / 2);
-    var rects = "";
-    for (var j = 0; j < h; j += 1) {
-      var row = rows[j];
-      for (var i = 0; i < w; i += 1) {
-        if (row.charAt(i) === "X") {
-          rects += '<rect x="' + (x + i) + '" y="' + (y + j) + '" width="1" height="1" fill="' + colorHex + '"/>';
-        }
-      }
-    }
-    var sz = displaySize || 15;
-    return '<svg width="' + sz + '" height="' + sz + '" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">' + rects + "</svg>";
-  }
-
-  /* --- 可拖动实时电量水位试验台 --- */
-  var labRange = document.getElementById("labRange");
-  var labChargeBtn = document.getElementById("labChargeBtn");
-  var labPctText = document.getElementById("labPctText");
-  var labStatePill = document.getElementById("labStatePill");
-  var labStrip = document.getElementById("labStrip");
-  var labTrays = document.getElementById("labTrays");
-  var labCharging = false;
-
-  function renderLab() {
-    if (!labRange || !labStrip || !labTrays) return;
-    var p = parseInt(labRange.value, 10) || 24;
-    var stateKey = labCharging ? "charge" : (p <= 15 ? "low" : (p <= 30 ? "warn" : "ok"));
-    if (labPctText) labPctText.textContent = p + "%";
-
-    if (labStatePill) {
-      labStatePill.className = "lab-state-pill" + (stateKey !== "ok" ? " is-" + stateKey : "");
-      if (labCharging) labStatePill.textContent = p >= 100 ? "已充满 · 绿色" : "充电中 · 绿色闪电";
-      else if (stateKey === "low") labStatePill.textContent = "电量过低（≤15%）· 红色提醒";
-      else if (stateKey === "warn") labStatePill.textContent = "电量偏低（≤30%）· 黄色提示";
-      else labStatePill.textContent = "电量充足 · 纯白常驻";
-    }
-
-    var stripCls = stateKey === "low" ? "is-low" : (stateKey === "charge" ? "is-charge" : (stateKey === "warn" ? "is-warn" : ""));
-    var mouseCol = stateKey === "low" ? "#ff99a4" : (stateKey === "warn" ? "#fce100" : (stateKey === "charge" ? "#6ccb5f" : "#f5f5f5"));
-    labStrip.innerHTML =
-      '<span class="strip-item">' + solidGlyphSvg("keyboard", "#f5f5f5", 15) + "<span>82%</span></span>" +
-      '<span class="strip-sep"></span>' +
-      '<span class="strip-item ' + stripCls + '">' + solidGlyphSvg("mouse", mouseCol, 15) + (labCharging ? '<span class="strip-bolt">⚡</span>' : "") + "<span>" + p + "%</span></span>" +
-      '<span class="strip-sep"></span>' +
-      '<span class="strip-item is-charge">' + solidGlyphSvg("headset", "#6ccb5f", 15) + '<span class="strip-bolt">⚡</span><span>48%</span></span>';
-
-    labTrays.innerHTML =
-      '<span class="lab-tray-item">' + trayIconSvg("mouse", p, stateKey, 24) + "<span>鼠标</span></span>" +
-      '<span class="lab-tray-item">' + trayIconSvg("keyboard", p, stateKey, 24) + "<span>键盘</span></span>" +
-      '<span class="lab-tray-item">' + trayIconSvg("headset", p, stateKey, 24) + "<span>耳机</span></span>";
-  }
-
-  if (labRange) labRange.addEventListener("input", renderLab);
-  if (labChargeBtn) {
-    labChargeBtn.addEventListener("click", function () {
-      labCharging = !labCharging;
-      labChargeBtn.setAttribute("aria-pressed", labCharging ? "true" : "false");
-      renderLab();
-    });
-  }
-  renderLab();
-
   /* --- 首屏黑曜石交互桌面橱窗 --- */
   var DEMO_DEVICES = [
     { id: "atk", name: "ATK 鼠标", kind: "mouse", pct: 12, state: "low", conn: "2.4G", source: "ATK 无线接收器", badge: "通用适配", badgeCls: "is-gen", status: "电量低，该充电了", hoverStatus: "电量低 · 1 分钟前读取" },
     { id: "mx3s", name: "MX Anywhere 3S", kind: "mouse", pct: 20, state: "warn", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按资料适配", badgeCls: "", status: "休眠 · 上次读数 · 2 分钟前", hoverStatus: "电量偏低 · 休眠中 · 2 分钟前读取" },
-    { id: "h9", name: "INZONE H9", kind: "headset", pct: 48, state: "charge", charging: true, conn: "2.4G", source: "Sony INZONE 接收器", badge: "已实机验证", badgeCls: "is-ok", status: "充电中", hoverStatus: "充电中 · 刚刚读取" },
+    { id: "h9", name: "INZONE H9", kind: "headset", pct: 45, state: "charge", charging: true, conn: "2.4G", source: "Sony INZONE 接收器", badge: "已实机验证", badgeCls: "is-ok", status: "充电中", hoverStatus: "充电中 · 刚刚读取" },
     { id: "ulx", name: "Finalmouse ULX", kind: "mouse", pct: 72, est: true, state: "ok", conn: "2.4G", source: "Finalmouse 接收器", badge: "通用适配", badgeCls: "is-gen", status: "2.4G 已连接 · 电压估算", hoverStatus: "电压估算 · 3 分钟前读取" },
     { id: "mxks", name: "MX Keys S", kind: "keyboard", pct: 80, state: "ok", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按资料适配", badgeCls: "", status: "2.4G 已连接", hoverStatus: "在线 · 1 分钟前读取" }
   ];
@@ -506,16 +407,6 @@
     var cls = (isMini ? "sim-cells is-mini " : "sim-cells ") + "s-" + stateKey + (animatePop ? " is-pop" : "");
     var out = '<div class="' + cls + '">';
     for (var i = 0; i < count; i += 1) {
-      var c = i < filled ? "f" : (charging && i === filled ? "next" : "");
-      out += c ? '<i class="' + c + '"></i>' : "<i></i>";
-    }
-    return out + "</div>";
-  }
-
-  function hoverCellsHtml(pct, stateKey, charging) {
-    var filled = Math.round(pct * 10 / 100);
-    var out = '<div class="hc-cells s-' + stateKey + '">';
-    for (var i = 0; i < 10; i += 1) {
       var c = i < filled ? "f" : (charging && i === filled ? "next" : "");
       out += c ? '<i class="' + c + '"></i>' : "<i></i>";
     }
@@ -537,7 +428,6 @@
   var listEl = document.getElementById("simDeviceList");
   var hoverCardEl = document.getElementById("simHoverCard");
   var stripEl = document.getElementById("simStrip");
-  var trayIconsEl = document.getElementById("simTrayIcons");
   var toastEl = document.getElementById("simToast");
   var gameEl = document.getElementById("simGame");
   var queuedEl = document.getElementById("simQueued");
@@ -549,7 +439,6 @@
   var lastHeroPct = 12;
   var pctAnimRaf = 0;
   var activeScene = "panel";
-  var hoverAnchorId = "atk";
 
   function findDevice(id) {
     for (var i = 0; i < DEMO_DEVICES.length; i += 1) {
@@ -645,100 +534,48 @@
     }
   }
 
-  function renderHoverCard(device, anchorBtn) {
-    if (!hoverCardEl || !stage) return;
-    var tc = textClassFor(device.state);
-    hoverCardEl.innerHTML =
-      '<div class="hc-top">' +
-        '<div class="hc-ico">' + ICONS[device.kind] + "</div>" +
-        '<div class="hc-meta">' +
-          '<div class="hc-name">' + device.name + "</div>" +
-          '<div class="hc-sub"><span class="fo-conn">' + device.conn + "</span><span>" + device.source + "</span></div>" +
-        "</div>" +
-      "</div>" +
-      '<div class="hc-mid">' +
-        '<div class="hc-big ' + tc + '">' + (device.est ? "≈" : "") + device.pct + "<small>%</small></div>" +
-        hoverCellsHtml(device.pct, device.state, device.charging) +
-      "</div>" +
-      '<div class="hc-st"><span class="fo-dot ' + (tc || "txt-ok") + '"></span><span>' + device.hoverStatus + "</span></div>";
+  // 直读条只显示「自定义」里勾选的设备，顺序与主面板一致：ATK 鼠标、INZONE H9、MX Keys S。
+  var STRIP_IDS = ["atk", "h9", "mxks"];
 
-    if (anchorBtn) {
-      var sr = stage.getBoundingClientRect();
-      var br = anchorBtn.getBoundingClientRect();
-      var cx = br.left - sr.left + br.width / 2;
-      var cardW = hoverCardEl.offsetWidth || Math.min(256, sr.width - 24);
-      var left = Math.max(12, Math.min(sr.width - cardW - 12, Math.round(cx - cardW / 2)));
-      hoverCardEl.style.left = left + "px";
-    }
+  function renderHoverList() {
+    if (!hoverCardEl || !stage || !stripEl) return;
+    var rows = "";
+    STRIP_IDS.forEach(function (id) {
+      var d = findDevice(id);
+      var tc = textClassFor(d.state);
+      rows +=
+        '<div class="hl-row">' +
+          '<span class="fo-row-ico">' + ICONS[d.kind] + "</span>" +
+          '<span class="fo-row-meta">' +
+            '<span class="fo-row-name">' + d.name + "</span>" +
+            '<span class="fo-row-st ' + tc + '">' + d.status + "</span>" +
+          "</span>" +
+          cellsHtml(d.pct, d.state, 5, true, d.charging, false) +
+          '<span class="fo-row-num ' + tc + '">' + d.pct + "<small>%</small></span>" +
+        "</div>";
+    });
+    hoverCardEl.classList.add("is-list");
+    hoverCardEl.innerHTML = '<div class="hl-head">几格 · ' + STRIP_IDS.length + " 台设备</div>" + rows;
+    var sr = stage.getBoundingClientRect();
+    var br = stripEl.getBoundingClientRect();
+    var cardW = hoverCardEl.offsetWidth || Math.min(272, sr.width - 24);
+    var cx = br.left - sr.left + br.width / 2;
+    hoverCardEl.style.left = Math.max(12, Math.min(sr.width - cardW - 12, Math.round(cx - cardW / 2))) + "px";
     hoverCardEl.classList.add("is-show");
   }
 
-  function renderTaskbar() {
-    if (stripEl) {
-      var stripDevs = [findDevice("mxks"), findDevice("atk"), findDevice("h9")];
-      var sHtml = "";
-      stripDevs.forEach(function (d, idx) {
-        if (idx > 0) sHtml += '<span class="strip-sep" aria-hidden="true"></span>';
-        var itemCls = d.state === "low" ? "is-low" : (d.state === "warn" ? "is-warn" : (d.state === "charge" ? "is-charge" : ""));
-        var glyphCol = d.state === "low" ? "#ff99a4" : (d.state === "warn" ? "#fce100" : (d.state === "charge" ? "#6ccb5f" : "#f3f3f3"));
-        sHtml +=
-          '<button type="button" class="strip-item ' + itemCls + '" data-strip-dev="' + d.id + '" title="' + d.name + " " + d.pct + '%">' +
-            solidGlyphSvg(d.kind, glyphCol, 14) +
-            (d.charging ? '<span class="strip-bolt" aria-hidden="true">⚡</span>' : "") +
-            "<span>" + d.pct + "%</span>" +
-          "</button>";
-      });
-      stripEl.innerHTML = sHtml;
-      var sBtns = stripEl.querySelectorAll("[data-strip-dev]");
-      for (var i = 0; i < sBtns.length; i += 1) {
-        (function (btn) {
-          var devId = btn.getAttribute("data-strip-dev");
-          btn.addEventListener("mouseenter", function () {
-            if (activeScene === "hover" || activeScene === "strip") {
-              hoverAnchorId = devId;
-              renderHoverCard(findDevice(devId), btn);
-            }
-          });
-          btn.addEventListener("click", function () {
-            hoverAnchorId = devId;
-            if (activeScene === "panel") { activeHeroId = devId; renderPanel(true); }
-            else if (activeScene !== "game") renderHoverCard(findDevice(devId), btn);
-          });
-        })(sBtns[i]);
-      }
-    }
-
-    if (trayIconsEl) {
-      var trayDevs = [findDevice("atk"), findDevice("mx3s"), findDevice("h9"), findDevice("mxks")];
-      var tHtml = "";
-      trayDevs.forEach(function (d) {
-        tHtml +=
-          '<button type="button" class="tb-icon-btn" data-tray-dev="' + d.id + '" aria-label="' + d.name + " " + d.pct + '%">' +
-            trayIconSvg(d.kind, d.pct, d.state, 16) +
-          "</button>";
-      });
-      trayIconsEl.innerHTML = tHtml;
-      var tBtns = trayIconsEl.querySelectorAll("[data-tray-dev]");
-      for (var j = 0; j < tBtns.length; j += 1) {
-        (function (btn) {
-          var devId = btn.getAttribute("data-tray-dev");
-          btn.addEventListener("mouseenter", function () {
-            if (activeScene === "hover") {
-              hoverAnchorId = devId;
-              renderHoverCard(findDevice(devId), btn);
-            }
-          });
-          btn.addEventListener("click", function () {
-            hoverAnchorId = devId;
-            if (activeScene === "panel") { activeHeroId = devId; renderPanel(true); }
-            else if (activeScene !== "game") setScene("hover", btn);
-          });
-        })(tBtns[j]);
-      }
-    }
+  if (stripEl) {
+    stripEl.addEventListener("mouseenter", function () {
+      if (activeScene === "hover") renderHoverList();
+    });
+    stripEl.addEventListener("click", function () {
+      if (activeScene === "game") return;
+      if (toastEl) toastEl.classList.remove("is-show");
+      setScene(activeScene === "panel" && flyout && flyout.classList.contains("is-open") ? "hover" : "panel");
+    });
   }
 
-  function setScene(scene, explicitAnchor) {
+  function setScene(scene) {
     activeScene = scene;
     for (var i = 0; i < tabs.length; i += 1) {
       var on = tabs[i].getAttribute("data-scene") === scene;
@@ -749,7 +586,7 @@
     syncStageSlider(false);
 
     if (stage) {
-      stage.classList.toggle("is-strip-focus", scene === "strip");
+      stage.classList.toggle("is-hover", scene === "hover");
       stage.classList.toggle("is-game", scene === "game");
     }
     if (flyout) flyout.classList.toggle("is-open", scene === "panel");
@@ -761,21 +598,15 @@
     if (toastEl) toastEl.classList.remove("is-show");
 
     if (scene === "hover") {
-      if (stageHintTitleEl) stageHintTitleEl.textContent = "悬停即看完整读数";
-      if (stageHintEl) stageHintEl.textContent = "把鼠标移到任务栏图标或直读条上，悬停卡片会在图标间平滑原地切换。";
-      var anchor = explicitAnchor || (trayIconsEl && trayIconsEl.querySelector('[data-tray-dev="' + hoverAnchorId + '"]')) || (trayIconsEl && trayIconsEl.firstElementChild);
-      renderHoverCard(findDevice(hoverAnchorId), anchor);
-    } else if (scene === "strip") {
-      if (stageHintTitleEl) stageHintTitleEl.textContent = "Windows 11 任务栏直读条";
-      if (stageHintEl) stageHintEl.textContent = "在通知区左侧直接横排显示图标与百分比，低电变红、充电变绿带闪电。";
-      var stripBtn = (stripEl && stripEl.querySelector('[data-strip-dev="atk"]')) || (stripEl && stripEl.firstElementChild);
-      renderHoverCard(findDevice("atk"), stripBtn);
-    } else if (scene === "panel") {
-      if (stageHintTitleEl) stageHintTitleEl.textContent = "所有无线外设，一处看全";
-      if (stageHintEl) stageHintEl.textContent = "点击右侧面板任意设备行切换主视图，或点击下方按钮实时触发交互。";
+      if (stageHintTitleEl) stageHintTitleEl.textContent = "鼠标移上去，就能看全部读数";
+      if (stageHintEl) stageHintEl.textContent = "悬停在直读条上，会列出每台设备的名称、状态和电量。";
+      renderHoverList();
+    } else {
       if (hoverCardEl) hoverCardEl.classList.remove("is-show");
-    } else if (scene === "game") {
-      if (hoverCardEl) hoverCardEl.classList.remove("is-show");
+      if (scene === "panel") {
+        if (stageHintTitleEl) stageHintTitleEl.textContent = "所有无线外设，一处看全";
+        if (stageHintEl) stageHintEl.textContent = "右下角时钟左边就是几格的任务栏直读条。点它打开面板，点面板里的设备可以切换到最上面看。";
+      }
     }
   }
 
@@ -836,23 +667,6 @@
     });
   }
 
-  var toggleChargeBtn = document.getElementById("simToggleCharge");
-  if (toggleChargeBtn) {
-    toggleChargeBtn.addEventListener("click", function () {
-      var h9 = findDevice("h9");
-      h9.charging = !h9.charging;
-      h9.state = h9.charging ? "charge" : "ok";
-      h9.status = h9.charging ? "充电中" : "2.4G 已连接";
-      h9.hoverStatus = h9.charging ? "充电中 · 刚刚读取" : "在线 · 刚刚读取";
-      renderPanel(false);
-      renderTaskbar();
-      if (activeScene === "hover" && hoverAnchorId === "h9") {
-        var anchor = trayIconsEl && trayIconsEl.querySelector('[data-tray-dev="h9"]');
-        renderHoverCard(h9, anchor);
-      }
-    });
-  }
-
   var clockEl = document.getElementById("simClock");
   function updateClock() {
     if (!clockEl) return;
@@ -862,7 +676,6 @@
   }
 
   renderPanel(false);
-  renderTaskbar();
   updateClock();
   setInterval(updateClock, 30000);
   setScene("panel");
