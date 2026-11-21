@@ -7,7 +7,7 @@ namespace Jige.Tray.Windows;
 internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
-    GameSilent, Autostart, AutoUpdate, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
+    GameSilent, Autostart, AutoUpdate, ShowBluetooth, RuntimeEstimate, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
     CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme
 }
@@ -77,8 +77,9 @@ internal sealed partial class PopupScene : IDisposable
     private Composition.Layer? autostartThumb;
     private Composition.Layer? bluetoothThumb;
     private Composition.Layer? autoUpdateThumb;
+    private Composition.Layer? runtimeThumb;
     private Composition.Layer? updatePulse;
-    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion, autoUpdateMotion;
+    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion, autoUpdateMotion, runtimeMotion;
     private string? error;
     private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
@@ -490,7 +491,8 @@ internal sealed partial class PopupScene : IDisposable
         DrawNumber(canvas, device, 23, 109, 145, 52, 44, 18, 24, ink, false);
         DrawCells(canvas, device, 172, 120, 12, 22, 3, 10);
         canvas.Dot(26, 172, 3, colors.Status(tone));
-        canvas.Text(Presentation.Status(device, Threshold), 35, 162, 284, 22, 12,
+        canvas.Text(Presentation.Status(device, Threshold, model.Runtime(device, DateTimeOffset.UtcNow), compact: false),
+            35, 162, 284, 22, 12,
             tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Secondary,
             ellipsis: true);
     }
@@ -518,7 +520,7 @@ internal sealed partial class PopupScene : IDisposable
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
-        string status = Presentation.Status(device, Threshold);
+        string status = Presentation.Status(device, Threshold, model.Runtime(device, DateTimeOffset.UtcNow), compact: true);
         bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
         float nameMaxWidth = isGeneric ? 98 : 153;
         float nameWidth = canvas.Text(model.Name(device.Device), 56, 5, nameMaxWidth, 19, 13.5f,
@@ -679,6 +681,7 @@ internal sealed partial class PopupScene : IDisposable
         autostartThumb?.Dispose();
         bluetoothThumb?.Dispose();
         autoUpdateThumb?.Dispose();
+        runtimeThumb?.Dispose();
         updatePulse?.Dispose();
         frame.Dispose();
     }

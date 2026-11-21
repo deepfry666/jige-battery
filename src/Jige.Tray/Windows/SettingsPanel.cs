@@ -1,6 +1,6 @@
 namespace Jige.Tray.Windows;
 
-internal enum SettingRow { TrayMode, Threshold, GameSilent, PollInterval, Autostart, AutoUpdate, Bluetooth, DisplayLocation, Theme }
+internal enum SettingRow { TrayMode, Threshold, RuntimeEstimate, GameSilent, PollInterval, Autostart, AutoUpdate, Bluetooth, DisplayLocation, Theme }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
@@ -8,11 +8,11 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
 {
     public const int CardX = 9, CardY = 51, CardWidth = PanelLayout.Width - 18;
     public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
-    public const int CollapsedCardHeight = 9 * RowHeight + 2;
+    public const int CollapsedCardHeight = 10 * RowHeight + 2;
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart,
+        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.RuntimeEstimate, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart,
             SettingRow.AutoUpdate, SettingRow.Bluetooth, SettingRow.DisplayLocation, SettingRow.Theme];
 
     public static readonly SettingChoice[] TrayModeChoices =

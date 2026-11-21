@@ -69,6 +69,7 @@ internal sealed partial class PopupScene
                 SettingRow.Autostart => PopupAction.Autostart,
                 SettingRow.AutoUpdate => PopupAction.AutoUpdate,
                 SettingRow.Bluetooth => PopupAction.ShowBluetooth,
+                SettingRow.RuntimeEstimate => PopupAction.RuntimeEstimate,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
             var button = new HitBox(target, rect);
@@ -90,17 +91,27 @@ internal sealed partial class PopupScene
                 SettingRow.PollInterval => "查询间隔",
                 SettingRow.Bluetooth => "显示蓝牙设备",
                 SettingRow.AutoUpdate => "自动检查更新",
+                SettingRow.RuntimeEstimate => "预计可用时间",
                 _ => "开机自启"
             };
-            canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
+            if (row == SettingRow.RuntimeEstimate)
+            {
+                // 明确告知用户：数字由本机历史读数推算，不代表实际续航。
+                canvas.Text(name, 54, rect.Y + 4, 200, 20, 13.5f, colors.Ink);
+                canvas.Text("仅为估算，不代表实际续航", 54, rect.Y + 23, 200, 16, 11, colors.Muted, ellipsis: true);
+            }
+            else
+                canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
 
-            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.Bluetooth)
+            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.Bluetooth
+                or SettingRow.RuntimeEstimate)
             {
                 DrawSwitch(canvas, SwitchRect(rect), row switch
                 {
                     SettingRow.GameSilent => settings.GameSilent,
                     SettingRow.Autostart => settings.StartWithWindows,
                     SettingRow.AutoUpdate => settings.AutoUpdateEnabled,
+                    SettingRow.RuntimeEstimate => settings.ShowRuntimeEstimate,
                     _ => settings.ShowBluetoothDevices
                 });
                 continue;
@@ -312,6 +323,16 @@ internal sealed partial class PopupScene
                 Line(5, 7, 5, 9);
                 Line(4, 8, 6, 8);
                 break;
+            case SettingRow.RuntimeEstimate:
+                // 沙漏：上下横梁与两个对顶三角。
+                Line(3.5f, 1.8f, 12.5f, 1.8f);
+                Line(3.5f, 14.2f, 12.5f, 14.2f);
+                Line(4.6f, 1.8f, 8, 8);
+                Line(11.4f, 1.8f, 8, 8);
+                Line(8, 8, 4.6f, 14.2f);
+                Line(8, 8, 11.4f, 14.2f);
+                Line(6.2f, 12.6f, 9.8f, 12.6f);
+                break;
             case SettingRow.PollInterval:
                 canvas.Ring(x + 8, y + 8, 6, ink, 1.3f);
                 Line(8, 4.8f, 8, 8);
@@ -354,6 +375,7 @@ internal sealed partial class PopupScene
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
         UpdateThumb(ref bluetoothThumb, ref bluetoothMotion, SwitchRect(Settings.RowRect(SettingRow.Bluetooth)), settings.ShowBluetoothDevices);
         UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion, SwitchRect(Settings.RowRect(SettingRow.AutoUpdate)), settings.AutoUpdateEnabled);
+        UpdateThumb(ref runtimeThumb, ref runtimeMotion, SwitchRect(Settings.RowRect(SettingRow.RuntimeEstimate)), settings.ShowRuntimeEstimate);
     }
 
     private void UpdateThumb(ref Composition.Layer? thumb, ref ThumbMotion? motion, PanelRect track, bool enabled)

@@ -42,6 +42,8 @@ internal sealed record TraySettings
     [JsonIgnore]
     public bool AutoUpdateEnabled => AutoCheckUpdates != false;
     public bool? WelcomeShown { get; init; }
+    /// <summary>显示预计可用时间（估算）。默认关闭；关闭时后台仍继续学习，打开后立即有数。</summary>
+    public bool ShowRuntimeEstimate { get; init; }
     public string[] GameProcessNames { get; init; } = [];
     public Dictionary<string, string> DeviceAliases { get; init; } = [];
     public string[] HiddenDeviceIds { get; init; } = [];
@@ -140,6 +142,7 @@ internal sealed record TrayState
     public string[] RemovedOfflineDevices { get; init; } = [];
     public Dictionary<string, SavedDeviceHistory> History { get; init; } = [];
     public Dictionary<string, string> BlockedReceivers { get; init; } = [];
+    public Dictionary<string, SavedRuntimeEstimate> Runtime { get; init; } = [];
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
@@ -235,6 +238,7 @@ internal sealed class TrayFiles(string folder)
             Readings = WithoutEmpty(saved.Readings),
             Reminders = WithoutEmpty(saved.Reminders),
             History = WithoutEmpty(saved.History),
+            Runtime = WithoutEmpty(saved.Runtime),
             RemovedOfflineDevices = (saved.RemovedOfflineDevices ?? []).Where(id => !emptyIds.Contains(id)).ToArray()
         };
         try { SaveState(migrated); }

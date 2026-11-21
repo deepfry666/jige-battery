@@ -17,7 +17,7 @@ internal static class PanelLayout
     public const int FooterHeight = 42;
     public const int DiagnosticFooterHeight = 68;
     public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
-    public const int SettingsHeight = 499;
+    public const int SettingsHeight = 543;
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
     public const int DeviceRowsTop = 99;

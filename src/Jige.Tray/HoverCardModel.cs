@@ -34,11 +34,13 @@ internal sealed record HoverCardContent(
     string StatusLine,
     HoverCardRow[] Rows,
     int TotalActiveCount,
-    int OverflowCount)
+    int OverflowCount,
+    string RuntimeLine = "")
 {
     public const int CardWidth = 248;
     public const int MaxListRows = 6;
     public const int SingleHeight = 126;
+    public const int RuntimeLineHeight = 18;
     public const int EmptyHeight = 64;
     public const int ListHeaderHeight = 28;
     public const int ListRowHeight = 42;
@@ -49,7 +51,7 @@ internal sealed record HoverCardContent(
 
     public int Height => Kind switch
     {
-        HoverCardKind.Single => SingleHeight,
+        HoverCardKind.Single => SingleHeight + (RuntimeLine.Length > 0 ? RuntimeLineHeight : 0),
         HoverCardKind.Empty => EmptyHeight,
         _ => ListHeaderHeight + Rows.Length * ListRowHeight + (OverflowCount > 0 ? ListOverflowHeight : 0) + ListBottomPadding
     };
@@ -156,7 +158,7 @@ internal static class HoverCardBuilder
                 return Empty();
 
             var rows = active.Take(HoverCardContent.MaxListRows)
-                .Select(device => BuildRow(model, device, threshold))
+                .Select(device => BuildRow(model, device, threshold, now))
                 .ToArray();
             int overflow = Math.Max(0, active.Length - HoverCardContent.MaxListRows);
             return new(
@@ -200,17 +202,18 @@ internal static class HoverCardBuilder
             StatusLine: SingleStatusLine(device, tone, now),
             Rows: [],
             TotalActiveCount: 1,
-            OverflowCount: 0);
+            OverflowCount: 0,
+            RuntimeLine: RuntimeLine(device, model.Runtime(device, now)));
     }
 
-    private static HoverCardRow BuildRow(TrayModel model, DeviceStatus device, int threshold)
+    private static HoverCardRow BuildRow(TrayModel model, DeviceStatus device, int threshold, DateTimeOffset now)
     {
         var tone = Presentation.Tone(device, threshold);
         return new(
             DeviceId: device.Device.Id,
             Kind: device.Device.Kind,
             Name: model.Name(device.Device),
-            StatusText: ListRowStatus(device, tone),
+            StatusText: ListRowStatus(device, tone, model.Runtime(device, now)),
             Percentage: device.Percentage,
             IsEstimated: device.Last?.IsEstimated == true,
             ValueText: Presentation.Value(device),
@@ -261,6 +264,34 @@ internal static class HoverCardBuilder
             parts.Add("等待读取");
 
         return string.Join(" · ", parts);
+    }
+
+    /// <summary>单设备悬停卡片的预计可用时间行；功能关闭或不适用时为空，卡片保持原高度。</summary>
+    internal static string RuntimeLine(DeviceStatus device, RuntimeEstimate runtime)
+    {
+        if (runtime.Kind == RuntimeKind.Estimating)
+            return "预计可用时间估算中";
+        if (runtime.Kind != RuntimeKind.Ready)
+            return "";
+        string remaining = RuntimeEstimator.Format(runtime.Hours);
+        if (device.IsFull)
+            return $"满电预计可用{remaining}";
+        return runtime.Days is { } days
+            ? $"预计可用{remaining} · 按你的用法{RuntimeEstimator.FormatDays(days)}"
+            : $"预计可用{remaining}";
+    }
+
+    internal static string ListRowStatus(DeviceStatus device, BatteryTone tone, RuntimeEstimate runtime)
+    {
+        if (runtime.Kind == RuntimeKind.None || device.Link == LinkState.Asleep || device.Fresh && (device.IsFull || device.IsCharging))
+            return ListRowStatus(device, tone);
+        string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;
+        return tone switch
+        {
+            BatteryTone.Low => remaining is null ? "电量低" : $"电量低 · {remaining}",
+            BatteryTone.Warning => remaining is null ? "电量偏低" : $"电量偏低 · {remaining}",
+            _ => remaining is null ? "可用时间估算中" : $"可用{remaining}"
+        };
     }
 
     internal static string ListRowStatus(DeviceStatus device, BatteryTone tone)

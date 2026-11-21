@@ -139,6 +139,34 @@ internal static class Presentation
         return device.Last is not null ? $"{status} · 上次读数" : status;
     }
 
+    /// <summary>
+    /// 叠加预计可用时间的状态文字。<paramref name="compact"/> 用于主面板列表行等窄位置。
+    /// 功能关闭、充电中或已断开时与 <see cref="Status(DeviceStatus, int)"/> 完全一致。
+    /// </summary>
+    public static string Status(DeviceStatus device, int threshold, RuntimeEstimate runtime, bool compact)
+    {
+        string plain = Status(device, threshold);
+        if (runtime.Kind == RuntimeKind.None)
+            return plain;
+        string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;
+        if (device.Fresh)
+        {
+            return Tone(device, threshold) switch
+            {
+                BatteryTone.Charging when device.IsFull && remaining is not null =>
+                    compact ? plain : $"已充满 · 满电预计可用{remaining}",
+                BatteryTone.Charging => plain,
+                BatteryTone.Low => remaining is null ? plain : $"电量低 · {remaining}",
+                BatteryTone.Warning => remaining is null ? plain : $"电量偏低 · {remaining}",
+                _ when compact => remaining is null ? "可用时间估算中" : $"预计可用{remaining}",
+                _ => $"{Connection(device.Device)} 已连接 · {(remaining is null ? "可用时间估算中" : $"预计可用{remaining}")}"
+            };
+        }
+        if (device.Link == LinkState.Asleep && !device.Device.UsesPassiveBatteryReports && remaining is not null)
+            return compact ? $"休眠 · 预计{remaining}" : $"休眠 · 上次读数 · 预计可用{remaining}";
+        return plain;
+    }
+
     public static string Value(DeviceStatus device) => device.Last is { } last
         ? $"{(last.IsEstimated ? "≈" : "")}{last.Percentage}%" : EmptyValue(device);
 

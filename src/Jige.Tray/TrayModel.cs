@@ -50,7 +50,13 @@ internal sealed class TrayModel
     private readonly Dictionary<string, string> blockedReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> asleepSince = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> mergedRazerIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SavedRuntimeEstimate> runtime = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> runtimeShown = new(StringComparer.OrdinalIgnoreCase);
+    private double unsavedRuntimeHours;
     private bool hasSavedOnce;
+
+    /// <summary>剩余时间估算按本地自然日统计日均使用时长；测试可注入固定时区。</summary>
+    public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
 
     public TrayModel(TraySettings settings, TrayState saved)
     {
@@ -79,6 +85,11 @@ internal sealed class TrayModel
                 .Where(sample => sample is not null && sample.Percentage is >= 0 and <= 100)
                 .TakeLast(MaxHistorySamples).ToArray();
             history[id] = new(entry.FirstSeen, entry.LastOnline, samples);
+        }
+        foreach (var (id, entry) in saved.Runtime ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(id) && RuntimeEstimator.Restore(entry) is { } restored)
+                runtime[id] = restored;
         }
         TrimHistory();
 
@@ -127,6 +138,7 @@ internal sealed class TrayModel
                 devices[id] = device.Device.UsesPassiveBatteryReports
                     ? device with { Fresh = false, Link = LinkState.Asleep, Charging = ChargingState.Unknown }
                     : device with { Fresh = false };
+                ObserveRuntime(id, devices[id], now);
                 changed = true;
             }
         }
@@ -193,6 +205,7 @@ internal sealed class TrayModel
                 PendingRefresh = false,
                 Charging = ChargingState.Unknown
             };
+            ObserveRuntime(id, devices[id], now);
             changed = true;
             onLinkChanged?.Invoke(device.Device, LinkState.Asleep, LinkState.Offline);
         }
@@ -208,6 +221,8 @@ internal sealed class TrayModel
             devices.Remove(id);
             reminders.Remove(id);
             history.Remove(id);
+            runtime.Remove(id);
+            runtimeShown.Remove(id);
             asleepSince.Remove(id);
             removedOffline.Add(id);
         }
@@ -426,6 +441,7 @@ internal sealed class TrayModel
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
+            ObserveRuntime(device.Id, status, now);
             if (fresh && UpdateReminder(status, now))
                 meaningfulChange = true;
         }
@@ -460,6 +476,7 @@ internal sealed class TrayModel
                 PendingRefresh = false,
                 Charging = ChargingState.Unknown
             };
+            ObserveRuntime(id, devices[id], now);
             onLinkChanged?.Invoke(previous.Device, previous.Link, nextLink);
         }
         if (anyFresh)
@@ -470,7 +487,8 @@ internal sealed class TrayModel
 
         TrimHistory();
         // D1（#21）：电量和状态都没有变化时不写 state.json（仅首次落盘或存在实质变更时返回 true）。
-        bool shouldSave = meaningfulChange || removedChanged || (anyFresh && !hasSavedOnce);
+        bool shouldSave = meaningfulChange || removedChanged || (anyFresh && !hasSavedOnce) ||
+            unsavedRuntimeHours >= RuntimeSaveHours;
         if (shouldSave)
             hasSavedOnce = true;
         return shouldSave;
@@ -510,6 +528,7 @@ internal sealed class TrayModel
                 asleepSince.Remove(redundantId);
                 reminders.Remove(redundantId);
                 history.Remove(redundantId);
+                MoveRuntime(redundantId, id);
             }
         }
         return merged;
@@ -584,6 +603,7 @@ internal sealed class TrayModel
                 asleepSince.Remove(redundantId);
                 reminders.Remove(redundantId);
                 history.Remove(redundantId);
+                MoveRuntime(redundantId, canonicalId);
                 mergedRazerIds[redundantId] = canonicalId;
             }
         }
@@ -666,6 +686,7 @@ internal sealed class TrayModel
                     Charging = lostLink ? ChargingState.Unknown : previous.Charging
                 };
                 devices[id] = next;
+                ObserveRuntime(id, next, now);
                 uiChanged = true;
                 if (becameOnline)
                 {
@@ -738,6 +759,68 @@ internal sealed class TrayModel
         return [];
     }
 
+    /// <summary>累计在线时长达到这个值时，即使电量没变也顺带写一次 state.json，避免崩溃丢失过多学习进度。</summary>
+    public const double RuntimeSaveHours = .5;
+
+    public bool HasUnsavedRuntime => unsavedRuntimeHours > 0;
+
+    private TimeSpan RuntimeGapLimit()
+    {
+        int poll = inGameMode ? Math.Max(Settings.PollSeconds, Settings.GamePollSeconds) : Settings.PollSeconds;
+        return TimeSpan.FromSeconds(Math.Max(RuntimeEstimator.ShortPause.TotalSeconds, 2.5 * poll));
+    }
+
+    private void ObserveRuntime(string id, DeviceStatus status, DateTimeOffset now)
+    {
+        var previous = runtime.GetValueOrDefault(id);
+        if (previous is null && !(status.Fresh && status.Link == LinkState.Online))
+            return;
+        var (next, hours) = RuntimeEstimator.Observe(previous, status, now, RuntimeGapLimit(), TimeZone);
+        runtime[id] = next;
+        unsavedRuntimeHours += hours;
+        if (next.Segment is null || previous?.Segment is null || next.Segment.Level > previous.Segment.Level)
+            runtimeShown.Remove(id);
+    }
+
+    private void MoveRuntime(string from, string to)
+    {
+        if (runtime.Remove(from, out var moved) && !runtime.ContainsKey(to))
+            runtime[to] = moved;
+        runtimeShown.Remove(from);
+    }
+
+    /// <summary>
+    /// 当前应显示的剩余可用时间。功能关闭时返回 None（后台仍在学习）。
+    /// 显示值带迟滞：同一放电段内小幅回升（≤15%）或相对变化不足 8% 时保持原值，避免数字来回跳。
+    /// </summary>
+    public RuntimeEstimate Runtime(DeviceStatus device, DateTimeOffset now)
+    {
+        if (!Settings.ShowRuntimeEstimate)
+            return RuntimeEstimate.None;
+        string id = device.Device.Id;
+        var estimate = RuntimeEstimator.Estimate(runtime.GetValueOrDefault(id), device, now);
+        if (estimate.Kind != RuntimeKind.Ready || device.IsFull)
+        {
+            runtimeShown.Remove(id);
+            return estimate;
+        }
+
+        double rounded = RuntimeEstimator.Rounded(estimate.Hours);
+        if (runtimeShown.TryGetValue(id, out double shown) && shown > 0)
+        {
+            bool smallRise = rounded > shown && rounded <= shown * 1.15;
+            bool smallChange = Math.Abs(rounded - shown) < shown * .08;
+            if (smallRise || smallChange)
+                rounded = shown;
+        }
+        runtimeShown[id] = rounded;
+        // 返回显示值，天数按同一比例换算，保证面板、悬停卡片看到的是同一个数。
+        double? shownDays = estimate.Days is { } days && estimate.Hours > 0 ? days * rounded / estimate.Hours : null;
+        return estimate with { Hours = rounded, Days = shownDays is >= 2 ? shownDays : null };
+    }
+
+    internal SavedRuntimeEstimate? RuntimeState(string id) => runtime.GetValueOrDefault(id);
+
     private void UpdateHistory(string id, DeviceStatus status, DateTimeOffset now)
     {
         bool exists = history.TryGetValue(id, out var existing);
@@ -771,6 +854,11 @@ internal sealed class TrayModel
                 .ThenBy(pair => pair.Value.LastOnline ?? pair.Value.FirstSeen)
                 .First().Key;
             history.Remove(oldest);
+        }
+        foreach (var id in runtime.Keys.Where(id => !devices.ContainsKey(id) && !history.ContainsKey(id)).ToArray())
+        {
+            runtime.Remove(id);
+            runtimeShown.Remove(id);
         }
     }
 
@@ -838,6 +926,7 @@ internal sealed class TrayModel
 
     public TrayState Snapshot(Dictionary<string, string>? blocked = null)
     {
+        unsavedRuntimeHours = 0;
         var readings = new Dictionary<string, SavedBattery>(StringComparer.OrdinalIgnoreCase);
         foreach (var (id, device) in devices)
         {
@@ -858,6 +947,7 @@ internal sealed class TrayModel
             Reminders = new(reminders, StringComparer.OrdinalIgnoreCase),
             RemovedOfflineDevices = [.. removedOffline],
             History = new(history, StringComparer.OrdinalIgnoreCase),
+            Runtime = new(runtime, StringComparer.OrdinalIgnoreCase),
             BlockedReceivers = new(blockedReceivers, StringComparer.OrdinalIgnoreCase)
         };
     }

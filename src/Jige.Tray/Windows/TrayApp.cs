@@ -1657,6 +1657,9 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.AutoUpdate:
                 ChangeSettings(model.Settings with { AutoCheckUpdates = !model.Settings.AutoUpdateEnabled });
                 break;
+            case PopupAction.RuntimeEstimate:
+                ChangeSettings(model.Settings with { ShowRuntimeEstimate = !model.Settings.ShowRuntimeEstimate });
+                break;
             case PopupAction.TrayToggle when target.DeviceId is { } toggleId:
                 ChangeSettings(model.ToggleTrayDevice(toggleId));
                 break;
@@ -2557,6 +2560,9 @@ internal sealed partial class TrayApp : IDisposable
             updateCts.Dispose();
         }
         diagnosticCancellation.Cancel();
+        // 退出前顺带保存剩余时间估算累计的在线时长；电量没变时 SaveState 字节比较后不会重复写盘。
+        if (model.HasUnsavedRuntime)
+            SaveState();
         long shutdownDeadline = Environment.TickCount64 + 3_000;
         foreach (var (name, task) in new (string Name, Task Work)[]
         {
