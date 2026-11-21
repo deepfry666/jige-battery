@@ -95,7 +95,7 @@
             <div class="monolith-bar">
               <div class="monolith-status mono">
                 <span class="led-dot" aria-hidden="true"></span>
-                <span>INTERACTIVE DESKTOP</span>
+                <span>WINDOWS 11</span>
                 <span class="monolith-sep">/</span>
                 <span data-version>v0.2.17</span>
               </div>
@@ -103,7 +103,6 @@
                 <span class="stage-tab-slider" id="stageTabSlider" aria-hidden="true"></span>
                 <button type="button" class="stage-tab is-active" role="tab" aria-selected="true" aria-controls="stage" tabindex="0" data-scene="panel">主面板</button>
                 <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="hover">悬停卡片</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="strip">任务栏直读条</button>
                 <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="game">全屏游戏</button>
               </div>
             </div>
@@ -118,10 +117,9 @@
                   <span>厂商驱动已关闭 · 直连 USB 接收器</span>
                 </div>
                 <p class="stage-side-title" id="stageHintTitle">所有无线外设，一处看全</p>
-                <p class="stage-side-desc" id="stageHint">点击右侧面板任意设备行切换主视图，或点击下方按钮实时触发交互。</p>
+                <p class="stage-side-desc" id="stageHint">右下角时钟左边就是几格的任务栏直读条。点它打开面板，点面板里的设备可以切换到最上面看。</p>
                 <div class="stage-side-actions">
                   <button type="button" class="side-btn" id="simTriggerToast">模拟低电提醒</button>
-                  <button type="button" class="side-btn" id="simToggleCharge">切换耳机充电</button>
                 </div>
               </div>
 
@@ -192,12 +190,13 @@
                   <div class="tb-app"><i></i></div>
                 </div>
                 <div class="tb-right">
-                  <div class="tb-strip" id="simStrip" aria-label="Windows 11 任务栏直读条演示"></div>
+                  <button type="button" class="tb-strip" id="simStrip" aria-label="几格任务栏直读条：鼠标 12%，耳机充电中 45%，键盘 80%">
+                    <img src="assets/strip-win11-1x.png" srcset="assets/strip-win11-1x.png 1x, assets/strip-win11-2x.png 2x, assets/strip-win11-3x.png 3x" width="141" height="22" alt="" decoding="async">
+                  </button>
                   <div class="tb-tray">
                     <div class="tb-chev" aria-hidden="true">
                       <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8l4-4 4 4"/></svg>
                     </div>
-                    <div class="tb-icons" id="simTrayIcons"></div>
                     <div class="tb-sys" aria-hidden="true">
                       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
                       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
@@ -210,26 +209,22 @@
           </div>
 
           <!-- 2. 精密硬件指标带（取代笨重堆砌的营销小框） -->
-          <div class="spec-strip reveal" aria-label="核心规格">
+          <div class="spec-strip reveal" aria-label="几格的四个特点">
             <div class="spec-cell">
-              <div class="spec-val mono">0</div>
-              <div class="spec-name">常驻厂商驱动</div>
-              <p>调好灵敏度与回报率即可关掉官方软件</p>
+              <div class="spec-name">不用开厂商驱动</div>
+              <p>在官方软件里调好灵敏度和回报率，就可以把它关掉</p>
             </div>
             <div class="spec-cell">
-              <div class="spec-val mono">READ-ONLY</div>
-              <div class="spec-name">只读白名单查询</div>
-              <p>只查电量状态，绝不改写设备固件和宏</p>
+              <div class="spec-name">只读，不改设置</div>
+              <p>只查电量和连接状态，不碰按键、灯光和固件</p>
             </div>
             <div class="spec-cell">
-              <div class="spec-val mono">5 MIN</div>
-              <div class="spec-name">全屏游戏静默</div>
-              <p>全屏时不弹窗抢焦点，查询自动放慢</p>
+              <div class="spec-name">打游戏不打扰</div>
+              <p>全屏游戏时不弹窗、不抢焦点，退回桌面再提醒</p>
             </div>
             <div class="spec-cell">
-              <div class="spec-val mono">0 KB</div>
-              <div class="spec-name">后台遥测上传</div>
-              <p>不上传任何本机数据，联网只为每天检查一次更新</p>
+              <div class="spec-name">不上传任何数据</div>
+              <p>没有账号，没有遥测，联网只为每天检查一次更新</p>
             </div>
           </div>
         </div>
@@ -241,43 +236,52 @@
       <div class="wrap">
         <div class="sec-bar reveal">
           <div>
-            <span class="sec-num mono">01 / DESIGN &amp; MECHANICS</span>
+            <span class="sec-num mono">01 / WINDOWS 10 &amp; 11</span>
             <h2 id="features-title">扫一眼，就知道还剩几格</h2>
           </div>
-          <p class="sec-note">支持 Windows 11 任务栏直读条与 Windows 10 水位剪影图标。拖动下方滑块，直接预览不同电量下的颜色与水位变化。</p>
+          <p class="sec-note">电量低于提醒阈值时变红，略高于阈值时变黄，充电中变绿并带一个闪电。Windows 10 和 Windows 11 都能用，只是放的位置不一样。</p>
         </div>
 
-        <!-- 实时可拖动的硬件电量演示台 -->
-        <div class="lab-card reveal">
-          <div class="lab-screen">
-            <div class="lab-row">
-              <span class="lab-tag mono">WIN 11 · 任务栏直读条</span>
-              <div class="lab-strip" id="labStrip"></div>
+        <div class="os-grid">
+          <figure class="os-card reveal">
+            <div class="os-shot os-shot-win11" aria-hidden="true">
+              <div class="os-bar">
+                <img class="os-strip" src="assets/strip-win11-1x.png" srcset="assets/strip-win11-1x.png 1x, assets/strip-win11-2x.png 2x, assets/strip-win11-3x.png 3x" width="141" height="22" alt="" decoding="async">
+                <svg class="os-chev" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8l4-4 4 4"/></svg>
+                <span class="os-sys">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
+                </span>
+                <span class="os-clock mono">20:30<br>2026/11/21</span>
+              </div>
             </div>
-            <div class="lab-row">
-              <span class="lab-tag mono">WIN 10 · 托盘水位图标</span>
-              <div class="lab-trays" id="labTrays"></div>
-              <figure class="lab-real" title="Windows 10 100% 缩放实机截图">
-                <img src="assets/real-tray-win10.png" width="72" height="39" alt="Windows 10 实机托盘截图：键盘白色满电，鼠标黄色偏低" decoding="async">
-                <figcaption>Win10 实机</figcaption>
-              </figure>
-            </div>
-          </div>
+            <figcaption>
+              <strong>Windows 11 · 任务栏直读条</strong>
+              <span>在时钟左边横排显示每台设备的图标和电量，字和时钟一样大。全屏游戏或任务栏自动隐藏时，它也跟着隐藏。</span>
+            </figcaption>
+          </figure>
 
-          <div class="lab-controls">
-            <div class="lab-readout">
-              <span class="lab-label">拖动模拟剩余电量</span>
-              <strong class="lab-pct mono" id="labPctText">24%</strong>
-              <span class="lab-state-pill" id="labStatePill">电量偏低 · 黄色提醒</span>
+          <figure class="os-card reveal">
+            <div class="os-shot os-shot-win10" aria-hidden="true">
+              <div class="os-bar">
+                <svg class="os-chev" width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M2 8l4-4 4 4"/></svg>
+                <span class="os-trays">
+                  <img src="assets/tray-mouse-1x.png" srcset="assets/tray-mouse-1x.png 1x, assets/tray-mouse-2x.png 2x, assets/tray-mouse-3x.png 3x" width="16" height="16" alt="" decoding="async">
+                  <img src="assets/tray-headset-1x.png" srcset="assets/tray-headset-1x.png 1x, assets/tray-headset-2x.png 2x, assets/tray-headset-3x.png 3x" width="16" height="16" alt="" decoding="async">
+                  <img src="assets/tray-keyboard-1x.png" srcset="assets/tray-keyboard-1x.png 1x, assets/tray-keyboard-2x.png 2x, assets/tray-keyboard-3x.png 3x" width="16" height="16" alt="" decoding="async">
+                </span>
+                <span class="os-sys">
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"><path d="M1.5 6a9.5 9.5 0 0 1 13 0M3.8 8.5a6.2 6.2 0 0 1 8.4 0M6 11a3 3 0 0 1 4 0"/><circle cx="8" cy="13.3" r=".6" fill="currentColor"/></svg>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"><path d="M2 6h2.5L8 3v10l-3.5-3H2z"/><path d="M10.5 5.5a3.5 3.5 0 0 1 0 5M12.3 3.8a6 6 0 0 1 0 8.4" stroke-linecap="round"/></svg>
+                </span>
+                <span class="os-clock mono">20:30<br>2026/11/21</span>
+              </div>
             </div>
-            <div class="lab-slider-row">
-              <input class="lab-range" id="labRange" type="range" min="5" max="100" value="24" aria-label="模拟外设剩余电量百分比">
-              <button type="button" class="lab-charge-btn" id="labChargeBtn" aria-pressed="false">
-                <span class="lab-charge-dot" aria-hidden="true"></span>
-                <span>模拟充电中</span>
-              </button>
-            </div>
-          </div>
+            <figcaption>
+              <strong>Windows 10 · 托盘图标</strong>
+              <span>每台设备一个图标，设备剪影就是电量计：电量越多，颜色从底部填得越高。鼠标移上去能看到名称、百分比和读取时间。</span>
+            </figcaption>
+          </figure>
         </div>
 
         <!-- 原理与透明双栏编辑卡 -->
