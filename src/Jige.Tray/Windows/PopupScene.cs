@@ -75,11 +75,10 @@ internal sealed partial class PopupScene : IDisposable
     private readonly List<HitBox> subButtons = [];
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
-    private Composition.Layer? bluetoothThumb;
     private Composition.Layer? autoUpdateThumb;
     private Composition.Layer? runtimeThumb;
     private Composition.Layer? updatePulse;
-    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion, autoUpdateMotion, runtimeMotion;
+    private ThumbMotion? gameMotion, autostartMotion, autoUpdateMotion, runtimeMotion;
     private string? error;
     private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
@@ -679,7 +678,6 @@ internal sealed partial class PopupScene : IDisposable
         refresh?.Dispose();
         gameThumb?.Dispose();
         autostartThumb?.Dispose();
-        bluetoothThumb?.Dispose();
         autoUpdateThumb?.Dispose();
         runtimeThumb?.Dispose();
         updatePulse?.Dispose();

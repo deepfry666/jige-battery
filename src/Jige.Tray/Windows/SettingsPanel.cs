@@ -1,19 +1,27 @@
 namespace Jige.Tray.Windows;
 
-internal enum SettingRow { TrayMode, Threshold, RuntimeEstimate, GameSilent, PollInterval, Autostart, AutoUpdate, Bluetooth, DisplayLocation, Theme }
+/// <summary>设置行按显示顺序排列，每 3 行一组：显示 / 电量 / 通用。</summary>
+internal enum SettingRow { DisplayLocation, TrayMode, Theme, Threshold, RuntimeEstimate, PollInterval, GameSilent, Autostart, AutoUpdate }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
 internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false)
 {
-    public const int CardX = 9, CardY = 51, CardWidth = PanelLayout.Width - 18;
+    public const int CardX = 9, CardWidth = PanelLayout.Width - 18;
     public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
-    public const int CollapsedCardHeight = 10 * RowHeight + 2;
+    /// <summary>第一组小标题的顶部，以及小标题高度、组间距和每组行数。</summary>
+    public const int StackTop = 47, HeaderHeight = 20, SectionGap = 6, SectionSize = 3;
+    public static readonly string[] SectionTitles = ["显示", "电量", "通用"];
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.TrayMode, SettingRow.Threshold, SettingRow.RuntimeEstimate, SettingRow.GameSilent, SettingRow.PollInterval, SettingRow.Autostart,
-            SettingRow.AutoUpdate, SettingRow.Bluetooth, SettingRow.DisplayLocation, SettingRow.Theme];
+        [SettingRow.DisplayLocation, SettingRow.TrayMode, SettingRow.Theme,
+            SettingRow.Threshold, SettingRow.RuntimeEstimate, SettingRow.PollInterval,
+            SettingRow.GameSilent, SettingRow.Autostart, SettingRow.AutoUpdate];
+
+    public static int SectionOf(SettingRow row) => (int)row / SectionSize;
+    public static bool IsSectionStart(SettingRow row) => (int)row % SectionSize == 0;
+    public static bool IsSectionEnd(SettingRow row) => (int)row % SectionSize == SectionSize - 1;
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
@@ -107,10 +115,25 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
 
     public PanelRect RowRect(SettingRow row)
     {
-        float y = CardY + 1 + (int)row * RowHeight;
-        for (int index = 0; index < (int)row; index++)
-            y += VisibleHeight((SettingRow)index);
+        float y = StackTop;
+        for (int index = 0; ; index++)
+        {
+            if (index % SectionSize == 0)
+                y += (index > 0 ? 1 + SectionGap : 0) + HeaderHeight + 1;
+            if (index == (int)row)
+                break;
+            y += RowHeight + VisibleHeight((SettingRow)index);
+        }
         return new(CardX + 1, y, CardWidth - 2, RowHeight);
+    }
+
+    /// <summary>一组设置的卡片外框（含展开的选项）。</summary>
+    public PanelRect SectionRect(int section)
+    {
+        var first = RowRect((SettingRow)(section * SectionSize));
+        var last = (SettingRow)(section * SectionSize + SectionSize - 1);
+        float bottom = RowRect(last).Y + RowHeight + VisibleHeight(last) + 1;
+        return new(CardX, first.Y - 1, CardWidth, bottom - first.Y + 1);
     }
 
     public PanelRect OptionsRect(SettingRow row)

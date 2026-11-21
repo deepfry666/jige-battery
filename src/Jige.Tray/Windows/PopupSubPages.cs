@@ -58,8 +58,14 @@ internal sealed partial class PopupScene
     {
         var layout = Settings!;
         var settings = model.Settings;
-        float cardHeight = SettingsPanel.CollapsedCardHeight + layout.ExtraHeight;
-        canvas.Fill(SettingsPanel.CardX, SettingsPanel.CardY, SettingsPanel.CardWidth, cardHeight, 7, colors.Layer);
+        // 三组卡片：显示 / 电量 / 通用，每组上方一个小标题。
+        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        {
+            var card = layout.SectionRect(section);
+            canvas.Text(SettingsPanel.SectionTitles[section], SettingsPanel.CardX + 8, card.Y - SettingsPanel.HeaderHeight,
+                200, SettingsPanel.HeaderHeight, 12, colors.Secondary, 600);
+            canvas.Fill(card.X, card.Y, card.Width, card.Height, 7, colors.Layer);
+        }
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = layout.RowRect(row);
@@ -68,28 +74,26 @@ internal sealed partial class PopupScene
                 SettingRow.GameSilent => PopupAction.GameSilent,
                 SettingRow.Autostart => PopupAction.Autostart,
                 SettingRow.AutoUpdate => PopupAction.AutoUpdate,
-                SettingRow.Bluetooth => PopupAction.ShowBluetooth,
                 SettingRow.RuntimeEstimate => PopupAction.RuntimeEstimate,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
             var button = new HitBox(target, rect);
             subButtons.Add(button);
-            int roundSide = row == SettingRow.TrayMode ? -1
-                : row == SettingRow.Theme && layout.Progress(row) == 0 ? 1 : 0;
+            int roundSide = SettingsPanel.IsSectionStart(row) ? -1
+                : SettingsPanel.IsSectionEnd(row) && layout.Progress(row) == 0 ? 1 : 0;
             DrawSettingBackground(canvas, button, roundSide);
-            if (row != SettingRow.TrayMode)
+            if (!SettingsPanel.IsSectionStart(row))
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
             DrawSettingIcon(canvas, row, 25, rect.Y + 14);
             string name = row switch
             {
-                SettingRow.TrayMode => "托盘显示",
+                SettingRow.TrayMode => "显示哪些设备",
                 SettingRow.DisplayLocation => "显示位置",
                 SettingRow.Theme => "外观模式",
                 SettingRow.Threshold => "低电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
-                SettingRow.Bluetooth => "显示蓝牙设备",
                 SettingRow.AutoUpdate => "自动检查更新",
                 SettingRow.RuntimeEstimate => "预计可用时间",
                 _ => "开机自启"
@@ -103,16 +107,14 @@ internal sealed partial class PopupScene
             else
                 canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
 
-            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.Bluetooth
-                or SettingRow.RuntimeEstimate)
+            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.RuntimeEstimate)
             {
                 DrawSwitch(canvas, SwitchRect(rect), row switch
                 {
                     SettingRow.GameSilent => settings.GameSilent,
                     SettingRow.Autostart => settings.StartWithWindows,
                     SettingRow.AutoUpdate => settings.AutoUpdateEnabled,
-                    SettingRow.RuntimeEstimate => settings.ShowRuntimeEstimate,
-                    _ => settings.ShowBluetoothDevices
+                    _ => settings.ShowRuntimeEstimate
                 });
                 continue;
             }
@@ -130,8 +132,11 @@ internal sealed partial class PopupScene
             DrawChevron(canvas, SettingsPanel.Right - 6, rect.Y + 22, layout.Progress(row));
             DrawSettingChoices(canvas, row);
         }
-        canvas.Stroke(SettingsPanel.CardX + .5f, SettingsPanel.CardY + .5f,
-            SettingsPanel.CardWidth - 1, cardHeight - 1, 6.5f, colors.LayerStroke);
+        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        {
+            var card = layout.SectionRect(section);
+            canvas.Stroke(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1, 6.5f, colors.LayerStroke);
+        }
 
         float footer = layout.Height - layout.FooterHeight;
         if (HasDiagnosticReport)
@@ -194,7 +199,7 @@ internal sealed partial class PopupScene
                 if (hit.Height > 0)
                 {
                     subButtons.Add(new(choice.Target, hit));
-                    int optionRound = row == SettingRow.Theme && index == end - 1 ? 1 : 0;
+                    int optionRound = SettingsPanel.IsSectionEnd(row) && index == end - 1 ? 1 : 0;
                     DrawSettingBackground(canvas, new(choice.Target, rect), optionRound);
                 }
                 if (choice.Target is { Action: PopupAction.TrayToggle, DeviceId: { } id })
@@ -338,13 +343,6 @@ internal sealed partial class PopupScene
                 Line(8, 4.8f, 8, 8);
                 Line(8, 8, 10.2f, 9.4f);
                 break;
-            case SettingRow.Bluetooth:
-                Line(8, 1.5f, 8, 14.5f);
-                Line(8, 1.5f, 12.5f, 5.5f);
-                Line(12.5f, 5.5f, 3.5f, 12.5f);
-                Line(3.5f, 3.5f, 12.5f, 10.5f);
-                Line(12.5f, 10.5f, 8, 14.5f);
-                break;
             case SettingRow.AutoUpdate:
                 // 带箭头的环形刷新符号。
                 canvas.Arc(x + 8, y + 8, 5.6f, -MathF.PI * .35f, MathF.PI * 1.35f, ink, 1.3f);
@@ -373,7 +371,6 @@ internal sealed partial class PopupScene
         var settings = model.Settings;
         UpdateThumb(ref gameThumb, ref gameMotion, SwitchRect(Settings!.RowRect(SettingRow.GameSilent)), settings.GameSilent);
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
-        UpdateThumb(ref bluetoothThumb, ref bluetoothMotion, SwitchRect(Settings.RowRect(SettingRow.Bluetooth)), settings.ShowBluetoothDevices);
         UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion, SwitchRect(Settings.RowRect(SettingRow.AutoUpdate)), settings.AutoUpdateEnabled);
         UpdateThumb(ref runtimeThumb, ref runtimeMotion, SwitchRect(Settings.RowRect(SettingRow.RuntimeEstimate)), settings.ShowRuntimeEstimate);
     }
@@ -397,8 +394,17 @@ internal sealed partial class PopupScene
 
     private void DrawDevicesPage(Canvas canvas)
     {
-        canvas.Text("点名称可改名，勾选在托盘显示，眼睛控制是否出现在", 17, 59, 310, 18, 12, colors.Muted);
-        canvas.Text("面板里。", 17, 77, 310, 18, 12, colors.Muted);
+        canvas.Text("点名称改名，勾选在任务栏显示，眼睛控制面板显示", 17, 55, 310, 18, 12, colors.Muted, ellipsis: true);
+        // 「显示蓝牙设备」决定哪些设备出现，从设置页移到这里。
+        var bluetooth = new HitBox(PopupAction.ShowBluetooth, new(9, 76, 326, 36));
+        subButtons.Add(bluetooth);
+        ButtonBackground(canvas, bluetooth, 6);
+        canvas.Text("显示蓝牙设备", 17, 76, 200, 36, 13, colors.Ink);
+        var track = new PanelRect(SettingsPanel.Right - 40, 84, 40, 20);
+        bool showBluetooth = model.Settings.ShowBluetoothDevices;
+        DrawSwitch(canvas, track, showBluetooth);
+        canvas.Dot(track.X + 10 + (showBluetooth ? 20 : 0), track.Y + 10, 6, showBluetooth ? colors.Solid : colors.Secondary);
+        canvas.Line(17, PanelLayout.DeviceRowsTop - 3.5f, Width - 17, PanelLayout.DeviceRowsTop - 3.5f, colors.Border);
         int visibleRows = Math.Min(size.Rows, Math.Max(0, devices.Length - offset));
         for (int i = 0; i < visibleRows; i++)
         {
