@@ -524,8 +524,6 @@ internal sealed partial class TrayApp : IDisposable
                     ArmTimer(DeviceChangeTimer, 1_200);
                 return true;
             case 0x0218: // WM_POWERBROADCAST（C2：睡眠/休眠恢复）
-                if (wParam.Value is 0x0000 or 0x0001) // PBT_APMQUERYSUSPEND / PBT_APMQUERYSTANDBY：交由 DefWindowProc 返回 TRUE
-                    return false;
                 if (wParam.Value is 0x0012 or 0x0007 or 0x0006) // PBT_APMRESUMEAUTOMATIC / RESUMESUSPEND / RESUMECRITICAL
                 {
                     Desktop.Log("系统从睡眠恢复，立即重新枚举并查询");
@@ -536,10 +534,11 @@ internal sealed partial class TrayApp : IDisposable
                     RefreshIcon();
                     ProcessWork();
                     ScheduleAutoUpdate();
+                    return true;
                 }
-                return true;
+                return false;
             case 0x02B1: // WM_WTSSESSION_CHANGE（锁屏解锁、本地重连或 RDP 切换后重建图形并失效拓扑）
-                if (wParam.Value is 0x1 or 0x5 or 0x8) // WTS_CONSOLE_CONNECT / SESSION_LOGON / SESSION_UNLOCK
+                if (wParam.Value is 0x1 or 0x3 or 0x5 or 0x8) // WTS_CONSOLE_CONNECT / REMOTE_CONNECT / SESSION_LOGON / SESSION_UNLOCK
                 {
                     Desktop.Log("系统会话恢复，刷新设备与图形表面");
                     poll.InvalidateTopology();
@@ -945,7 +944,8 @@ internal sealed partial class TrayApp : IDisposable
             events.FlushReadFailuresIfDue(nowTick);
 
             bool shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
-                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets, result.Complete);
+                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets, result.Complete,
+                result.IncompleteReceivers);
             if (shouldSave || gates.Version != Volatile.Read(ref lastSavedGateVersion))
                 SaveState();
             RefreshIcon();
@@ -2132,6 +2132,7 @@ internal sealed partial class TrayApp : IDisposable
                     return;
                 }
 
+                string? preparedPackage = null;
                 bool launched = UpdateInstallation.Run(
                     files.Updates,
                     () => ready is not null && UpdateFiles.TryReverify(ready)
@@ -2142,12 +2143,18 @@ internal sealed partial class TrayApp : IDisposable
                     {
                         if (!File.Exists(package))
                             throw new IOException("更新安装包不存在。");
-                        pendingInstallerPackage = package;
+                        preparedPackage = package;
                     });
-                if (launched)
+                if (launched && preparedPackage is not null)
                 {
                     PostUpdateCallback(() =>
                     {
+                        if (opId != updateOperationId || exitRequested || token.IsCancellationRequested)
+                        {
+                            files.Updates.TryClear();
+                            return;
+                        }
+                        pendingInstallerPackage = preparedPackage;
                         exitRequested = true;
                         DestroyMenu();
                         DestroyHoverCard();

@@ -18,6 +18,7 @@ jobs:
     timeout-minutes: 25
     outputs:
       version: ${{ steps.version.outputs.number }}
+      is_latest: ${{ steps.publish.outputs.is_latest }}
     permissions:
       contents: write
     steps:
@@ -118,6 +119,7 @@ jobs:
           $hash = (Get-FileHash "artifacts/release/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
           "$hash  $name" | Set-Content artifacts/release/SHA256SUMS.txt -Encoding ascii
       - name: 创建或更新 GitHub 正式 Release
+        id: publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -128,11 +130,13 @@ jobs:
           $checksums = 'artifacts/release/SHA256SUMS.txt'
           $targetVer = [version]$env:JIGE_VERSION
           $latestFlag = '--latest'
+          $isLatest = 'true'
           $latestTag = gh release view --repo $env:GITHUB_REPOSITORY --json tagName --jq '.tagName' 2>$null
           if ($LASTEXITCODE -eq 0 -and $latestTag -cmatch '\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\z') {
             $currentLatest = [version]$latestTag.Substring(1)
             if ($targetVer -lt $currentLatest) {
               $latestFlag = '--latest=false'
+              $isLatest = 'false'
             }
           }
 
@@ -149,15 +153,16 @@ jobs:
               }
             }
           } else {
-            gh release create $tag --repo $env:GITHUB_REPOSITORY --verify-tag $latestFlag --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            gh release upload $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --clobber
+            # 首次发布一次性携带安装包与校验文件，让 gh release create 原子上传后再公开，避免空 Release 窗口。
+            gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --verify-tag $latestFlag --title "几格 v$env:JIGE_VERSION" --notes-file release-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+          "is_latest=$isLatest" >> $env:GITHUB_OUTPUT
 
   sync-mirror:
     name: 同步正式版到国内镜像
     needs: release
+    if: needs.release.outputs.is_latest == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -199,7 +204,7 @@ jobs:
             fi
             sleep 5
           done
-          (cd "$workdir/pkg" && tr -d '\r' < SHA256SUMS.txt | sha256sum -c -)
+          (cd "$workdir/pkg" && sha256sum -c SHA256SUMS.txt)
           body=$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json body --jq '.body')
           exe_size=$(stat -c %s "$workdir/pkg/$exe")
           sums_size=$(stat -c %s "$workdir/pkg/SHA256SUMS.txt")

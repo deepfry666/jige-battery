@@ -69,6 +69,24 @@ public sealed class AuditHardeningTrayTests
     }
 
     [Fact]
+    public async Task UpdateClientReturnsNullWhenMirrorIsCurrentAndGitHubHangs()
+    {
+        var handler = new AsyncStubHandler(async (req, token) =>
+        {
+            if (req.RequestUri == UpdateClient.MirrorLatest)
+                return JsonResponse(ReleaseJson("v0.2.17", "https://download.imfourj.cn/jige-battery/releases"));
+            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+        });
+
+        using var http = new HttpClient(handler);
+        var client = new UpdateClient(http, mirrorCheckTimeout: TimeSpan.FromMilliseconds(40));
+        var found = await client.CheckAsync(new Version(0, 2, 17), CancellationToken.None);
+
+        Assert.Null(found);
+    }
+
+    [Fact]
     public async Task UpdateClientCheckFollowsSameSourceRedirectAndRejectsForeignHost()
     {
         var redirectedUrl = new Uri("https://download.imfourj.cn/jige-battery/v2/latest.json");
@@ -192,21 +210,44 @@ public sealed class AuditHardeningTrayTests
         var mouse = new DeviceIdentity("logitech-hidpp:rx/1/m", "Mouse", DeviceKind.Mouse);
         var asleepKb = new DeviceIdentity("logitech-hidpp:rx/2/k", "Keyboard", DeviceKind.Keyboard);
         var receiver = new DeviceIdentity("logitech-hidpp:rx", "Receiver", DeviceKind.Mouse);
+        var otherMouse = new DeviceIdentity("razer:other", "Razer", DeviceKind.Mouse);
 
         // 单个已配对但休眠/关机的槽位超时（Asleep + Timeout）不代表整轮扫描不完整。
         Assert.False(PollResult.IsIncompleteMultiDeviceBatch([
             new(mouse, 80, false, ChargingState.NotCharging, LinkState.Online, Now),
             new(asleepKb, null, false, ChargingState.Unknown, LinkState.Asleep, Now, ReadIssue.Timeout)
-        ]));
+        ], receiver.Id));
         Assert.False(PollResult.IsIncompleteMultiDeviceBatch([
             new(asleepKb, null, false, ChargingState.Unknown, LinkState.Asleep, Now, ReadIssue.Timeout)
-        ]));
+        ], receiver.Id));
 
-        // 接收器级扫描超时失败（Unknown + Timeout）必须判定为不完整轮询以防误扫离线。
+        // 接收器级扫描超时（含先读出部分槽位后耗尽 12 秒预算）必须标记该接收器扫描不完整。
         Assert.True(PollResult.IsIncompleteMultiDeviceBatch([
             new(receiver, null, false, ChargingState.Unknown, LinkState.Unknown, Now, ReadIssue.Timeout)
-        ]));
-        Assert.False(PollResult.IsIncompleteMultiDeviceBatch([]));
+        ], receiver.Id));
+        Assert.True(PollResult.IsIncompleteMultiDeviceBatch([
+            new(mouse, 80, false, ChargingState.NotCharging, LinkState.Online, Now),
+            new(receiver, null, false, ChargingState.Unknown, LinkState.Unknown, Now, ReadIssue.Timeout)
+        ], receiver.Id));
+        Assert.False(PollResult.IsIncompleteMultiDeviceBatch([], receiver.Id));
+
+        // 局部接收器超时仅保护该接收器未扫到的槽位，不得阻止其他已拔出设备正常清扫离线。
+        var model = new TrayModel(new(), new());
+        model.ApplyPoll([
+            new(mouse, 80, false, ChargingState.NotCharging, LinkState.Online, Now),
+            new(asleepKb, 70, false, ChargingState.NotCharging, LinkState.Online, Now),
+            new(otherMouse, 60, false, ChargingState.NotCharging, LinkState.Online, Now)
+        ], false, Now);
+
+        model.ApplyPoll([
+            new(mouse, 79, false, ChargingState.NotCharging, LinkState.Online, Now.AddSeconds(30)),
+            new(receiver, null, false, ChargingState.Unknown, LinkState.Unknown, Now.AddSeconds(30), ReadIssue.Timeout)
+        ], false, Now.AddSeconds(30),
+            incompleteReceivers: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { receiver.Id });
+
+        var byId = model.OrderedDevices().ToDictionary(d => d.Device.Id);
+        Assert.Equal(LinkState.Online, byId[asleepKb.Id].Link);
+        Assert.Equal(LinkState.Offline, byId[otherMouse.Id].Link);
     }
 
     [Fact]
@@ -359,5 +400,11 @@ public sealed class AuditHardeningTrayTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(respond(request));
+    }
+
+    private sealed class AsyncStubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            respond(request, cancellationToken);
     }
 }

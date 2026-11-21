@@ -116,7 +116,10 @@ public sealed class SafetyGateStore
         lock (gate)
         {
             var persisted = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in blocked.OrderByDescending(item => item.Value.Order).Take(MaxBlockedEntries))
+            // 取最新 MaxBlockedEntries 条后按原先后顺序写出，避免重启 Load 递增编号后新旧次序反转。
+            foreach (var pair in blocked.OrderByDescending(item => item.Value.Order)
+                         .Take(MaxBlockedEntries)
+                         .OrderBy(item => item.Value.Order))
                 persisted[pair.Key] = pair.Value.Reason;
             return persisted;
         }

@@ -49,6 +49,16 @@ public sealed class AuditHardeningCoreTests
         Assert.Contains(SafetyGateStore.Signature(hids[^1]), snapshot.Keys);
         Assert.DoesNotContain(SafetyGateStore.Signature(hids[0]), snapshot.Keys);
 
+        // 跨重启恢复后须保持原有新旧次序：再满 64 条新增 1 条时应淘汰旧记录，而非挤掉上次最新的记录。
+        var reloaded = new SafetyGateStore(snapshot);
+        var extra = new HidInterface("rx-extra", "p-extra", 0x373B, 0x2FFF, null, 0xFF02, 2, 17, 17, 0, 1);
+        Assert.True(reloaded.Block(extra, "bad-extra"));
+        var afterRestartSnapshot = reloaded.Snapshot();
+        Assert.Equal(SafetyGateStore.MaxBlockedEntries, afterRestartSnapshot.Count);
+        Assert.Contains(SafetyGateStore.Signature(extra), afterRestartSnapshot.Keys);
+        Assert.Contains(SafetyGateStore.Signature(hids[^1]), afterRestartSnapshot.Keys);
+        Assert.DoesNotContain(SafetyGateStore.Signature(hids[6]), afterRestartSnapshot.Keys);
+
         long versionBeforeClear = gates.Version;
         Assert.True(gates.Clear());
         Assert.Equal(versionBeforeClear + 1, gates.Version);

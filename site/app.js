@@ -44,23 +44,32 @@
     each("[data-fallback]", function (el) { el.hidden = false; });
   }
 
+  function urlEndsWithPath(value, suffix) {
+    try {
+      return decodeURIComponent(new URL(value).pathname).endsWith(suffix);
+    } catch (_) {
+      return false;
+    }
+  }
+
   function applyLatest(data) {
     if (!data || !Array.isArray(data.assets)) return showFallback();
     var version = typeof data.tag_name === "string" && data.tag_name.trim() ? data.tag_name.trim() : "";
-    var expectedExe = /^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)
-      ? "Jige-Setup-" + version.slice(1) + "-x64.exe"
-      : null;
+    if (!/^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/.test(version)) return showFallback();
+    var expectedExe = "Jige-Setup-" + version.slice(1) + "-x64.exe";
     var exe = null;
     var sums = null;
     data.assets.forEach(function (a) {
       if (!a || typeof a.name !== "string") return;
-      if (expectedExe ? a.name === expectedExe : /^Jige-Setup-[^/\\]+-x64\.exe$/i.test(a.name)) exe = a;
-      if (/^SHA256SUMS\.txt$/i.test(a.name)) sums = a;
+      if (a.name === expectedExe) exe = a;
+      if (a.name === "SHA256SUMS.txt") sums = a;
     });
     if (!exe || typeof exe.size !== "number" || !isFinite(exe.size) || exe.size <= 0 ||
-      !safeReleaseUrl(exe.browser_download_url)) return showFallback();
+      !safeReleaseUrl(exe.browser_download_url) ||
+      !urlEndsWithPath(exe.browser_download_url, "/" + version + "/" + expectedExe)) return showFallback();
 
-    var hasValidSums = !!(sums && safeReleaseUrl(sums.browser_download_url));
+    var hasValidSums = !!(sums && safeReleaseUrl(sums.browser_download_url) &&
+      urlEndsWithPath(sums.browser_download_url, "/" + version + "/SHA256SUMS.txt"));
     each("[data-download]", function (el) { el.href = exe.browser_download_url; });
     if (hasValidSums) {
       each("[data-sha]", function (el) { el.href = sums.browser_download_url; });

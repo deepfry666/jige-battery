@@ -195,10 +195,7 @@ internal static class UpdateInstallation
         finally
         {
             if (!started)
-            {
-                try { files.Clear(); }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
-            }
+                files.TryClear();
         }
     }
 }
@@ -207,7 +204,7 @@ internal sealed class UpdateFiles(string path)
 {
     public string PreparePackage(string name)
     {
-        Clear();
+        TryClear();
         Directory.CreateDirectory(path);
         string target = Path.Combine(path, name);
         if (File.Exists(target))
@@ -221,9 +218,21 @@ internal sealed class UpdateFiles(string path)
         {
             Directory.Delete(path, recursive: true);
         }
-        catch (Exception error) when (error is DirectoryNotFoundException or IOException or UnauthorizedAccessException)
+        catch (DirectoryNotFoundException)
         {
-            // 首次运行、之前已清理或目录内仍有旧安装器退出占用时跳过。
+            // 首次运行或之前已经清理。
+        }
+    }
+
+    public void TryClear()
+    {
+        try
+        {
+            Clear();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // 下载失败或取消后的善后清理不得覆盖原异常；占用中的文件交由后续 CleanupUpdates 重试。
         }
     }
 
@@ -311,8 +320,11 @@ internal sealed class UpdateClient(
         {
             var source = sources[i];
             bool hasFallback = i + 1 < sources.Count;
-            using var attemptCts = hasFallback ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
-            if (attemptCts is not null && primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan)
+            // 有备用源或前序源已成功确认“当前已是最新”时，为本次查询设置独立超时预算，避免备用源挂死拖垮整体检查。
+            bool useAttemptTimeout = (hasFallback || anySucceeded) &&
+                primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan;
+            using var attemptCts = useAttemptTimeout ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
+            if (attemptCts is not null)
                 attemptCts.CancelAfter(primaryCheckTimeout);
             var attemptToken = attemptCts?.Token ?? token;
 
@@ -403,13 +415,18 @@ internal sealed class UpdateClient(
         }
         catch
         {
-            files.Clear();
+            files.TryClear();
             throw;
         }
     }
 
-    private static bool IsFallbackEligible(Exception error, CancellationToken outerToken) =>
-        error is not OperationCanceledException || !outerToken.IsCancellationRequested;
+    private static bool IsFallbackEligible(Exception error, CancellationToken outerToken) => error switch
+    {
+        OperationCanceledException => !outerToken.IsCancellationRequested,
+        HttpRequestException or HttpIOException or JsonException or InvalidDataException or
+            CryptographicException or UriFormatException => true,
+        _ => false
+    };
 
     private async Task<HttpResponseMessage> GetFollowAsync(Uri initialUrl, UpdateSource source,
         HttpCompletionOption completion, CancellationToken token)

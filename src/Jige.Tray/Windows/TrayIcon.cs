@@ -256,8 +256,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
             maskBits.Clear();
             for (int y = 0; y < size; y++)
             {
-                // CreateBitmap 创建自底向上的 1bpp DDB 掩码，而颜色位图使用 biHeight = -size（自顶向下），需翻转行序对齐。
-                int maskRow = (size - 1 - y) * stride;
+                int maskRow = y * stride;
                 for (int x = 0; x < size; x++)
                 {
                     if ((pixels[y * size + x] >> 24) == 0)

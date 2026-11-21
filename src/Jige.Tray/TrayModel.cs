@@ -321,13 +321,15 @@ internal sealed class TrayModel
         int unknownReceivers = 0,
         Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null,
         IReadOnlySet<string>? liveTargets = null,
-        bool completePoll = true) =>
+        bool completePoll = true,
+        IReadOnlySet<string>? incompleteReceivers = null) =>
         ApplyReadings(readings, scanFailed, now, unknownReceivers, onLinkChanged, liveTargets,
-            mergeChannels: true, sweepMissing: completePoll);
+            mergeChannels: true, sweepMissing: completePoll, incompleteReceivers: incompleteReceivers);
 
     private bool ApplyReadings(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now,
         int unknownReceivers, Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged,
-        IReadOnlySet<string>? liveTargets, bool mergeChannels, bool sweepMissing)
+        IReadOnlySet<string>? liveTargets, bool mergeChannels, bool sweepMissing,
+        IReadOnlySet<string>? incompleteReceivers = null)
     {
         ScanFailed = scanFailed;
         if (!scanFailed || unknownReceivers > 0)
@@ -428,7 +430,10 @@ internal sealed class TrayModel
                 meaningfulChange = true;
         }
 
-        var missing = sweepMissing ? devices.Keys.Where(id => !seen.Contains(id)).ToArray() : [];
+        var missing = sweepMissing
+            ? devices.Keys.Where(id => !seen.Contains(id) &&
+                (incompleteReceivers is null || !incompleteReceivers.Contains(id.Split('/', 2)[0]))).ToArray()
+            : [];
         var latestSlots = liveTargets is not null && missing.Length > 0 ? LatestLogitechSlots() : null;
         var seenSlots = latestSlots is { Count: > 0 } ?
             seen.Select(LogitechReceiverSlot).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;

@@ -49,8 +49,8 @@ internal sealed class DevicePoll
             }
             List<BatteryReading> readings = [];
             var liveTargets = detected.Select(item => item.Target.Device.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            HashSet<string>? incompleteReceivers = null;
             bool disconnected = false;
-            bool completePoll = true;
             foreach (var device in detected)
             {
                 token.ThrowIfCancellationRequested();
@@ -59,8 +59,11 @@ internal sealed class DevicePoll
                     // 罗技接收器下可能有多台设备，统一走多设备读取。
                     var batch = await registry.ReadDevicesAsync(device, transport, null, token).ConfigureAwait(false);
                     readings.AddRange(batch);
-                    if (device.IsMultiDevice && PollResult.IsIncompleteMultiDeviceBatch(batch))
-                        completePoll = false;
+                    if (device.IsMultiDevice && PollResult.IsIncompleteMultiDeviceBatch(batch, device.Target.Device.Id))
+                    {
+                        incompleteReceivers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        incompleteReceivers.Add(device.Target.Device.Id);
+                    }
                     if (batch.Any(item => item.Issue == ReadIssue.Disconnected))
                     {
                         disconnected = true;
@@ -88,7 +91,8 @@ internal sealed class DevicePoll
                 hasHeartbeat,
                 snapshot.Scanned,
                 liveTargets,
-                completePoll);
+                Complete: true,
+                IncompleteReceivers: incompleteReceivers);
             return (result, pushTargets);
         }
         catch (TimeoutException)
