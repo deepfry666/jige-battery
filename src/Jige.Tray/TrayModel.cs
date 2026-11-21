@@ -31,6 +31,26 @@ internal sealed record MainPanelPlan(
     }
 }
 
+/// <summary>三类提醒共用同一套「知道了 / 1 小时后提醒」与持久化机制，以键前缀区分。</summary>
+internal enum ReminderKind { LowBattery, Predicted, FullCharge }
+
+internal static class ReminderKeys
+{
+    private const string PredictedPrefix = "predict|", FullPrefix = "full|";
+
+    public static string For(ReminderKind kind, string deviceId) => kind switch
+    {
+        ReminderKind.Predicted => PredictedPrefix + deviceId,
+        ReminderKind.FullCharge => FullPrefix + deviceId,
+        _ => deviceId
+    };
+
+    public static (ReminderKind Kind, string DeviceId) Parse(string key) =>
+        key.StartsWith(PredictedPrefix, StringComparison.Ordinal) ? (ReminderKind.Predicted, key[PredictedPrefix.Length..])
+        : key.StartsWith(FullPrefix, StringComparison.Ordinal) ? (ReminderKind.FullCharge, key[FullPrefix.Length..])
+        : (ReminderKind.LowBattery, key);
+}
+
 internal sealed class TrayModel
 {
     public const int MaxHistoryDevices = 32;
@@ -50,7 +70,15 @@ internal sealed class TrayModel
     private readonly Dictionary<string, string> blockedReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> asleepSince = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> mergedRazerIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, SavedRuntimeEstimate> runtime = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> runtimeShown = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>本轮放电已弹过「进游戏电量低」横幅的设备；充电或开新放电段后清除。</summary>
+    private readonly HashSet<string> gameWarned = new(StringComparer.OrdinalIgnoreCase);
+    private double unsavedRuntimeHours;
     private bool hasSavedOnce;
+
+    /// <summary>剩余时间估算按本地自然日统计日均使用时长；测试可注入固定时区。</summary>
+    public TimeZoneInfo TimeZone { get; init; } = TimeZoneInfo.Local;
 
     public TrayModel(TraySettings settings, TrayState saved)
     {
@@ -64,11 +92,14 @@ internal sealed class TrayModel
             devices[id] = new(device, LinkState.Unknown, ReadIssue.None, ChargingState.Unknown, reading, false);
         }
 
-        foreach (var (id, reminder) in saved.Reminders ?? [])
+        foreach (var (key, reminder) in saved.Reminders ?? [])
         {
-            if (reminder is not null && devices.TryGetValue(id, out var device) &&
-                device.Percentage <= Settings.LowBatteryThreshold)
-                reminders[id] = reminder;
+            if (reminder is null || string.IsNullOrEmpty(key))
+                continue;
+            var (kind, id) = ReminderKeys.Parse(key);
+            if (devices.TryGetValue(id, out var device) &&
+                (kind != ReminderKind.LowBattery || device.Percentage <= ThresholdFor(id)))
+                reminders[key] = reminder;
         }
 
         foreach (var (id, entry) in saved.History ?? [])
@@ -79,6 +110,11 @@ internal sealed class TrayModel
                 .Where(sample => sample is not null && sample.Percentage is >= 0 and <= 100)
                 .TakeLast(MaxHistorySamples).ToArray();
             history[id] = new(entry.FirstSeen, entry.LastOnline, samples);
+        }
+        foreach (var (id, entry) in saved.Runtime ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(id) && RuntimeEstimator.Restore(entry) is { } restored)
+                runtime[id] = restored;
         }
         TrimHistory();
 
@@ -127,6 +163,7 @@ internal sealed class TrayModel
                 devices[id] = device.Device.UsesPassiveBatteryReports
                     ? device with { Fresh = false, Link = LinkState.Asleep, Charging = ChargingState.Unknown }
                     : device with { Fresh = false };
+                ObserveRuntime(id, devices[id], now);
                 changed = true;
             }
         }
@@ -193,6 +230,7 @@ internal sealed class TrayModel
                 PendingRefresh = false,
                 Charging = ChargingState.Unknown
             };
+            ObserveRuntime(id, devices[id], now);
             changed = true;
             onLinkChanged?.Invoke(device.Device, LinkState.Asleep, LinkState.Offline);
         }
@@ -206,8 +244,10 @@ internal sealed class TrayModel
         if (CanRemove(id))
         {
             devices.Remove(id);
-            reminders.Remove(id);
+            RemoveReminders(id);
             history.Remove(id);
+            runtime.Remove(id);
+            runtimeShown.Remove(id);
             asleepSince.Remove(id);
             removedOffline.Add(id);
         }
@@ -300,18 +340,31 @@ internal sealed class TrayModel
 
     public void ApplySettings(TraySettings settings, DateTimeOffset now)
     {
-        int previous = Settings.LowBatteryThreshold;
         Settings = settings;
-        if (previous == settings.LowBatteryThreshold)
-            return;
-
         foreach (var device in devices.Values)
         {
-            if (device.Percentage > settings.LowBatteryThreshold)
-                reminders.Remove(device.Device.Id);
-            else if (device.Fresh)
+            if (device.Fresh)
                 UpdateReminder(device, now);
+            else if (device.Percentage > ThresholdFor(device.Device.Id))
+                reminders.Remove(device.Device.Id);
         }
+        foreach (var key in reminders.Keys.ToArray())
+        {
+            var kind = ReminderKeys.Parse(key).Kind;
+            if (kind == ReminderKind.FullCharge && !settings.FullChargeReminder ||
+                kind == ReminderKind.Predicted && !settings.ShowRuntimeEstimate)
+                reminders.Remove(key);
+        }
+    }
+
+    public int ThresholdFor(string id) => Settings.ThresholdFor(id);
+
+    private void RemoveReminders(string id)
+    {
+        reminders.Remove(id);
+        reminders.Remove(ReminderKeys.For(ReminderKind.Predicted, id));
+        reminders.Remove(ReminderKeys.For(ReminderKind.FullCharge, id));
+        gameWarned.Remove(id);
     }
 
     public bool ApplyPoll(
@@ -426,6 +479,7 @@ internal sealed class TrayModel
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
+            ObserveRuntime(device.Id, status, now);
             if (fresh && UpdateReminder(status, now))
                 meaningfulChange = true;
         }
@@ -460,6 +514,7 @@ internal sealed class TrayModel
                 PendingRefresh = false,
                 Charging = ChargingState.Unknown
             };
+            ObserveRuntime(id, devices[id], now);
             onLinkChanged?.Invoke(previous.Device, previous.Link, nextLink);
         }
         if (anyFresh)
@@ -470,7 +525,8 @@ internal sealed class TrayModel
 
         TrimHistory();
         // D1（#21）：电量和状态都没有变化时不写 state.json（仅首次落盘或存在实质变更时返回 true）。
-        bool shouldSave = meaningfulChange || removedChanged || (anyFresh && !hasSavedOnce);
+        bool shouldSave = meaningfulChange || removedChanged || (anyFresh && !hasSavedOnce) ||
+            unsavedRuntimeHours >= RuntimeSaveHours;
         if (shouldSave)
             hasSavedOnce = true;
         return shouldSave;
@@ -508,8 +564,9 @@ internal sealed class TrayModel
                 string redundantId = duplicate.Device.Id;
                 changed |= devices.Remove(redundantId);
                 asleepSince.Remove(redundantId);
-                reminders.Remove(redundantId);
+                RemoveReminders(redundantId);
                 history.Remove(redundantId);
+                MoveRuntime(redundantId, id);
             }
         }
         return merged;
@@ -582,8 +639,9 @@ internal sealed class TrayModel
                 string redundantId = duplicate.Device.Id;
                 changed |= devices.Remove(redundantId);
                 asleepSince.Remove(redundantId);
-                reminders.Remove(redundantId);
+                RemoveReminders(redundantId);
                 history.Remove(redundantId);
+                MoveRuntime(redundantId, canonicalId);
                 mergedRazerIds[redundantId] = canonicalId;
             }
         }
@@ -666,6 +724,7 @@ internal sealed class TrayModel
                     Charging = lostLink ? ChargingState.Unknown : previous.Charging
                 };
                 devices[id] = next;
+                ObserveRuntime(id, next, now);
                 uiChanged = true;
                 if (becameOnline)
                 {
@@ -738,6 +797,76 @@ internal sealed class TrayModel
         return [];
     }
 
+    /// <summary>累计在线时长达到这个值时，即使电量没变也顺带写一次 state.json，避免崩溃丢失过多学习进度。</summary>
+    public const double RuntimeSaveHours = .5;
+
+    public bool HasUnsavedRuntime => unsavedRuntimeHours > 0;
+
+    private TimeSpan RuntimeGapLimit()
+    {
+        int poll = inGameMode ? Math.Max(Settings.PollSeconds, Settings.GamePollSeconds) : Settings.PollSeconds;
+        return TimeSpan.FromSeconds(Math.Max(RuntimeEstimator.ShortPause.TotalSeconds, 2.5 * poll));
+    }
+
+    private void ObserveRuntime(string id, DeviceStatus status, DateTimeOffset now)
+    {
+        var previous = runtime.GetValueOrDefault(id);
+        if (previous is null && !(status.Fresh && status.Link == LinkState.Online))
+            return;
+        var (next, hours) = RuntimeEstimator.Observe(previous, status, now, RuntimeGapLimit(), TimeZone);
+        runtime[id] = next;
+        unsavedRuntimeHours += hours;
+        if (next.Segment is null || previous?.Segment is null || next.Segment.Level > previous.Segment.Level)
+        {
+            runtimeShown.Remove(id);
+            // 充过电或开了新的放电段：预测提醒和进游戏横幅都重新开始计算。
+            if (previous?.Segment is not null || next.Segment is null)
+            {
+                reminders.Remove(ReminderKeys.For(ReminderKind.Predicted, id));
+                gameWarned.Remove(id);
+            }
+        }
+    }
+
+    private void MoveRuntime(string from, string to)
+    {
+        if (runtime.Remove(from, out var moved) && !runtime.ContainsKey(to))
+            runtime[to] = moved;
+        runtimeShown.Remove(from);
+    }
+
+    /// <summary>
+    /// 当前应显示的剩余可用时间。功能关闭时返回 None（后台仍在学习）。
+    /// 显示值带迟滞：同一放电段内小幅回升（≤15%）或相对变化不足 8% 时保持原值，避免数字来回跳。
+    /// </summary>
+    public RuntimeEstimate Runtime(DeviceStatus device, DateTimeOffset now)
+    {
+        if (!Settings.ShowRuntimeEstimate)
+            return RuntimeEstimate.None;
+        string id = device.Device.Id;
+        var estimate = RuntimeEstimator.Estimate(runtime.GetValueOrDefault(id), device, now);
+        if (estimate.Kind != RuntimeKind.Ready || device.IsFull)
+        {
+            runtimeShown.Remove(id);
+            return estimate;
+        }
+
+        double rounded = RuntimeEstimator.Rounded(estimate.Hours);
+        if (runtimeShown.TryGetValue(id, out double shown) && shown > 0)
+        {
+            bool smallRise = rounded > shown && rounded <= shown * 1.15;
+            bool smallChange = Math.Abs(rounded - shown) < shown * .08;
+            if (smallRise || smallChange)
+                rounded = shown;
+        }
+        runtimeShown[id] = rounded;
+        // 返回显示值，天数按同一比例换算，保证面板、悬停卡片看到的是同一个数。
+        double? shownDays = estimate.Days is { } days && estimate.Hours > 0 ? days * rounded / estimate.Hours : null;
+        return estimate with { Hours = rounded, Days = shownDays is >= 2 ? shownDays : null };
+    }
+
+    internal SavedRuntimeEstimate? RuntimeState(string id) => runtime.GetValueOrDefault(id);
+
     private void UpdateHistory(string id, DeviceStatus status, DateTimeOffset now)
     {
         bool exists = history.TryGetValue(id, out var existing);
@@ -772,6 +901,11 @@ internal sealed class TrayModel
                 .First().Key;
             history.Remove(oldest);
         }
+        foreach (var id in runtime.Keys.Where(id => !devices.ContainsKey(id) && !history.ContainsKey(id)).ToArray())
+        {
+            runtime.Remove(id);
+            runtimeShown.Remove(id);
+        }
     }
 
     public DiagnosticDeviceHistory[] DiagnosticHistories()
@@ -791,29 +925,121 @@ internal sealed class TrayModel
         return [.. list];
     }
 
+    /// <summary>根据最新读数增删三类提醒；返回是否有变化（用于决定是否写盘）。</summary>
     private bool UpdateReminder(DeviceStatus device, DateTimeOffset now)
     {
-        if (device.Percentage <= Settings.LowBatteryThreshold && !device.IsCharging && !device.IsFull)
-            return reminders.TryAdd(device.Device.Id, new(now));
-        return reminders.Remove(device.Device.Id);
+        string id = device.Device.Id;
+        bool changed;
+        if (device.Percentage <= ThresholdFor(id) && !device.IsCharging && !device.IsFull)
+            changed = reminders.TryAdd(id, new(now));
+        else
+            changed = reminders.Remove(id);
+
+        string fullKey = ReminderKeys.For(ReminderKind.FullCharge, id);
+        if (Settings.FullChargeReminder && IsChargedFull(device))
+            changed |= reminders.TryAdd(fullKey, new(now));
+        else if (!Settings.FullChargeReminder || device.Fresh && device.Charging == ChargingState.NotCharging)
+            changed |= reminders.Remove(fullKey);
+
+        string predictKey = ReminderKeys.For(ReminderKind.Predicted, id);
+        if (device.IsCharging || device.IsFull || !Settings.ShowRuntimeEstimate)
+            changed |= reminders.Remove(predictKey);
+        else if (PredictsShortfall(device, now))
+            changed |= reminders.TryAdd(predictKey, new(now));
+        return changed;
     }
 
-    public DateTimeOffset? NextReminder(DateTimeOffset now) => devices.Values
-        .Where(device => CanRemind(device, now))
-        .Select(device => reminders.GetValueOrDefault(device.Device.Id)?.Due)
+    private static bool IsChargedFull(DeviceStatus device) =>
+        device is { Fresh: true, Link: LinkState.Online, Last: { } last } &&
+        (device.Charging == ChargingState.Full || device.Charging == ChargingState.Charging && last.Percentage == 100);
+
+    /// <summary>
+    /// 预测提醒：剩余可用时长不够本机日均在线时长（按你的用法撑不过一天），且电量还没到低电量阈值。
+    /// 需要打开「预计可用时间」并攒够 3 个活跃日。
+    /// </summary>
+    internal bool PredictsShortfall(DeviceStatus device, DateTimeOffset now)
+    {
+        if (!Settings.ShowRuntimeEstimate || device is not { Fresh: true, Link: LinkState.Online, Last: { } last } ||
+            device.IsCharging || device.IsFull || last.Percentage <= ThresholdFor(device.Device.Id))
+            return false;
+        var state = runtime.GetValueOrDefault(device.Device.Id);
+        if (RuntimeEstimator.DailyHours(state) is not { } daily)
+            return false;
+        var estimate = RuntimeEstimator.Estimate(state, device, now);
+        return estimate.Kind == RuntimeKind.Ready && estimate.Hours < daily;
+    }
+
+    public DateTimeOffset? NextReminder(DateTimeOffset now) => reminders
+        .Where(pair => CanRemind(pair.Key, now))
+        .Select(pair => pair.Value.Due)
         .Min();
 
-    public DeviceStatus? ReadyReminder(DateTimeOffset now, bool blocked) => blocked ? null :
-        OrderedDevices().FirstOrDefault(item => ReminderIsDue(item.Device.Id, now));
+    /// <summary>当前应弹出的提醒键：低电量优先，其次预测提醒，最后充满提醒。</summary>
+    public string? ReadyReminderKey(DateTimeOffset now, bool blocked)
+    {
+        if (blocked)
+            return null;
+        var ordered = OrderedDevices();
+        foreach (var kind in new[] { ReminderKind.LowBattery, ReminderKind.Predicted, ReminderKind.FullCharge })
+        {
+            foreach (var device in ordered)
+            {
+                string key = ReminderKeys.For(kind, device.Device.Id);
+                if (ReminderIsDue(key, now))
+                    return key;
+            }
+        }
+        return null;
+    }
 
-    public bool ReminderIsDue(string id, DateTimeOffset now) =>
-        devices.TryGetValue(id, out var device) && CanRemind(device, now) &&
-        reminders.TryGetValue(id, out var reminder) && reminder.Due <= now;
+    public DeviceStatus? ReadyReminder(DateTimeOffset now, bool blocked) =>
+        ReadyReminderKey(now, blocked) is { } key ? devices.GetValueOrDefault(ReminderKeys.Parse(key).DeviceId) : null;
 
-    private bool CanRemind(DeviceStatus device, DateTimeOffset now) =>
-        device is { Fresh: true, Link: LinkState.Online, IsCharging: false, IsFull: false, Last: { } last } &&
-        last.Percentage <= Settings.LowBatteryThreshold &&
-        !IsExpired(last, now, inGameMode);
+    public bool ReminderIsDue(string key, DateTimeOffset now) =>
+        CanRemind(key, now) && reminders.TryGetValue(key, out var reminder) && reminder.Due <= now;
+
+    private bool CanRemind(string key, DateTimeOffset now)
+    {
+        var (kind, id) = ReminderKeys.Parse(key);
+        if (!devices.TryGetValue(id, out var device) ||
+            device is not { Fresh: true, Link: LinkState.Online, Last: { } last } || IsExpired(last, now, inGameMode))
+            return false;
+        return kind switch
+        {
+            ReminderKind.FullCharge => Settings.FullChargeReminder && IsChargedFull(device),
+            ReminderKind.Predicted => Settings.ShowRuntimeEstimate && !device.IsCharging && !device.IsFull,
+            _ => !device.IsCharging && !device.IsFull && last.Percentage <= ThresholdFor(id)
+        };
+    }
+
+    /// <summary>
+    /// 刚进入游戏时需要提醒的设备：在用、没在充电，电量不高于该设备阈值，
+    /// 或打开了预计可用时间且剩余不到 1 小时。每台设备每轮放电只返回一次。
+    /// </summary>
+    public DeviceStatus[] TakeGameEntryWarnings(DateTimeOffset now)
+    {
+        if (!Settings.GameEntryReminderEnabled)
+            return [];
+        List<DeviceStatus> warnings = [];
+        foreach (var device in OrderedDevices())
+        {
+            if (device is not { Fresh: true, Link: LinkState.Online, Last: { } last } || device.IsCharging ||
+                device.IsFull || IsExpired(last, now, game: true) || gameWarned.Contains(device.Device.Id) ||
+                IsHidden(device.Device.Id))
+                continue;
+            bool low = last.Percentage <= ThresholdFor(device.Device.Id);
+            bool shortRuntime = Settings.ShowRuntimeEstimate &&
+                RuntimeEstimator.Estimate(runtime.GetValueOrDefault(device.Device.Id), device, now) is
+                    { Kind: RuntimeKind.Ready, Hours: < 1 };
+            if (!low && !shortRuntime)
+                continue;
+            gameWarned.Add(device.Device.Id);
+            warnings.Add(device);
+        }
+        return [.. warnings];
+    }
+
+    public DateTimeOffset? LastCharged(string id) => runtime.GetValueOrDefault(id)?.LastChargeAt;
 
     private TimeSpan ReadingTtl(bool game) =>
         TimeSpan.FromSeconds(2 * (game ? Math.Max(Settings.PollSeconds, Settings.GamePollSeconds) : Settings.PollSeconds));
@@ -821,9 +1047,9 @@ internal sealed class TrayModel
     private bool IsExpired(SavedBattery last, DateTimeOffset now, bool game = false) =>
         now - last.ReadAt > ReadingTtl(game) || last.ReadAt - now > FutureClockSkew;
 
-    public DateTimeOffset? ReminderExpires(string id)
+    public DateTimeOffset? ReminderExpires(string key)
     {
-        if (devices.GetValueOrDefault(id)?.Last is not { } last)
+        if (devices.GetValueOrDefault(ReminderKeys.Parse(key).DeviceId)?.Last is not { } last)
             return null;
         // 用时间差判断读数是否过期；定时器遇到不合理的未来记录直接略过。
         var ttl = ReadingTtl(inGameMode).Add(TimeSpan.FromTicks(1));
@@ -838,6 +1064,7 @@ internal sealed class TrayModel
 
     public TrayState Snapshot(Dictionary<string, string>? blocked = null)
     {
+        unsavedRuntimeHours = 0;
         var readings = new Dictionary<string, SavedBattery>(StringComparer.OrdinalIgnoreCase);
         foreach (var (id, device) in devices)
         {
@@ -858,6 +1085,7 @@ internal sealed class TrayModel
             Reminders = new(reminders, StringComparer.OrdinalIgnoreCase),
             RemovedOfflineDevices = [.. removedOffline],
             History = new(history, StringComparer.OrdinalIgnoreCase),
+            Runtime = new(runtime, StringComparer.OrdinalIgnoreCase),
             BlockedReceivers = new(blockedReceivers, StringComparer.OrdinalIgnoreCase)
         };
     }

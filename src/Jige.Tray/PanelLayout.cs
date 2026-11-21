@@ -17,12 +17,12 @@ internal static class PanelLayout
     public const int FooterHeight = 42;
     public const int DiagnosticFooterHeight = 68;
     public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
-    public const int SettingsHeight = 499;
+    public const int SettingsHeight = 571;
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
-    public const int DeviceRowsTop = 99;
+    public const int DeviceRowsTop = 117;
     public const float DeviceRowHeight = 54.25f;
-    public const int DeviceBaseHeight = 153;
+    public const int DeviceBaseHeight = 171;
     public const int TransitionMilliseconds = 250;
     public const int SwitchMilliseconds = 200;
     public const int SlideDistance = 56;

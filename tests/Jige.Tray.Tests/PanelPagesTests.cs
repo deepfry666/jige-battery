@@ -10,11 +10,11 @@ public sealed class PanelPagesTests
     [InlineData((int)PanelPage.Main, 0, 700, 157, 0)]
     [InlineData((int)PanelPage.Main, 1, 700, 247, 0)]
     [InlineData((int)PanelPage.Main, 30, 400, 391, 3)]
-    [InlineData((int)PanelPage.Settings, 40, 700, 499, 0)]
-    [InlineData((int)PanelPage.Devices, 0, 700, 153, 0)]
-    [InlineData((int)PanelPage.Devices, 5, 700, 425, 5)]
-    [InlineData((int)PanelPage.Devices, 40, 424, 370, 4)]
-    [InlineData((int)PanelPage.Devices, 40, 425, 425, 5)]
+    [InlineData((int)PanelPage.Settings, 40, 700, 571, 0)]
+    [InlineData((int)PanelPage.Devices, 0, 700, 171, 0)]
+    [InlineData((int)PanelPage.Devices, 5, 700, 443, 5)]
+    [InlineData((int)PanelPage.Devices, 40, 442, 388, 4)]
+    [InlineData((int)PanelPage.Devices, 40, 443, 443, 5)]
     public void PageHeightIncludesChromeAndOnlyWholeRows(int page, int count, int available, int height, int rows)
     {
         Assert.Equal(new PanelSize(height, rows), PanelLayout.Size((PanelPage)page, count, available));
@@ -31,30 +31,31 @@ public sealed class PanelPagesTests
             PanelLayout.Size(PanelPage.Settings, 0, 700, diagnosticFooter: true));
         Assert.Equal(new PanelSize(PanelLayout.DeviceBaseHeight + extra, 0),
             PanelLayout.Size(PanelPage.Devices, 0, 700, diagnosticFooter: true));
-        Assert.Equal(new PanelSize(425 + extra, 5),
+        Assert.Equal(new PanelSize(443 + extra, 5),
             PanelLayout.Size(PanelPage.Devices, 5, 700, diagnosticFooter: true));
 
-        var panel = new SettingsPanel(700, hasDiagnosticFooter: true);
+        var panel = new SettingsPanel(800, hasDiagnosticFooter: true);
         Assert.True(panel.HasDiagnosticFooter);
         Assert.Equal(PanelLayout.DiagnosticFooterHeight, panel.FooterHeight);
         Assert.Equal(PanelLayout.SettingsHeight + extra, panel.Height);
-        // 卡片底部与底部分割线间距在有无诊断报告时保持一致（413 - 405 = 8px）。
+        // 卡片底部与底部分割线间距在有无诊断报告时保持一致（529 - 521 = 8px）。
         Assert.Equal(PanelLayout.SettingsHeight - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
 
         panel.Toggle(SettingRow.Threshold, 0, animate: false, selectedIndex: 1);
-        Assert.Equal(635 + extra, panel.Height);
-        Assert.Equal(635 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
+        // 「电量提醒」展开 4 个阈值 + 2 个勾选项，可视区容纳 5 项。
+        Assert.Equal(741 + extra, panel.Height);
+        Assert.Equal(741 - PanelLayout.FooterHeight, panel.Height - panel.FooterHeight);
     }
 
     [Theory]
-    [InlineData(0, 0, 499)]
-    [InlineData(50, 0.7944, 607)]
-    [InlineData(250, 1, 635)]
+    [InlineData(0, 0, 571)]
+    [InlineData(50, 0.7944, 706)]
+    [InlineData(250, 1, 741)]
     public void ResizeUsesPrototypeCurveAndKeepsBottomAgainstTray(int elapsed, double expected, int expectedHeight)
     {
         double eased = PanelLayout.Ease(elapsed / 250d);
         Assert.Equal(expected, eased, 4);
-        var settings = new SettingsPanel(700);
+        var settings = new SettingsPanel(760);
         settings.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         settings.Advance(elapsed);
         int height = (int)Math.Round(settings.Height);
@@ -67,21 +68,19 @@ public sealed class PanelPagesTests
     }
 
     [Theory]
-    [InlineData(null, 52, 96, 140, 184, 228, 499)]
-    [InlineData((int)SettingRow.DisplayLocation, 52, 96, 140, 184, 228, 567)]
-    [InlineData((int)SettingRow.Theme, 52, 96, 140, 184, 228, 601)]
-    [InlineData((int)SettingRow.TrayMode, 52, 164, 208, 252, 296, 567)]
-    [InlineData((int)SettingRow.Threshold, 52, 96, 276, 320, 364, 635)]
-    [InlineData((int)SettingRow.PollInterval, 52, 96, 140, 184, 330, 601)]
-    public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int trayMode, int threshold,
-        int game, int poll, int autostart, int height)
+    [InlineData(null, 571, 68, 112, 156, 228, 272, 316, 388, 432, 476)]
+    [InlineData((int)SettingRow.DisplayLocation, 639, 68, 180, 224, 296, 340, 384, 456, 500, 544)]
+    [InlineData((int)SettingRow.TrayMode, 639, 68, 112, 224, 296, 340, 384, 456, 500, 544)]
+    [InlineData((int)SettingRow.Theme, 673, 68, 112, 156, 330, 374, 418, 490, 534, 578)]
+    [InlineData((int)SettingRow.Threshold, 741, 68, 112, 156, 228, 442, 486, 558, 602, 646)]
+    [InlineData((int)SettingRow.PollInterval, 673, 68, 112, 156, 228, 272, 316, 490, 534, 578)]
+    public void SettingsRowsAndHitAreasFollowExpandedOptions(int? expanded, int height, params int[] tops)
     {
-        var panel = new SettingsPanel(700);
+        var panel = new SettingsPanel(760);
         if (expanded is int expandedRow)
             Assert.True(panel.Toggle((SettingRow)expandedRow, 0, animate: false, selectedIndex: 0));
 
-        int theme = autostart + 176 + (expanded == (int)SettingRow.DisplayLocation ? 68 : 0);
-        int[] tops = [trayMode, threshold, game, poll, autostart, autostart + 44, autostart + 88, autostart + 132, theme];
+        Assert.Equal(SettingsPanel.Rows.Length, tops.Length);
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = panel.RowRect(row);
@@ -109,13 +108,29 @@ public sealed class PanelPagesTests
     }
 
     [Fact]
+    public void SettingsAreGroupedIntoThreeCardsWithHeaders()
+    {
+        var panel = new SettingsPanel(760);
+        Assert.Equal(["显示", "电量", "通用"], SettingsPanel.SectionTitles);
+        Assert.Equal(new PanelRect(9, 67, 326, 134), panel.SectionRect(0));
+        Assert.Equal(new PanelRect(9, 227, 326, 134), panel.SectionRect(1));
+        Assert.Equal(new PanelRect(9, 387, 326, 134), panel.SectionRect(2));
+        // 最后一组卡片底部到底栏分割线仍留 8px。
+        Assert.Equal(panel.Height - panel.FooterHeight - 8, panel.SectionRect(2).Y + panel.SectionRect(2).Height);
+
+        panel.Toggle(SettingRow.Theme, 0, animate: false, selectedIndex: 0);
+        Assert.Equal(134 + 3 * 34, panel.SectionRect(0).Height);
+        Assert.Equal(227 + 3 * 34, panel.SectionRect(1).Y);
+    }
+
+    [Fact]
     public void SwitchingOptionsIsExclusiveAndKeepsHeightContinuous()
     {
-        var panel = new SettingsPanel(700);
+        var panel = new SettingsPanel(760);
         panel.Toggle(SettingRow.Threshold, 0, animate: true, selectedIndex: 1);
         panel.Advance(50);
         float beforeSwitch = panel.Height;
-        Assert.InRange(beforeSwitch, 603, 609);
+        Assert.InRange(beforeSwitch, 702, 710);
         Assert.True(panel.OptionHitRect(SettingRow.Threshold, 3).Height is > 0 and < 34);
 
         panel.Toggle(SettingRow.PollInterval, 50, animate: true, selectedIndex: 1);
@@ -123,17 +138,17 @@ public sealed class PanelPagesTests
         Assert.Equal(beforeSwitch, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.Threshold, 0).Height);
         panel.Advance(300);
-        Assert.Equal(601, panel.Height);
+        Assert.Equal(673, panel.Height);
         Assert.Equal(0, panel.VisibleHeight(SettingRow.Threshold));
         Assert.Equal(34, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         Assert.False(panel.Animating);
 
         Assert.True(panel.Collapse(300, animate: true));
         Assert.False(panel.Collapse(301, animate: true));
-        Assert.Equal(601, panel.Height);
+        Assert.Equal(673, panel.Height);
         Assert.Equal(0, panel.OptionHitRect(SettingRow.PollInterval, 0).Height);
         panel.Advance(550);
-        Assert.Equal(499, panel.Height);
+        Assert.Equal(571, panel.Height);
     }
 
     [Theory]
@@ -157,7 +172,7 @@ public sealed class PanelPagesTests
             Assert.True(panel.Select(target, model, 1, animate: false, Save));
             bool isTrayMode = (SettingRow)row == SettingRow.TrayMode;
             Assert.Equal(isTrayMode ? SettingRow.TrayMode : (SettingRow?)null, panel.Expanded);
-            Assert.Equal(isTrayMode ? 567 : 499, panel.Height);
+            Assert.Equal(isTrayMode ? 639 : 571, panel.Height);
             Assert.True(files.TryLoadSettings(out var reloaded));
             Assert.Equal(threshold, reloaded.LowBatteryThreshold);
             Assert.Equal(poll, reloaded.PollSeconds);
