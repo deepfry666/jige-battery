@@ -14,18 +14,23 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
     private readonly int baudRate;
     private readonly Func<bool> isInzoneHubRunning;
     private readonly TimeProvider clock;
+    private readonly TimeSpan settleDelay;
+    private readonly TimeSpan? queryTimeoutOverride;
     private readonly Lock backoffLock = new();
     private readonly Dictionary<string, (int Timeouts, long LastTimeoutStamp)> backoff = new(StringComparer.OrdinalIgnoreCase);
 
     public PresenceProbeKind PresenceKind => PresenceProbeKind.FullPollOnly;
 
-    public SonyInzoneAdapter(int baudRate, Func<bool>? isInzoneHubRunning = null, TimeProvider? clock = null)
+    public SonyInzoneAdapter(int baudRate, Func<bool>? isInzoneHubRunning = null, TimeProvider? clock = null,
+        TimeSpan? settleDelay = null, TimeSpan? queryTimeout = null)
     {
         if (baudRate is not (115200 or 460800))
             throw new ArgumentOutOfRangeException(nameof(baudRate));
         this.baudRate = baudRate;
         this.isInzoneHubRunning = isInzoneHubRunning ?? DefaultInzoneHubCheck;
         this.clock = clock ?? TimeProvider.System;
+        this.settleDelay = settleDelay ?? TimeSpan.FromMilliseconds(500);
+        queryTimeoutOverride = queryTimeout;
     }
 
     public void ResetBackoff()
@@ -173,7 +178,8 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
     public async ValueTask<BatteryReading> ReadAsync(
         DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
     {
-        var endpoint = (UsbSerialPort)target.Endpoint;
+        if (target.Endpoint is not UsbSerialPort endpoint)
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, "INZONE H9 接口类型不匹配");
         if (!endpoint.HardwareIds.Any(IsControlInterface))
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "未找到 INZONE H9 的 MI_06 串口");
 
@@ -200,7 +206,8 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
         bool malformedBattery = false;
         try
         {
-            await Task.Delay(500, cancellationToken).ConfigureAwait(false);
+            if (settleDelay > TimeSpan.Zero)
+                await Task.Delay(settleDelay, cancellationToken).ConfigureAwait(false);
             await QueryAsync(SonyQuery.Link).ConfigureAwait(false);
             await QueryAsync(SonyQuery.Model).ConfigureAwait(false);
             var battery = await QueryAsync(SonyQuery.Battery).ConfigureAwait(false);
@@ -229,7 +236,8 @@ internal sealed class SonyInzoneAdapter : IDeviceAdapter, IPresenceAdapter
         async ValueTask<byte[]?> QueryAsync(SonyQuery query)
         {
             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(query == SonyQuery.Battery ? 1500 : 700);
+            var queryTimeout = queryTimeoutOverride ?? TimeSpan.FromMilliseconds(query == SonyQuery.Battery ? 1500 : 700);
+            deadline.CancelAfter(queryTimeout);
             var token = deadline.Token;
             var request = SonyProtocol.Encode(query);
             try

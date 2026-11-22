@@ -45,25 +45,27 @@ internal sealed class OverlappedDevice : IDisposable
 
         public unsafe void Cancel()
         {
-            var pointer = Pointer;
-            if (pointer is null)
-                return;
-            try
+            lock (device.sync)
             {
-                Native.CancelIoEx(device.handle, pointer);
-            }
-            catch (ObjectDisposedException)
-            {
-                // 句柄已关闭时系统已取消在途 I/O。
+                var pointer = Pointer;
+                if (KernelCompleted || pointer is null)
+                    return;
+                try
+                {
+                    Native.CancelIoEx(device.handle, pointer);
+                }
+                catch (ObjectDisposedException)
+                {
+                    // 句柄已关闭时系统已取消在途 I/O。
+                }
             }
         }
 
         public static unsafe void Complete(uint error, uint count, NativeOverlapped* pointer)
         {
             var state = (Transfer)ThreadPoolBoundHandle.GetNativeOverlappedState(pointer)!;
-            state.KernelCompleted = true;
-            state.Completion.TrySetResult((error, count));
             state.device.OnKernelCompleted(state);
+            state.Completion.TrySetResult((error, count));
         }
 
         private readonly OverlappedDevice device = device;
@@ -121,20 +123,29 @@ internal sealed class OverlappedDevice : IDisposable
                     drained.Set();
                 throw new OperationCanceledException();
             }
-            // 重叠结构关联的缓冲区会固定到完成回调或同步失败为止。
+            // 重叠结构关联的缓冲区会固定到完成回调或同步失败为止；
+            // 在锁内完成异步提交，确保 Dispose 的 CancelIoEx/handle.Dispose 不会抢在提交前执行。
             state.Pointer = binding.AllocateNativeOverlapped(Transfer.Complete, state, bytes);
-        }
-        fixed (byte* buffer = bytes)
-        {
-            int accepted = write
-                ? Native.WriteFile(handle, buffer, (uint)bytes.Length, 0, state.Pointer)
-                : Native.ReadFile(handle, buffer, (uint)bytes.Length, 0, state.Pointer);
-            int error = Marshal.GetLastPInvokeError();
-            if (accepted == 0 && error != ErrorIoPending)
+            try
             {
-                state.KernelCompleted = true;
-                OnKernelCompleted(state);
-                throw WindowsErrors.FromCode(error, write ? "发送报文" : "接收报文");
+                fixed (byte* buffer = bytes)
+                {
+                    int accepted = write
+                        ? Native.WriteFile(handle, buffer, (uint)bytes.Length, 0, state.Pointer)
+                        : Native.ReadFile(handle, buffer, (uint)bytes.Length, 0, state.Pointer);
+                    int error = Marshal.GetLastPInvokeError();
+                    if (accepted == 0 && error != ErrorIoPending)
+                    {
+                        CompleteLocked(state);
+                        throw WindowsErrors.FromCode(error, write ? "发送报文" : "接收报文");
+                    }
+                }
+            }
+            catch
+            {
+                if (!state.KernelCompleted)
+                    CompleteLocked(state);
+                throw;
             }
         }
     }
@@ -142,22 +153,36 @@ internal sealed class OverlappedDevice : IDisposable
     private void OnKernelCompleted(Transfer state)
     {
         lock (sync)
+            CompleteLocked(state);
+    }
+
+    private unsafe void CompleteLocked(Transfer state)
+    {
+        state.KernelCompleted = true;
+        var pointer = state.Pointer;
+        state.Pointer = null;
+        if (pointer is not null && !skipFree)
         {
-            active.Remove(state);
-            if (active.Count == 0 && !drainedDisposed)
-                drained.Set();
+            try
+            {
+                binding.FreeNativeOverlapped(pointer);
+            }
+            catch (ObjectDisposedException)
+            {
+                // 极端关停竞态兜底。
+            }
         }
+        active.Remove(state);
+        if (active.Count == 0 && !drainedDisposed)
+            drained.Set();
     }
 
     private unsafe void Free(Transfer state)
     {
-        if (state.Pointer is null)
-            return;
-        bool canFree;
         lock (sync)
-            canFree = state.KernelCompleted && !skipFree;
-        if (canFree)
         {
+            if (state.Pointer is null || !state.KernelCompleted || skipFree)
+                return;
             var pointer = state.Pointer;
             state.Pointer = null;
             try

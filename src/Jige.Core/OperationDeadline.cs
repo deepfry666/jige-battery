@@ -21,7 +21,15 @@ internal static class OperationDeadline
         }
         finally
         {
-            _ = DisposeWhenCompleteAsync(work, deadline);
+            if (work.IsCompleted)
+            {
+                try { deadline.Dispose(); }
+                catch (ObjectDisposedException) { }
+            }
+            else
+            {
+                _ = DisposeWhenCompleteAsync(work, deadline);
+            }
         }
     }
 

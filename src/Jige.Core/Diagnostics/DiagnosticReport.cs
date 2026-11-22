@@ -73,7 +73,8 @@ public static class DiagnosticReport
         try
         {
             // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合与声明报告 ID；不打开任何报告通道。
-            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken, includeBluetooth: true, includeReportIds: true).ConfigureAwait(false);
+            inventory = await WindowsDeviceDiscovery.ScanAsync(
+                cancellationToken, includeUnknownHid: true, includeBluetooth: true, includeReportIds: true).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -139,7 +140,7 @@ public static class DiagnosticReport
         }
 
         int serialIndex = 0;
-        foreach (var endpoint in inventory.Serial.Distinct())
+        foreach (var endpoint in inventory.Serial.DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase))
         {
             var hardwareIds = endpoint.HardwareIds.Select(DiagnosticPrivacy.UsbId).OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -501,6 +502,7 @@ public static class DiagnosticReport
         RazerHeadsetAdapter => "Razer 耳机",
         AsusHidAdapter => "ASUS ROG 键盘",
         MchoseKbAdapter => "MCHOSE 键盘",
+        MchoseMouseAdapter => "MCHOSE 鼠标",
         PassiveMouseAdapter => "国产鼠标被动上报",
         RapooVt9Adapter => "雷柏 VT9 Pro",
         _ => adapter.GetType().Name

@@ -9,22 +9,34 @@ internal enum CompxQuery : byte
 
 internal static class MouseBatteryProtocol
 {
-    public static byte[] Request(MouseFamily family, bool charging = false) => (family, charging) switch
+    private static readonly byte[] CompxOnlineTemplate = Padded("0803", 17, 0x4A);
+    private static readonly byte[] CompxBatteryTemplate = Padded("0804", 17, 0x49);
+    private static readonly byte[] CompxCidMidTemplate = Padded("0810", 17, 0x3D);
+    private static readonly byte[] BitMouseBatteryTemplate = Padded("087D720200010701", 64);
+    private static readonly byte[] BitMouseChargingTemplate = Padded("0885720200010F01", 64);
+    private static readonly byte[] XviOldTemplate = Padded("0000028F01", 65);
+    private static readonly byte[] XviNewTemplate = Padded("00000002020083", 65);
+
+    public static byte[] Request(MouseFamily family, bool charging = false) => RequestSpan(family, charging).ToArray();
+
+    private static ReadOnlySpan<byte> RequestSpan(MouseFamily family, bool charging = false) => (family, charging) switch
     {
-        (MouseFamily.CompxOut or MouseFamily.CompxFeature, false) => CompxRequest(CompxQuery.Battery),
-        (MouseFamily.BitMouse, false) => Padded("087D720200010701", 64),
-        (MouseFamily.BitMouse, true) => Padded("0885720200010F01", 64),
-        (MouseFamily.XviOld, false) => Padded("0000028F01", 65),
-        (MouseFamily.XviNew, false) => Padded("00000002020083", 65),
+        (MouseFamily.CompxOut or MouseFamily.CompxFeature, false) => CompxBatteryTemplate,
+        (MouseFamily.BitMouse, false) => BitMouseBatteryTemplate,
+        (MouseFamily.BitMouse, true) => BitMouseChargingTemplate,
+        (MouseFamily.XviOld, false) => XviOldTemplate,
+        (MouseFamily.XviNew, false) => XviNewTemplate,
         _ => throw new ArgumentOutOfRangeException(nameof(family))
     };
 
     // Compx 只读命令白名单：0x03 在线状态（atk-control / OpenMouse）、0x04 电量（多方一致）、0x10 CID/MID 型号识别（OpenMouse / atk-control）。
-    public static byte[] CompxRequest(CompxQuery query) => query switch
+    public static byte[] CompxRequest(CompxQuery query) => CompxRequestSpan(query).ToArray();
+
+    private static ReadOnlySpan<byte> CompxRequestSpan(CompxQuery query) => query switch
     {
-        CompxQuery.Online => Padded("0803", 17, 0x4A),
-        CompxQuery.Battery => Padded("0804", 17, 0x49),
-        CompxQuery.CidMid => Padded("0810", 17, 0x3D),
+        CompxQuery.Online => CompxOnlineTemplate,
+        CompxQuery.Battery => CompxBatteryTemplate,
+        CompxQuery.CidMid => CompxCidMidTemplate,
         _ => throw new ArgumentOutOfRangeException(nameof(query))
     };
 
@@ -39,13 +51,15 @@ internal static class MouseBatteryProtocol
     public static bool Allows(MouseFamily family, ReadOnlySpan<byte> request) => family switch
     {
         MouseFamily.CompxOut or MouseFamily.CompxFeature =>
-            request.SequenceEqual(CompxRequest(CompxQuery.Battery)) ||
-            request.SequenceEqual(CompxRequest(CompxQuery.Online)) ||
-            request.SequenceEqual(CompxRequest(CompxQuery.CidMid)),
+            request.SequenceEqual(CompxBatteryTemplate) ||
+            request.SequenceEqual(CompxOnlineTemplate) ||
+            request.SequenceEqual(CompxCidMidTemplate),
         MouseFamily.BitMouse =>
-            request.SequenceEqual(Request(family)) || request.SequenceEqual(Request(family, true)),
-        MouseFamily.XviOld or MouseFamily.XviNew =>
-            request.SequenceEqual(Request(family)),
+            request.SequenceEqual(BitMouseBatteryTemplate) || request.SequenceEqual(BitMouseChargingTemplate),
+        MouseFamily.XviOld =>
+            request.SequenceEqual(XviOldTemplate),
+        MouseFamily.XviNew =>
+            request.SequenceEqual(XviNewTemplate),
         _ => false
     };
 
@@ -149,6 +163,9 @@ internal static class MouseBatteryProtocol
         value = 0;
         if (frame.Length != 64 || frame[0] != 8)
             return false;
+        // 拒绝与只读请求帧完全一致的回显，避免静默接收器回显被误判为 0% 在线或绕过安全门。
+        if (frame.SequenceEqual(charging ? BitMouseChargingTemplate : BitMouseBatteryTemplate))
+            return false;
         int start = withChecksum ? 2 : 1;
         if (withChecksum && frame[1] != BitMouseChecksum(frame[2..]))
             return false;
@@ -185,6 +202,21 @@ internal static class MouseBatteryProtocol
     public static bool IsXviAsleep(ReadOnlySpan<byte> frame, MouseFamily family) =>
         family == MouseFamily.XviOld && frame.Length == 65 &&
         frame[..4].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0x8F]);
+
+    /// <summary>识别 Feature 通道休眠/未就绪时的空缓冲、请求回显或未应答占位帧。</summary>
+    public static bool IsFeatureIdle(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> request, MouseFamily family)
+    {
+        if (frame.Length != request.Length)
+            return false;
+        if (!frame[1..].ContainsAnyExcept((byte)0) || !frame[1..].ContainsAnyExcept(byte.MaxValue))
+            return true;
+        if (frame.SequenceEqual(request))
+            return true;
+        if (family == MouseFamily.XviNew && frame.Length == 65 &&
+            frame[0] == 0 && frame[1] == 0 && frame[2..7].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0, 0x83]))
+            return true;
+        return false;
+    }
 
     public static ChargingState Charge(byte value) => value switch
     {

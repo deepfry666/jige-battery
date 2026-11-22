@@ -115,3 +115,8 @@ ReleaseDC
 SelectObject
 UpdateLayeredWindow
 WindowFromPoint
+OpenProcess
+QueryFullProcessImageNameW
+CloseHandle
+SetCapture
+ReleaseCapture

@@ -62,13 +62,26 @@ internal sealed class DiagnosticExport(string path)
 
     public async Task WriteAsync(string report, CancellationToken token)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        string temporary = path + ".tmp";
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+        string temporary = $"{path}.{Guid.NewGuid():N}.tmp";
         try
         {
             await File.WriteAllTextAsync(temporary, report, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
-            File.Move(temporary, path, overwrite: true);
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    File.Move(temporary, path, overwrite: true);
+                    break;
+                }
+                catch (Exception error) when (attempt < 2 && error is IOException or UnauthorizedAccessException)
+                {
+                    await Task.Delay(30 * (attempt + 1), token).ConfigureAwait(false);
+                }
+            }
         }
         finally
         {

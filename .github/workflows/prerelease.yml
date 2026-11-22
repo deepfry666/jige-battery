@@ -27,6 +27,13 @@ jobs:
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: 缓存 NuGet 依赖
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
       - name: 计算测试版版本号与合法四段文件版本
         id: version
         shell: pwsh
@@ -59,7 +66,7 @@ jobs:
         env:
           JIGE_BETA: ${{ steps.version.outputs.beta }}
           JIGE_FILE: ${{ steps.version.outputs.file }}
-        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE"
+        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_BETA" "-p:FileVersion=$env:JIGE_FILE" "-p:AssemblyVersion=$env:JIGE_FILE" -warnaserror
       - name: 运行测试
         shell: pwsh
         run: dotnet test Jige.slnx -c Release --no-build -m:1 --blame-hang-timeout 60s
@@ -201,6 +208,7 @@ jobs:
             fi
             sleep 5
           done
+          (cd "$workdir/pkg" && sha256sum -c SHA256SUMS.txt)
           tar -czf "$workdir/payload.tar.gz" -C "$workdir/pkg" Jige-Setup-prerelease-x64.exe SHA256SUMS.txt
           tar_sha=$(sha256sum "$workdir/payload.tar.gz" | awk '{print $1}')
 

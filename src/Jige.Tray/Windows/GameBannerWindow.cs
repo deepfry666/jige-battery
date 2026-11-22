@@ -25,9 +25,14 @@ internal sealed unsafe class GameBannerWindow(HWND hwnd, TrayModel model) : IDis
     public void Show(DeviceStatus device, RuntimeEstimate runtime, int others, HWND foreground)
     {
         var screen = PInvoke.MonitorFromWindow(foreground, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        var info = Desktop.Monitor(screen);
-        var area = info.rcMonitor;
-        float scale = Desktop.Dpi(screen) / 96f;
+        if (!Desktop.TryGetMonitor(screen, out var info))
+            throw new InvalidOperationException("找不到横幅所在显示器");
+        var area = info.rcWork.right > info.rcWork.left && info.rcWork.bottom > info.rcWork.top
+            ? info.rcWork : info.rcMonitor;
+        float dpiScale = Desktop.Dpi(screen) / 96f;
+        int areaW = area.right - area.left;
+        int areaH = area.bottom - area.top;
+        float scale = Math.Min(dpiScale, Math.Min((areaW - 16f) / Width, (areaH - 16f) / Height));
         if (scale <= 0)
             throw new InvalidOperationException("找不到横幅所在显示器");
 
@@ -35,7 +40,9 @@ internal sealed unsafe class GameBannerWindow(HWND hwnd, TrayModel model) : IDis
         bool acrylic = Desktop.Backdrop(Handle, dark);
         var colors = Desktop.PanelPalette(dark);
         surface?.Dispose();
+        surface = null;
         composition?.Dispose();
+        composition = null;
         composition = new(Handle, scale);
         surface = new(composition, composition.Root, 0, 0, Width, Height);
 
@@ -56,8 +63,8 @@ internal sealed unsafe class GameBannerWindow(HWND hwnd, TrayModel model) : IDis
         composition.Commit();
 
         int width = Pixels(Width, scale), height = Pixels(Height, scale), margin = Pixels(Margin, scale);
-        int left = area.right - width - margin;
-        int top = area.bottom - height - margin * 3;
+        int left = Math.Clamp(area.right - width - margin, area.left, Math.Max(area.left, area.right - width));
+        int top = Math.Clamp(area.bottom - height - margin, area.top, Math.Max(area.top, area.bottom - height));
         // 窗口创建时已带 WS_EX_TOPMOST，这里只定位，不改层级、不激活。
         if (!PInvoke.SetWindowPos(Handle, default, left, top, width, height,
             SET_WINDOW_POS_FLAGS.SWP_NOACTIVATE | SET_WINDOW_POS_FLAGS.SWP_NOZORDER))

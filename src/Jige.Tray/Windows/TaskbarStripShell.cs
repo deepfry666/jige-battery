@@ -38,14 +38,31 @@ internal static unsafe class TaskbarStripShell
         PInvoke.SHAppBarMessage(Remove, ref data);
     }
 
+    public static TaskbarEdge? ReadTaskbarEdge()
+    {
+        var data = new APPBARDATA { cbSize = (uint)sizeof(APPBARDATA) };
+        if (PInvoke.SHAppBarMessage(GetTaskbarPosition, ref data) == 0)
+            return null;
+        return (uint)data.uEdge switch
+        {
+            0 => TaskbarEdge.Left,
+            1 => TaskbarEdge.Top,
+            2 => TaskbarEdge.Right,
+            3 => TaskbarEdge.Bottom,
+            _ => null
+        };
+    }
+
     public static bool TryRead(HWND taskbar, out TaskbarStripGeometry geometry, out Bounds? nativeTray)
     {
         geometry = default;
         nativeTray = null;
         if (taskbar.IsNull || !PInvoke.GetWindowRect(taskbar, out var rect))
             return false;
-        var monitor = PInvoke.MonitorFromPoint(default, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTOPRIMARY);
-        var screen = ToBounds(Desktop.Monitor(monitor).rcMonitor);
+        var monitor = PInvoke.MonitorFromWindow(taskbar, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+        if (!Desktop.TryGetMonitor(monitor, out var info))
+            return false;
+        var screen = ToBounds(info.rcMonitor);
         if (screen.Width <= 0 || screen.Height <= 0)
             return false;
 
@@ -76,10 +93,11 @@ internal static unsafe class TaskbarStripShell
         if (boundary is not { } tray)
             return null;
         // Windows 10 通知区左侧可能有「资讯和兴趣」或「人脉」直接挂在 Shell_TrayWnd 下。
+        int minLeft = bar.Left + bar.Width / 3;
         foreach (string className in RightSideWidgetClasses)
         {
             if (ReadChildBounds(taskbar, className) is { } widget &&
-                widget.Left > bar.CenterX && widget.Right <= bar.Right + 2 &&
+                widget.Left > minLeft && widget.Right <= bar.Right + 2 &&
                 widget.Top < bar.Bottom && widget.Bottom > bar.Top &&
                 widget.Left < tray.Left)
             {

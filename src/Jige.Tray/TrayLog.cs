@@ -12,7 +12,9 @@ internal sealed class TrayLog(string path)
 {
     private const string FormatPrefix = "[几格日志 3] ";
     private const int Limit = 1024 * 1024;
+    private const int RingCapacity = 160;
     private readonly object gate = new();
+    private readonly Queue<string> ring = new(RingCapacity);
 
     public static string Describe(string message, Exception error)
     {
@@ -36,16 +38,39 @@ internal sealed class TrayLog(string path)
     public void Write(string message)
     {
         Debug.WriteLine(message);
-        string line = $"{FormatPrefix}{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message.ReplaceLineEndings(" ")}{Environment.NewLine}";
+        string entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message.ReplaceLineEndings(" ")}";
+        string line = $"{FormatPrefix}{entry}{Environment.NewLine}";
         try
         {
             lock (gate)
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                if (ring.Count >= RingCapacity)
+                    ring.Dequeue();
+                ring.Enqueue(entry);
+
+                string? directory = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(directory))
+                    Directory.CreateDirectory(directory);
                 var info = new FileInfo(path);
                 if (info.Exists && info.Length + Encoding.UTF8.GetByteCount(line) > Limit)
-                    File.Move(path, path + ".1", overwrite: true);
-                File.AppendAllText(path, line);
+                {
+                    try { File.Move(path, path + ".1", overwrite: true); }
+                    catch (Exception rotateError) when (rotateError is IOException or UnauthorizedAccessException) { }
+                }
+                byte[] bytes = Encoding.UTF8.GetBytes(line);
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    try
+                    {
+                        using var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                        stream.Write(bytes);
+                        break;
+                    }
+                    catch (Exception writeError) when (attempt == 0 && writeError is IOException or UnauthorizedAccessException)
+                    {
+                        Thread.Sleep(15);
+                    }
+                }
             }
         }
         catch (IOException) { }
@@ -54,19 +79,41 @@ internal sealed class TrayLog(string path)
 
     public string Recent(int count)
     {
+        if (count <= 0)
+            return "";
         try
         {
             lock (gate)
             {
+                if (ring.Count >= count)
+                    return string.Join(Environment.NewLine, ring.TakeLast(count));
                 // 旧版本的日志可能含原始异常或窗口类名，只附带新版条目。
                 var files = new[] { path + ".1", path };
-                return string.Join(Environment.NewLine, files.Where(File.Exists).SelectMany(File.ReadLines)
+                var fromDisk = files.Where(File.Exists).SelectMany(ReadLinesShared)
                     .Where(line => line.StartsWith(FormatPrefix, StringComparison.Ordinal))
-                    .TakeLast(count).Select(line => line[FormatPrefix.Length..]));
+                    .TakeLast(count).Select(line => line[FormatPrefix.Length..]).ToArray();
+                if (fromDisk.Length > 0)
+                    return string.Join(Environment.NewLine, fromDisk);
+                return string.Join(Environment.NewLine, ring.TakeLast(count));
             }
         }
         catch (IOException) { return ""; }
         catch (UnauthorizedAccessException) { return ""; }
+    }
+
+    private static IEnumerable<string> ReadLinesShared(string file)
+    {
+        List<string> lines = [];
+        try
+        {
+            using var stream = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(stream, Encoding.UTF8);
+            while (reader.ReadLine() is { } line)
+                lines.Add(line);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        return lines;
     }
 }
 
@@ -115,6 +162,7 @@ internal sealed class TrayEventTracker(Action<string> write)
     {
         if (unknowns is null || unknowns.Count == 0)
             return;
+        List<string>? pending = null;
         lock (gate)
         {
             foreach (var item in unknowns)
@@ -125,9 +173,13 @@ internal sealed class TrayEventTracker(Action<string> write)
                 string pid = item.ProductId?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
                 string up = item.UsagePage?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
                 string u = item.Usage?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
-                write($"未识别设备 {vid}:{pid} {up}:{u} in={item.InputLength}/out={item.OutputLength}/feat={item.FeatureLength}");
+                (pending ??= []).Add($"未识别设备 {vid}:{pid} {up}:{u} in={item.InputLength}/out={item.OutputLength}/feat={item.FeatureLength}");
             }
         }
+        if (pending is null)
+            return;
+        foreach (string line in pending)
+            write(line);
     }
 
     public void LogSafetyGateRejection(SafetyGateRejection rejection)

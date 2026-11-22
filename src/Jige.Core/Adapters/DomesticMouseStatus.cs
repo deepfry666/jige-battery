@@ -46,7 +46,8 @@ internal sealed record DomesticMouseStatus(
     internal static DomesticMouseStatus? Match(HidInterface hid)
     {
         var route = Find(hid.VendorId, hid.ProductId);
-        if (route is null || hid.BluetoothHid || !route.MatchesCollection(hid.UsagePage, hid.Usage,
+        if (route is null || hid.BluetoothHid || hid.Bus == HidBus.Bluetooth ||
+            !route.MatchesCollection(hid.UsagePage, hid.Usage,
                 hid.InterfaceNumber, hid.InputLength ?? 0, hid.FeatureLength ?? 0))
             return null;
         var ids = route.Feature ? hid.FeatureReportIds : hid.InputReportIds;
@@ -64,18 +65,27 @@ internal sealed record DomesticMouseStatus(
             {
                 var (hid, route) = group.Single();
                 var model = route!.Model;
-                return new DeviceTarget(new(model.AdapterPrefix + hid.ReceiverId, model.Model, model.Kind)
+                return new DeviceTarget(new(model.AdapterPrefix + hid.ReceiverId, model.Model, model.Kind,
+                    AdaptationSource.Catalog, model.Verification)
                 {
+                    SourceLabel = "2.4G 无线接收器",
                     UsesPassiveBatteryReports = !feature
                 }, hid, "0");
             }).ToArray();
+
+    internal static bool IsEmptyFeatureBuffer(ReadOnlySpan<byte> frame) =>
+        frame.Length > 1 && (!frame[1..].ContainsAnyExcept((byte)0) || !frame[1..].ContainsAnyExcept(byte.MaxValue));
 
     internal MouseBatteryStatus? Decode(ReadOnlySpan<byte> frame)
     {
         if (frame.Length < MinimumLength || frame[0] != ReportId)
             return null;
         if (Feature)
+        {
+            if (IsEmptyFeatureBuffer(frame))
+                return null;
             return frame[9] <= 100 ? new(frame[9], ChargingState.Unknown) : null;
+        }
         if (Model.VendorId == Beken)
             return DecodeBeken(frame);
         if (Model.VendorId == Incott)

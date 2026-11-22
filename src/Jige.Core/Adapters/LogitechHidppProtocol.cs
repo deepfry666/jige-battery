@@ -96,11 +96,13 @@ internal static class LogitechHidppProtocol
         if (register == 0x0D)
         {
             percentage = reply[4];
-            charging = (reply[6] & 0xF0) switch
+            // HID++ 1.0 BATTERY_MILEAGE (0x0D)：reply[6] 高 2 位为充放电状态（0 放电、1 充电、2 充满、3 错误），
+            // bit 5..4 为剩余续航时间单位（秒/分/时/天），不能用 & 0xF0 写死时间单位，否则低电量单位切为小时/分钟时误丢有效电量。
+            charging = (reply[6] >> 6) switch
             {
-                0x30 => ChargingState.NotCharging,
-                0x50 => ChargingState.Charging,
-                0x90 => ChargingState.Full,
+                0 => ChargingState.NotCharging,
+                1 => ChargingState.Charging,
+                2 => ChargingState.Full,
                 _ => ChargingState.Unknown
             };
             return percentage <= 100 && charging != ChargingState.Unknown;
@@ -171,7 +173,14 @@ internal static class LogitechHidppProtocol
 
     public static int? EstimateVoltage(int millivolts)
     {
-        // 未掌握适用的型号曲线。仅对常见单节锂电的 3.5–4.2 V 工作区间线性估算。
-        return millivolts is >= 3500 and <= 4200 ? ((millivolts - 3500) * 100 + 350) / 700 : null;
+        // 未掌握适用的型号曲线。对单节锂电 3.5–4.2 V 区间线性估算；
+        // 充电末端常见 4.21–4.38 V 钳位至 100%，极低电 3.20–3.49 V 钳位至 0%，拒绝干电池或异常电压。
+        if (millivolts is < 3200 or > 4380)
+            return null;
+        if (millivolts <= 3500)
+            return 0;
+        if (millivolts >= 4200)
+            return 100;
+        return ((millivolts - 3500) * 100 + 350) / 700;
     }
 }

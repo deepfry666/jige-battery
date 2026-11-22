@@ -86,7 +86,8 @@ internal sealed class DiagnosticTransport(IReceiverTransport inner, IDeviceAdapt
                 transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature)
                 ? DiagnosticPrivacy.HidReply(adapter, hid, data, request, features) : data.ToArray();
             string? replySummary = null;
-            if (issue == ReadIssue.None && data.Length > 0 &&
+            bool recognizedIdle = adapter is MchoseMouseAdapter && MchoseMouseProtocol.IsIdleReply(data);
+            if (issue == ReadIssue.None && data.Length > 0 && !recognizedIdle &&
                 transfer.Endpoint is HidInterface replyHid &&
                 transfer.Operation is (DiagnosticOperation.HidInput or DiagnosticOperation.GetFeature) &&
                 ((adapter is PassiveMouseAdapter or RapooVt9Adapter

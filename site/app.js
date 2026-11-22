@@ -256,6 +256,12 @@
 
   var bgRaf = 0;
   var prevTs = 0;
+  var lastDrawTs = 0;
+  var lastPointerTs = 0;
+
+  if (finePointer) {
+    window.addEventListener("pointermove", function () { lastPointerTs = performance.now(); }, { passive: true });
+  }
 
   function drawKineticDial(ts) {
     if (document.hidden) {
@@ -263,7 +269,13 @@
       prevTs = 0;
       return;
     }
-    var dt = prevTs ? Math.min(0.05, (ts - prevTs) / 1000) : 0.016;
+    var idle = !pointerActive || (ts - lastPointerTs > 1500);
+    if (!reduceMotion && idle && lastDrawTs && (ts - lastDrawTs < 80)) {
+      bgRaf = requestAnimationFrame(drawKineticDial);
+      return;
+    }
+    lastDrawTs = ts;
+    var dt = prevTs ? Math.min(0.1, (ts - prevTs) / 1000) : 0.016;
     prevTs = ts;
     var t = ts * 0.001;
 
@@ -764,9 +776,7 @@
         if (resetTimer) clearTimeout(resetTimer);
         resetTimer = setTimeout(function () { btn.textContent = "复制"; }, 2000);
       };
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        navigator.clipboard.writeText(text).then(done, function () {});
-      } else {
+      var fallbackCopy = function () {
         var area = document.createElement("textarea");
         area.value = text;
         area.setAttribute("readonly", "");
@@ -777,6 +787,11 @@
           if (document.execCommand("copy")) done();
         } catch (_) {}
         document.body.removeChild(area);
+      };
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        navigator.clipboard.writeText(text).then(done, fallbackCopy);
+      } else {
+        fallbackCopy();
       }
     });
   });

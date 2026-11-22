@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
@@ -62,9 +64,9 @@ internal sealed record TraySettings
     [JsonIgnore]
     public bool GameEntryReminderEnabled => GameEntryReminder != false;
     /// <summary>单台设备的低电量提醒阈值；未设置的设备跟随 <see cref="LowBatteryThreshold"/>。</summary>
-    public Dictionary<string, int> DeviceThresholds { get; init; } = [];
+    public Dictionary<string, int> DeviceThresholds { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public string[] GameProcessNames { get; init; } = [];
-    public Dictionary<string, string> DeviceAliases { get; init; } = [];
+    public Dictionary<string, string> DeviceAliases { get; init; } = new(StringComparer.OrdinalIgnoreCase);
     public string[] HiddenDeviceIds { get; init; } = [];
     public string[] TrayExcludedDeviceIds { get; init; } = [];
 
@@ -119,18 +121,55 @@ internal sealed record TraySettings
 
     public TraySettings WithoutDevice(string id)
     {
-        var settings = WithAlias(id, "");
+        bool hasAlias = DeviceAliases.Keys.Any(key => StringComparer.OrdinalIgnoreCase.Equals(key, id));
+        bool hasThreshold = DeviceThresholds.Keys.Any(key => StringComparer.OrdinalIgnoreCase.Equals(key, id));
+        bool hasHidden = HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+        bool hasExcluded = TrayExcludedDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+        if (!hasAlias && !hasThreshold && !hasHidden && !hasExcluded)
+            return this;
+        var settings = hasAlias ? WithAlias(id, "") : this;
         return settings with
         {
-            DeviceThresholds = DeviceThresholds.Where(pair => !StringComparer.OrdinalIgnoreCase.Equals(pair.Key, id))
-                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
-            HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray(),
-            TrayExcludedDeviceIds = TrayExcludedDeviceIds.Where(excluded => !StringComparer.OrdinalIgnoreCase.Equals(excluded, id)).ToArray()
+            DeviceThresholds = hasThreshold
+                ? DeviceThresholds.Where(pair => !StringComparer.OrdinalIgnoreCase.Equals(pair.Key, id))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase)
+                : settings.DeviceThresholds,
+            HiddenDeviceIds = hasHidden
+                ? HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray()
+                : settings.HiddenDeviceIds,
+            TrayExcludedDeviceIds = hasExcluded
+                ? TrayExcludedDeviceIds.Where(excluded => !StringComparer.OrdinalIgnoreCase.Equals(excluded, id)).ToArray()
+                : settings.TrayExcludedDeviceIds
         };
     }
 
-    private static string CleanAlias(string name) =>
-        string.Join(' ', name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    private const int MaxAliasElements = 64;
+
+    internal static string CleanAlias(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return "";
+        var filtered = new StringBuilder(name.Length);
+        foreach (char ch in name)
+        {
+            if (char.IsWhiteSpace(ch))
+            {
+                filtered.Append(' ');
+                continue;
+            }
+            if (char.IsControl(ch) || ch is '\u200B' or '\u200C' or '\u200D' or '\u200E' or '\u200F' or '\u061C' or '\uFEFF'
+                or >= '\u202A' and <= '\u202E' or >= '\u2066' and <= '\u2069')
+                continue;
+            filtered.Append(ch);
+        }
+        string collapsed = string.Join(' ', filtered.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        if (collapsed.Length == 0)
+            return "";
+        var info = new StringInfo(collapsed);
+        return info.LengthInTextElements > MaxAliasElements
+            ? info.SubstringByTextElements(0, MaxAliasElements).TrimEnd()
+            : collapsed;
+    }
 
     public TraySettings Normalize()
     {
@@ -211,6 +250,8 @@ internal sealed partial class TrayJsonContext : JsonSerializerContext;
 internal sealed class TrayFiles(string folder)
 {
     private bool preserveConfig;
+    private bool preserveState;
+    private byte[]? lastSavedStateBytes;
 
     public string ConfigPath => Path.Combine(folder, "config.json");
     public string DiagnosticsPath => Path.Combine(folder, "diagnostics.txt");
@@ -248,8 +289,12 @@ internal sealed class TrayFiles(string folder)
                 File.Move(ConfigPath, backup);
                 preserveConfig = false;
                 foreach (string old in Directory.EnumerateFiles(folder, "config.broken-*.json"))
-                    if (old != backup)
-                        File.Delete(old);
+                {
+                    if (old == backup)
+                        continue;
+                    try { File.Delete(old); }
+                    catch (Exception cleanupError) when (cleanupError is IOException or UnauthorizedAccessException) { }
+                }
             }
             catch (Exception backupError) when (backupError is IOException or UnauthorizedAccessException)
             {
@@ -264,16 +309,63 @@ internal sealed class TrayFiles(string folder)
         return false;
     }
 
-    public TrayState LoadState() => Read(StatePath, TrayJsonContext.Default.TrayState) ?? new();
+    public TrayState LoadState() => LoadState(out _);
+
+    private TrayState LoadState(out bool readable)
+    {
+        preserveState = false;
+        readable = true;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                byte[] bytes = File.ReadAllBytes(StatePath);
+                var loaded = JsonSerializer.Deserialize(bytes, TrayJsonContext.Default.TrayState);
+                if (loaded is not null)
+                    lastSavedStateBytes = bytes;
+                return loaded ?? new();
+            }
+            catch (Exception error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            {
+                lastSavedStateBytes = null;
+                return new();
+            }
+            catch (JsonException)
+            {
+                lastSavedStateBytes = null;
+                return new();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                if (attempt < 2)
+                {
+                    Thread.Sleep(25 * (attempt + 1));
+                    continue;
+                }
+                // 临时占用或权限错误导致 state.json 不可读时保护原文件，避免随后把空状态写盘清空用户历史与续航模型。
+                preserveState = true;
+                readable = false;
+                return new();
+            }
+        }
+        return new();
+    }
 
     public TrayState LoadState(ref TraySettings settings, Action<string, Exception>? log = null)
     {
-        var saved = LoadState();
+        var saved = LoadState(out bool readable);
+        if (!readable)
+            return saved;
         var emptyIds = (saved.History ?? []).Where(pair => pair.Value is
             { LastOnline: null } entry && !(entry.RecentReadings ?? []).Any(sample => sample is { Percentage: >= 0 and <= 100 }))
             .Select(pair => pair.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         emptyIds.ExceptWith((saved.Readings ?? []).Where(pair => pair.Value is { Percentage: >= 0 and <= 100 })
             .Select(pair => pair.Key));
+        // 保留用户已为其设置过别名、隐藏或阈值的被动推送鼠标，避免首次未收到推送前重启丢失个性化配置。
+        var currentSettings = settings;
+        emptyIds.RemoveWhere(id => id.StartsWith("mouse-passive:", StringComparison.OrdinalIgnoreCase) &&
+            (currentSettings.DeviceAliases.ContainsKey(id) || currentSettings.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase) ||
+             currentSettings.DeviceThresholds.ContainsKey(id) || !currentSettings.IsInTray(id)));
         if (emptyIds.Count == 0)
             return saved;
 
@@ -281,7 +373,7 @@ internal sealed class TrayFiles(string folder)
         foreach (string id in emptyIds)
         {
             if (cleaned.DeviceAliases.ContainsKey(id) || cleaned.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase) ||
-                !cleaned.IsInTray(id))
+                cleaned.DeviceThresholds.ContainsKey(id) || !cleaned.IsInTray(id))
                 cleaned = cleaned.WithoutDevice(id);
         }
         if (cleaned != settings)
@@ -295,7 +387,9 @@ internal sealed class TrayFiles(string folder)
         var migrated = saved with
         {
             Readings = WithoutEmpty(saved.Readings),
-            Reminders = WithoutEmpty(saved.Reminders),
+            Reminders = (saved.Reminders ?? [])
+                .Where(pair => !emptyIds.Contains(ReminderKeys.Parse(pair.Key).DeviceId))
+                .ToDictionary(pair => pair.Key, pair => pair.Value),
             History = WithoutEmpty(saved.History),
             Runtime = WithoutEmpty(saved.Runtime),
             RemovedOfflineDevices = (saved.RemovedOfflineDevices ?? []).Where(id => !emptyIds.Contains(id)).ToArray()
@@ -359,16 +453,24 @@ internal sealed class TrayFiles(string folder)
         preserveConfig = false;
     }
 
-    /// <summary>D1（#21）：写盘前先序列化并与现有 state.json 字节比较，内容完全一致时跳过写盘。</summary>
+    /// <summary>D1（#21）：写盘前先序列化并与最近一次写盘字节或现有 state.json 比较，内容完全一致时跳过写盘。</summary>
     public bool SaveState(TrayState state)
     {
+        if (preserveState)
+            return false;
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(state, TrayJsonContext.Default.TrayState);
-        if (File.Exists(StatePath))
+        if (lastSavedStateBytes is not null && lastSavedStateBytes.AsSpan().SequenceEqual(payload) && File.Exists(StatePath))
+            return false;
+        if (lastSavedStateBytes is null && File.Exists(StatePath))
         {
             try
             {
-                if (File.ReadAllBytes(StatePath).AsSpan().SequenceEqual(payload))
+                byte[] existing = File.ReadAllBytes(StatePath);
+                if (existing.AsSpan().SequenceEqual(payload))
+                {
+                    lastSavedStateBytes = existing;
                     return false;
+                }
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -376,20 +478,8 @@ internal sealed class TrayFiles(string folder)
             }
         }
         WriteBytes(StatePath, payload);
+        lastSavedStateBytes = payload;
         return true;
-    }
-
-    private static T? Read<T>(string path, JsonTypeInfo<T> type)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            return JsonSerializer.Deserialize(stream, type);
-        }
-        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
-        {
-            return default;
-        }
     }
 
     private void Write<T>(string path, T value, JsonTypeInfo<T> type) =>
@@ -401,14 +491,29 @@ internal sealed class TrayFiles(string folder)
         string temporary = path + ".tmp";
         try
         {
-            File.WriteAllBytes(temporary, payload);
-            if (File.Exists(path))
+            using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
             {
-                try { File.Replace(temporary, path, null, ignoreMetadataErrors: true); }
-                catch (FileNotFoundException) { File.Move(temporary, path); }
+                stream.Write(payload);
+                stream.Flush(flushToDisk: true);
             }
-            else
-                File.Move(temporary, path);
+            for (int attempt = 0; ; attempt++)
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        try { File.Replace(temporary, path, null, ignoreMetadataErrors: true); }
+                        catch (FileNotFoundException) { File.Move(temporary, path); }
+                    }
+                    else
+                        File.Move(temporary, path);
+                    break;
+                }
+                catch (Exception error) when (attempt < 2 && error is IOException or UnauthorizedAccessException)
+                {
+                    Thread.Sleep(25 * (attempt + 1));
+                }
+            }
         }
         finally
         {

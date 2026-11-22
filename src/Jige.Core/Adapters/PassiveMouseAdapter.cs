@@ -14,10 +14,13 @@ internal sealed class PassiveMouseAdapter(TimeSpan? readWindow = null, TimeProvi
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         var targets = DomesticMouseStatus.Detect(inventory, feature: false);
-        var paths = targets.Select(target => target.Endpoint.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        lock (historyLock)
-            foreach (string path in history.Keys.Where(path => !paths.Contains(path)).ToArray())
-                history.Remove(path);
+        if (inventory.Warnings.Count == 0)
+        {
+            var paths = targets.Select(target => target.Endpoint.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            lock (historyLock)
+                foreach (string path in history.Keys.Where(path => !paths.Contains(path)).ToArray())
+                    history.Remove(path);
+        }
         return targets;
     }
 
@@ -142,6 +145,9 @@ internal sealed class RapooVt9Adapter : IDeviceAdapter
         buffer[0] = route.ReportId;
         await session.ReadFeatureAsync(buffer, token).ConfigureAwait(false);
         trace?.Invoke(FrameDirection.Received, buffer);
+        if (DomesticMouseStatus.IsEmptyFeatureBuffer(buffer))
+            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep,
+                DateTimeOffset.UtcNow, ReadIssue.Timeout, "雷柏 VT9 Pro 返回空特征报告，鼠标可能正在休眠或关机");
         return route.Decode(buffer) is { } status
             ? new(target.Device, status.Level, false, status.Charging, LinkState.Online, DateTimeOffset.UtcNow)
             : AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "雷柏 VT9 Pro 返回无效电量报告");

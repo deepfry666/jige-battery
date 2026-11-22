@@ -25,7 +25,7 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
     private TaskbarStripPalette? previousPalette;
     private int previousScale, surfaceWidth, surfaceHeight;
     private Bounds? visible;
-    private bool tracking, leftDown, rightDown;
+    private bool leaveTracking, hoverArmed, leftDown, rightDown;
 
     public HWND Handle => handle;
     public HWND Owner => owner;
@@ -93,7 +93,7 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
 
         var memoryDc = PInvoke.CreateCompatibleDC(default);
         if (memoryDc.IsNull)
-            throw new Win32Exception(Marshal.GetLastPInvokeError());
+            throw new InvalidOperationException("无法创建直读条内存 DC");
 
         HBITMAP bitmap = default;
         HGDIOBJ previousObject = default;
@@ -122,6 +122,11 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
                 destination[count..].Fill(TaskbarStripPixels.LayeredHitPixel);
 
             previousObject = PInvoke.SelectObject(memoryDc, bitmap);
+            if (previousObject.IsNull || previousObject.Value == (void*)-1)
+            {
+                previousObject = default;
+                throw new InvalidOperationException("无法选入直读条位图");
+            }
             var destinationPoint = new Point(bounds.Left, bounds.Top);
             var surfaceSize = new SIZE(width, height);
             var sourcePoint = new Point(0, 0);
@@ -156,20 +161,28 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
 
     public unsafe void PointerMove()
     {
-        if (tracking || visible is null)
+        if (visible is null || (leaveTracking && hoverArmed))
             return;
 
+        var flags = (leaveTracking ? default : TRACKMOUSEEVENT_FLAGS.TME_LEAVE) |
+                    (hoverArmed ? default : TRACKMOUSEEVENT_FLAGS.TME_HOVER);
         var track = new TRACKMOUSEEVENT
         {
             cbSize = (uint)sizeof(TRACKMOUSEEVENT),
-            dwFlags = TRACKMOUSEEVENT_FLAGS.TME_LEAVE | TRACKMOUSEEVENT_FLAGS.TME_HOVER,
+            dwFlags = flags,
             dwHoverTime = uint.MaxValue, // HOVER_DEFAULT
             hwndTrack = handle
         };
-        tracking = PInvoke.TrackMouseEvent(ref track);
+        if (PInvoke.TrackMouseEvent(ref track))
+        {
+            leaveTracking = true;
+            hoverArmed = true;
+        }
     }
 
-    public void PointerLeave() => tracking = leftDown = rightDown = false;
+    public void PointerHover() => hoverArmed = false;
+
+    public void PointerLeave() => leaveTracking = hoverArmed = leftDown = rightDown = false;
 
     public bool PointerButton(bool right, bool down)
     {
@@ -182,7 +195,12 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
     public void Dispose()
     {
         Hide();
-        if (PInvoke.IsWindow(handle))
-            PInvoke.DestroyWindow(handle);
+        if (!handle.IsNull)
+        {
+            var window = handle;
+            handle = default;
+            if (PInvoke.IsWindow(window))
+                PInvoke.DestroyWindow(window);
+        }
     }
 }

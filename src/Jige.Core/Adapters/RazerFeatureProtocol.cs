@@ -112,9 +112,13 @@ internal static class RazerFeatureProtocol
         new(0x02D7, "BlackWidow V4 Tenkeyless HyperSpeed", DeviceKind.Keyboard, 3, 0x1F, true, DeviceConnection.UsbCable)
     ];
 
+    private static readonly System.Collections.Frozen.FrozenDictionary<ushort, RazerFeatureModel> ModelByPid =
+        System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(Models, model => model.Pid);
+
     public static IReadOnlyList<RazerFeatureModel> AllModels => Models;
 
-    public static RazerFeatureModel? Find(ushort? pid) => Array.Find(Models, model => model.Pid == pid);
+    public static RazerFeatureModel? Find(ushort? pid) =>
+        pid is ushort value && ModelByPid.TryGetValue(value, out var model) ? model : null;
 
     public static byte[] Encode(ushort pid, RazerFeatureQuery query)
     {
@@ -153,8 +157,8 @@ internal static class RazerFeatureProtocol
     public static bool IsForeignReply(ReadOnlySpan<byte> frame, RazerFeatureModel model, RazerFeatureQuery query) =>
         frame.Length == ReportLength && frame[0] == 0 && frame[1] is >= 1 and <= 5 &&
         frame[90] == 0 && frame[89] == Checksum(frame) &&
-        (frame[7] != 7 || frame[8] != (byte)query) &&
-        frame[7] != 0;
+        (frame[2] != model.TransactionId || frame[7] != 7 || frame[8] != (byte)query) &&
+        (frame[6] != 0 || frame[7] != 0 || frame[8] != 0);
 
     public static int Percentage(byte value) => (value * 100 + 127) / 255;
 

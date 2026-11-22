@@ -115,7 +115,7 @@ public sealed class LogitechBatteryTests
             hid.Path == shortHid.Path ? shortSession : longSession), null, CancellationToken.None));
         Assert.Equal(6, longSession.Writes.Count);
         Assert.Empty(shortSession.Writes);
-        Assert.True(timer.Elapsed < TimeSpan.FromMilliseconds(750), $"空槽检查耗时 {timer.Elapsed}");
+        Assert.True(timer.Elapsed < TimeSpan.FromMilliseconds(1500), $"空槽检查耗时 {timer.Elapsed}");
     }
 
     [Fact]

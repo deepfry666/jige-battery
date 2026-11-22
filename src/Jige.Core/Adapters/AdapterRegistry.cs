@@ -45,7 +45,7 @@ public sealed class AdapterRegistry
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
-    /// <summary>拓扑重建、系统恢复或用户主动刷新时重置适配器离线退避与旁路缓存。</summary>
+    /// <summary>拓扑重建、系统恢复或用户主动刷新时重置适配器离线退避、旁路与端点状态缓存。</summary>
     public void ResetPollingCaches()
     {
         foreach (var adapter in adapters)
@@ -54,6 +54,10 @@ public sealed class AdapterRegistry
                 sony.ResetBackoff();
             else if (adapter is MouseReceiverAdapter mouse)
                 mouse.ResetPrimaryCache();
+            else if (adapter is LogitechHidppAdapter logitech)
+                logitech.ResetCache();
+            else if (adapter is FinalmouseAdapter finalmouse)
+                finalmouse.ResetCache();
         }
     }
 
@@ -140,7 +144,7 @@ public sealed class AdapterRegistry
 
     public Task ListenPushAsync(
         DetectedDevice device, IReceiverTransport transport, Action<PresenceUpdate> onUpdate, CancellationToken cancellationToken) =>
-        device.Adapter is IPushPresenceAdapter push
+        device.Adapter is IPushPresenceAdapter push && !DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out _)
             ? push.ListenPushAsync(device.Target, transport, onUpdate, cancellationToken)
             : Task.CompletedTask;
 

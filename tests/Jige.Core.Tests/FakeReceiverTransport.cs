@@ -11,6 +11,7 @@ internal sealed record ReceiverStep(
 internal sealed class FakeReceiverTransport : IReceiverTransport
 {
     private readonly Dictionary<string, Queue<ReceiverStep>> scripts;
+    private readonly Dictionary<string, (byte[] Recorded, byte[] Live)> pingRebaseByReceiver = new(StringComparer.OrdinalIgnoreCase);
     private readonly Lock gate = new();
     private int activeSessions;
     public int Calls { get; private set; }
@@ -81,8 +82,12 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         public ValueTask WriteFeatureAsync(byte[] buffer, CancellationToken token) =>
             Write(DiagnosticOperation.SetFeature, buffer, token);
 
-        public async ValueTask ReadFeatureAsync(byte[] buffer, CancellationToken token) =>
-            Assert.Equal(buffer.Length, await Read(DiagnosticOperation.GetFeature, buffer, token, buffer[0]));
+        public async ValueTask ReadFeatureAsync(byte[] buffer, CancellationToken token)
+        {
+            byte reportId = buffer[0];
+            buffer.AsSpan(1).Clear();
+            Assert.Equal(buffer.Length, await Read(DiagnosticOperation.GetFeature, buffer, token, reportId));
+        }
 
         public ValueTask WriteAsync(byte[] bytes, CancellationToken token) =>
             Write(DiagnosticOperation.SerialWrite, bytes, token);
@@ -100,8 +105,9 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             if (op == DiagnosticOperation.HidOutput && hid is not null)
             {
                 var rebased = expected.ToArray();
-                if (hid.VendorId == 0x046D && expected.Length == 20 &&
-                    expected[2] == 0 && expected[3] == 0x1A)
+                bool isHidppPing = hid.VendorId == 0x046D && expected.Length == 20 &&
+                    expected[2] == 0 && expected[3] == 0x1A;
+                if (isHidppPing)
                     rebased[6] = buffer[6];
                 else if (hid is { VendorId: 0x1532, ProductId: 0x0565, UsagePage: 0xFF14 } &&
                     expected.Length == 64 && expected[62] == RazerHeadsetProtocol.Checksum(expected, 0))
@@ -113,6 +119,11 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
                 {
                     recordedRequest = expected;
                     liveRequest = rebased;
+                    if (isHidppPing)
+                    {
+                        lock (owner.gate)
+                            owner.pingRebaseByReceiver[hid.ReceiverId] = (expected, rebased);
+                    }
                     expected = rebased;
                 }
             }
@@ -127,15 +138,28 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             await Apply(step, token);
             var data = step.Hex == "-" ? [] : Convert.FromHexString(step.Hex);
             // 仅替换已通过原始事务校验的回显。其余字段和输入长度仍来自报告。
-            if (op == DiagnosticOperation.HidInput && recordedRequest is { } recorded && liveRequest is { } live)
+            if (op == DiagnosticOperation.HidInput && hid is not null)
             {
-                if (hid!.VendorId == 0x046D && LogitechHidppProtocol.Matches(data, recorded) &&
-                    LogitechHidppProtocol.IsSuccess(data))
-                    data[6] = live[6];
-                if (hid.VendorId == 0x1532 && RazerHeadsetProtocol.TryMediaTek(data, recorded, 0x0565, out _))
+                var recorded = recordedRequest;
+                var live = liveRequest;
+                if (recorded is null && hid.VendorId == 0x046D)
                 {
-                    data[2] = live[2];
-                    data[62] = RazerHeadsetProtocol.Checksum(data, 1);
+                    lock (owner.gate)
+                    {
+                        if (owner.pingRebaseByReceiver.TryGetValue(hid.ReceiverId, out var shared))
+                            (recorded, live) = shared;
+                    }
+                }
+                if (recorded is not null && live is not null)
+                {
+                    if (hid.VendorId == 0x046D && LogitechHidppProtocol.Matches(data, recorded) &&
+                        LogitechHidppProtocol.IsSuccess(data))
+                        data[6] = live[6];
+                    if (hid.VendorId == 0x1532 && RazerHeadsetProtocol.TryMediaTek(data, recorded, 0x0565, out _))
+                    {
+                        data[2] = live[2];
+                        data[62] = RazerHeadsetProtocol.Checksum(data, 1);
+                    }
                 }
             }
             data.CopyTo(buffer, 0);

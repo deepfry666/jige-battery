@@ -132,6 +132,12 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         };
     }
 
+    public void ResetCache()
+    {
+        lock (endpoints)
+            endpoints.Clear();
+    }
+
     public PresenceProbeKind PresenceKind => PresenceProbeKind.PushListener;
 
     public ValueTask<PresenceUpdate?> CheckPresenceAsync(
@@ -241,7 +247,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         if (target.Endpoint is not HidInterface endpoint || !IsLong(endpoint) || safety.IsBlocked(endpoint, out _))
             return;
         var state = State(endpoint, target);
-        if (UsesReceiverName(endpoint) && !Volatile.Read(ref state.Confirmed))
+        if ((UsesReceiverName(endpoint) || target.Device.Source == AdaptationSource.Generic) &&
+            !Volatile.Read(ref state.Confirmed))
             return;
 
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -256,8 +263,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         finally
         {
             await lifetime.CancelAsync().ConfigureAwait(false);
-            try { await Task.WhenAll(listeners).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            await Task.WhenAll(listeners).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
         async Task ListenAsync(HidInterface input, byte reportId)
@@ -340,7 +346,12 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                     if (knownId is not null && onlyDeviceIds.Contains(knownId))
                         return true;
                     if (!receiver)
-                        return onlyDeviceIds.Contains(target.Device.Id);
+                    {
+                        if (onlyDeviceIds.Contains(target.Device.Id) ||
+                            (target.Device.BluetoothContainerKey is { } btKey && onlyDeviceIds.Contains(btKey)))
+                            return true;
+                        return onlyDeviceIds.Any(id => id.StartsWith($"{target.Device.Id}/", StringComparison.OrdinalIgnoreCase));
+                    }
                     return onlyDeviceIds.Any(id => id.StartsWith($"{target.Device.Id}/{address}/", StringComparison.OrdinalIgnoreCase));
                 }).ToArray();
             }
@@ -356,7 +367,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         {
             using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x11, RequiredOutputReportId = 0x11 }, scanToken);
             using var shortSession = OpenShort();
-            bool guarded = UsesReceiverName(endpoint) && !Volatile.Read(ref state.Confirmed);
+            bool guarded = (UsesReceiverName(endpoint) || target.Device.Source == AdaptationSource.Generic) &&
+                !Volatile.Read(ref state.Confirmed);
             bool invalidPing = false;
             var features = new Dictionary<(byte, byte), HidppFeature>();
             foreach (byte slot in addresses)
@@ -417,6 +429,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                         return Remember(updated, cached);
                     if (reply is null && HoldOnline() is { } held)
                         return held;
+                    if (receiver && LogitechHidppProtocol.LegacyError(reply) == 0x08)
+                        return Remember(Unavailable(true, previous?.ProtocolSummary), null);
                     if (reply is null || Unreachable(reply))
                         return Remember(Unavailable(Unreachable(reply), previous?.ProtocolSummary),
                             reply is null ? cached : null);
@@ -705,11 +719,31 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         {
             await output.WriteOutputAsync(request, work).ConfigureAwait(false);
             trace?.Invoke(FrameDirection.Sent, request);
-            reads.Add(ReadAsync(longInput, LogitechHidppProtocol.LongLength));
-            if (shortInput is not null)
-                reads.Add(ReadAsync(shortInput, LogitechHidppProtocol.ShortLength));
-            var completed = await Task.WhenAny(reads).ConfigureAwait(false);
-            return await completed.ConfigureAwait(false);
+            bool preferShort = request[0] == 0x10;
+            var longTask = ReadAsync(longInput, LogitechHidppProtocol.LongLength);
+            reads.Add(longTask);
+            Task<byte[]?>? shortTask = shortInput is not null
+                ? ReadAsync(shortInput, LogitechHidppProtocol.ShortLength)
+                : null;
+            if (shortTask is not null)
+                reads.Add(shortTask);
+
+            var pending = new List<Task<byte[]?>>(reads);
+            while (pending.Count > 0)
+            {
+                var completed = await Task.WhenAny(pending).ConfigureAwait(false);
+                pending.Remove(completed);
+                try
+                {
+                    return await completed.ConfigureAwait(false);
+                }
+                catch (TransportException) when (pending.Count > 0 &&
+                    ((!preferShort && completed == shortTask) || (preferShort && completed == longTask)))
+                {
+                    // 辅助监听通道异常时继续等待主目标通道回复，不提前中断本次读取。
+                }
+            }
+            return null;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
@@ -718,8 +752,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         finally
         {
             await deadline.CancelAsync().ConfigureAwait(false);
-            try { await Task.WhenAll(reads).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (work.IsCancellationRequested) { }
+            await ((Task)Task.WhenAll(reads)).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
 
         async Task<byte[]?> ReadAsync(IHidSession input, int length)

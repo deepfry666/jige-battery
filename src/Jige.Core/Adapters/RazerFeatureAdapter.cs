@@ -18,7 +18,7 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             Match(endpoint) is not { } model)
             return null;
         using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0, FeatureOnly = true }, token);
-        var (status, _, foreign) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
+        var (status, value, foreign) = await QueryWithBusyRetryAsync(session, model, RazerFeatureQuery.Battery, null, token)
             .ConfigureAwait(false);
         if (foreign)
             return new(endpoint.ReceiverId, null, target.Device.Id, LinkState.Busy, ReadIssue.Busy)
@@ -27,7 +27,15 @@ internal sealed class RazerFeatureAdapter(TimeSpan? settleDelay = null, TimeSpan
             };
         return (status switch
         {
-            2 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Online),
+            2 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Online)
+            {
+                // 若该型号不支持独立充电查询（如干电池款），可直接回填心跳已读出的电量；
+                // 支持充电查询的型号保留给完整轮询或充电状态由现有逻辑同步，避免心跳用 ChargingState.Unknown 覆盖正在充电的状态。
+                Battery = !model.HasCharging
+                    ? new BatteryReading(target.Device, RazerFeatureProtocol.Percentage(value), false,
+                        ChargingState.Unknown, LinkState.Online, DateTimeOffset.UtcNow)
+                    : null
+            },
             4 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Offline),
             // 协议忙重试耗尽不报告为 Busy（避免误报「被其他程序占用」），保持 Unknown/Timeout。
             1 => new PresenceUpdate(endpoint.ReceiverId, null, target.Device.Id, LinkState.Unknown, ReadIssue.Timeout),

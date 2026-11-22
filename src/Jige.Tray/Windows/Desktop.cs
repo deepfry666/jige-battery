@@ -27,6 +27,7 @@ internal static unsafe class Desktop
 
     public static bool DarkTaskbar => ReadTaskbarBackdropFallback().PrefersDarkPalette();
     public static bool DarkApps => GetRegistry(ThemeKey, "AppsUseLightTheme") is 0;
+    public static bool TransparencyEnabled => Transparency;
     private static bool Transparency => GetRegistry(ThemeKey, "EnableTransparency") is not 0;
 
     public static TaskbarBackdrop ReadTaskbarBackdropFallback()
@@ -83,10 +84,13 @@ internal static unsafe class Desktop
             candidates[regionCount++] = below;
         if (regionCount == 0)
         {
-            if (plan.Left is { } left && IsRegionUnobstructed(left, taskbar, stripWindow))
-                candidates[regionCount++] = left;
-            if (plan.Right is { } right && IsRegionUnobstructed(right, taskbar, stripWindow))
-                candidates[regionCount++] = right;
+            var (left, right) = plan.Left is not null || plan.Right is not null
+                ? (plan.Left, plan.Right)
+                : TaskbarBackdropSamplePlan.ComputeSides(bar, strip, scale);
+            if (left is { } l && IsRegionUnobstructed(l, taskbar, stripWindow))
+                candidates[regionCount++] = l;
+            if (right is { } r && IsRegionUnobstructed(r, taskbar, stripWindow))
+                candidates[regionCount++] = r;
         }
         if (regionCount == 0)
             return false;
@@ -133,7 +137,7 @@ internal static unsafe class Desktop
                 }
 
                 var previous = PInvoke.SelectObject(memoryDc, new HGDIOBJ(bitmap.Value));
-                if (previous.IsNull)
+                if (previous.IsNull || previous.Value == (void*)-1)
                 {
                     PInvoke.DeleteObject(bitmap);
                     return false;
@@ -257,6 +261,8 @@ internal static unsafe class Desktop
         return null;
     }
 
+    private const string StartupApprovedRunKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+
     public static void SetAutostart(bool enabled)
     {
         string installed = InstallPaths.ResolveInstalledExecutable(
@@ -266,14 +272,29 @@ internal static unsafe class Desktop
             Environment.ProcessPath ?? throw new InvalidOperationException("找不到当前程序路径");
         string? desired = InstallPaths.AutostartCommand(enabled, exe);
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
-        if (!InstallPaths.ShouldRepairAutostart(key?.GetValue(RunName), desired))
-            return;
+        bool needsWrite = InstallPaths.ShouldRepairAutostart(key?.GetValue(RunName), desired);
 
-        using var writable = Registry.CurrentUser.CreateSubKey(RunKey);
-        if (desired is null)
-            writable.DeleteValue(RunName, throwOnMissingValue: false);
-        else
-            writable.SetValue(RunName, desired);
+        if (needsWrite)
+        {
+            using var writable = Registry.CurrentUser.CreateSubKey(RunKey);
+            if (desired is null)
+                writable.DeleteValue(RunName, throwOnMissingValue: false);
+            else
+                writable.SetValue(RunName, desired);
+        }
+
+        // 若用户曾在任务管理器禁用自启，重新开启时同步清除 StartupApproved\Run 禁用记录。
+        if (enabled)
+        {
+            try
+            {
+                using var approved = Registry.CurrentUser.OpenSubKey(StartupApprovedRunKey, writable: true);
+                approved?.DeleteValue(RunName, throwOnMissingValue: false);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+            {
+            }
+        }
     }
 
     public static bool Animations()
@@ -342,23 +363,49 @@ internal static unsafe class Desktop
 
     private static bool ProcessMatches(uint id, string[] names)
     {
+        if (id == 0 || names.Length == 0)
+            return false;
+        // 仅按 PID 直接打开受限句柄并查询映像路径，避免 Process.GetProcessById 触发整机进程/线程快照。
+        HANDLE process = PInvoke.OpenProcess(PROCESS_ACCESS_RIGHTS.PROCESS_QUERY_LIMITED_INFORMATION, false, id);
+        if (process.IsNull)
+            return false;
         try
         {
-            using var process = Process.GetProcessById((int)id);
-            return names.Contains(process.ProcessName, StringComparer.OrdinalIgnoreCase);
-        }
-        catch (Exception error) when (error is ArgumentException or InvalidOperationException
-            or System.ComponentModel.Win32Exception)
-        {
-            // 前台进程可能已退出，继续使用窗口几何。
+            Span<char> buffer = stackalloc char[512];
+            uint length = (uint)buffer.Length;
+            fixed (char* ptr = buffer)
+            {
+                if (!PInvoke.QueryFullProcessImageName(process, default, new PWSTR(ptr), &length) || length == 0)
+                    return false;
+            }
+            var imagePath = buffer[..(int)length];
+            int slash = imagePath.LastIndexOfAny('\\', '/');
+            var fileName = slash >= 0 ? imagePath[(slash + 1)..] : imagePath;
+            if (fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                fileName = fileName[..^4];
+            foreach (string candidate in names)
+            {
+                if (fileName.Equals(candidate, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
             return false;
         }
+        finally
+        {
+            PInvoke.CloseHandle(process);
+        }
+    }
+
+    public static bool TryGetMonitor(HMONITOR monitor, out MONITORINFO info)
+    {
+        info = new MONITORINFO { cbSize = (uint)sizeof(MONITORINFO) };
+        return !monitor.IsNull && PInvoke.GetMonitorInfo(monitor, ref info) &&
+            info.rcMonitor.right > info.rcMonitor.left && info.rcMonitor.bottom > info.rcMonitor.top;
     }
 
     public static MONITORINFO Monitor(HMONITOR monitor)
     {
-        var info = new MONITORINFO { cbSize = (uint)sizeof(MONITORINFO) };
-        PInvoke.GetMonitorInfo(monitor, ref info);
+        TryGetMonitor(monitor, out var info);
         return info;
     }
 
@@ -380,11 +427,17 @@ internal static unsafe class Desktop
             var taskbar = PInvoke.FindWindow(new PCWSTR(name), default(PCWSTR));
             if (!taskbar.IsNull && PInvoke.GetWindowRect(taskbar, out var bounds))
             {
-                var monitor = Monitor(PInvoke.MonitorFromWindow(taskbar, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST));
-                bool horizontal = bounds.Width >= bounds.Height;
-                int x = horizontal ? monitor.rcWork.right - 1 : bounds.left + bounds.Width / 2;
-                int y = horizontal ? bounds.top + bounds.Height / 2 : monitor.rcWork.bottom - 1;
-                return RECT.FromXYWH(x, y, 1, 1);
+                var hmon = PInvoke.MonitorFromWindow(taskbar, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
+                if (TryGetMonitor(hmon, out var monitor))
+                {
+                    bool horizontal = bounds.Width >= bounds.Height;
+                    int x = horizontal ? monitor.rcWork.right - 1 : bounds.left + bounds.Width / 2;
+                    int y = horizontal ? bounds.top + bounds.Height / 2 : monitor.rcWork.bottom - 1;
+                    // 自动隐藏任务栏收起时其窗口矩形会滑出显示器边缘，夹紧在显示器内避免在上下双屏落到副屏。
+                    x = Math.Clamp(x, monitor.rcMonitor.left, Math.Max(monitor.rcMonitor.left, monitor.rcMonitor.right - 1));
+                    y = Math.Clamp(y, monitor.rcMonitor.top, Math.Max(monitor.rcMonitor.top, monitor.rcMonitor.bottom - 1));
+                    return RECT.FromXYWH(x, y, 1, 1);
+                }
             }
         }
         PInvoke.GetCursorPos(out var cursor);
@@ -405,16 +458,26 @@ internal static unsafe class Desktop
         return PInvoke.GetLastInputInfo(ref info) ? info.dwTime : null;
     }
 
-    /// <summary>A4：仅在用户点击「复制报告并去反馈」时把文本写入系统剪贴板（CF_UNICODETEXT）。</summary>
+    /// <summary>A4：仅在用户点击时把文本写入系统剪贴板（CF_UNICODETEXT）。</summary>
     public static bool SetClipboardText(HWND owner, string text)
     {
-        if (!PInvoke.OpenClipboard(owner))
+        bool opened = false;
+        for (int attempt = 0; attempt < 3; attempt++)
+        {
+            if (PInvoke.OpenClipboard(owner))
+            {
+                opened = true;
+                break;
+            }
+            Thread.Sleep(15 * (attempt + 1));
+        }
+        if (!opened)
             return false;
         try
         {
             if (!PInvoke.EmptyClipboard())
                 return false;
-            nuint byteCount = (nuint)((text.Length + 1) * sizeof(char));
+            nuint byteCount = checked((nuint)(text.Length + 1) * sizeof(char));
             var memory = PInvoke.GlobalAlloc(GLOBAL_ALLOC_FLAGS.GMEM_MOVEABLE, byteCount);
             if (memory.IsNull)
                 return false;
@@ -491,6 +554,15 @@ internal static unsafe class Desktop
             return length > 0 ? new string(buffer[..length]) : "未知";
         }
     }
+
+    public static bool IsTaskbarWindow(HWND window) =>
+        !window.IsNull && TaskbarClasses.Contains(ClassOf(window));
+
+    private static readonly HashSet<string> TaskbarClasses = new(StringComparer.Ordinal)
+    {
+        "Shell_TrayWnd", "Shell_SecondaryTrayWnd", "NotifyIconOverflowWindow",
+        "TopLevelWindowForOverflowXamlIsland", "XamlExplorerHostIslandWindow"
+    };
 
     // 桌面、任务栏、开始菜单、通知中心和托盘溢出区都会铺满或贴边，但不是游戏。
     private static readonly HashSet<string> ShellClasses = new(StringComparer.Ordinal)

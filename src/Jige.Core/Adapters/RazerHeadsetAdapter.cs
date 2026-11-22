@@ -20,7 +20,10 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
         if (IsBlackShark2020(endpoint))
         {
             var reading = await ReadBlackShark2020Async(target, endpoint, transport, null, token).ConfigureAwait(false);
-            return new(endpoint.ReceiverId, null, target.Device.Id, reading.Link, reading.Issue);
+            return new(endpoint.ReceiverId, null, target.Device.Id, reading.Link, reading.Issue)
+            {
+                Battery = reading.Link == LinkState.Online ? reading : null
+            };
         }
 
         using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 2, RequiredOutputReportId = 2 }, token);
@@ -62,11 +65,8 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
         {
-            if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
-            {
-                gates.RecordRejection(endpoint, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(endpoint, out _) == true)
                 continue;
-            }
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             string name = endpoint.ProductId switch
             {
@@ -110,8 +110,8 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
 
         var level = await QueryAsync(RazerHeadsetQuery.Battery).ConfigureAwait(false);
         if (level is null)
-            return AdapterRegistry.Failure(target, ReadIssue.Timeout,
-                isV3 ? "未收到匹配的 BlackShark V3 电量回复" : "未收到匹配的 BlackShark 21 电量回复");
+            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow,
+                ReadIssue.Timeout, isV3 ? "未收到匹配的 BlackShark V3 电量回复" : "未收到匹配的 BlackShark 21 电量回复");
         if (level == 0xFF)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
                 Detail: "BlackShark 无线链路尚未就绪");
@@ -119,7 +119,7 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
             return AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "BlackShark 百分比超出范围");
 
         var power = await QueryAsync(RazerHeadsetQuery.Charging).ConfigureAwait(false);
-        var charging = power switch { null or 0xFF => ChargingState.Unknown, 0 => ChargingState.NotCharging, _ => ChargingState.Charging };
+        var charging = power switch { 0 => ChargingState.NotCharging, 1 or 2 => ChargingState.Charging, _ => ChargingState.Unknown };
         return new(target.Device, level.Value, false, charging, LinkState.Online, DateTimeOffset.UtcNow,
             Detail: charging == ChargingState.Unknown ? "BlackShark 2A 未确认充电状态" : null);
 
@@ -138,7 +138,7 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
         DeviceTarget target, HidInterface endpoint, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
     {
         using var session = transport.OpenHid(
-            endpoint with { RequiredFeatureReportId = RazerHeadsetProtocol.BlackShark2020ReportId }, token);
+            endpoint with { FeatureOnly = true, RequiredFeatureReportId = RazerHeadsetProtocol.BlackShark2020ReportId }, token);
         var request = RazerHeadsetProtocol.EncodeBlackShark2020();
         await session.WriteFeatureAsync(request, token).ConfigureAwait(false);
         trace?.Invoke(FrameDirection.Sent, request);
@@ -164,7 +164,7 @@ internal sealed class RazerHeadsetAdapter(TimeSpan? featureSettleDelay = null, S
                     : charging == ChargingState.Unknown
                         ? "BlackShark V2 Pro (2020) 未确认充电状态"
                         : null;
-                return new(target.Device, percentage, percentage.HasValue, charging, LinkState.Online,
+                return new(target.Device, percentage, percentage is not null, charging, LinkState.Online,
                     DateTimeOffset.UtcNow, Detail: detail);
             }
             if (millivolts == 0 && response[1] == 0x0F)

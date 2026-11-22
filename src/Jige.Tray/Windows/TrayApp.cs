@@ -83,7 +83,7 @@ internal sealed partial class TrayApp : IDisposable
     private HoverCardWindow? hoverCard;
     private GameBannerWindow? gameBanner;
     private TrayMenuWindow? menu;
-    private Point menuPoint;
+    private Point? menuPoint;
     private uint? hoverIconId;
     private HoverPhase hoverPhase;
     private RECT hoverAnchor;
@@ -117,7 +117,8 @@ internal sealed partial class TrayApp : IDisposable
     private bool MenuOpen => menu is not null;
     private bool UpdateActive => updateState.IsBusy;
     private int cleanupAttempts;
-    private bool exitRequested;
+    private volatile bool exitRequested;
+    private bool pendingExplicitDeviceChange;
     private string? pendingInstallerPackage;
     private string? settingsError;
     private readonly bool configLoaded;
@@ -127,6 +128,8 @@ internal sealed partial class TrayApp : IDisposable
     private Task pollTask = Task.CompletedTask;
     private Task heartbeatTask = Task.CompletedTask;
     private Task cancelWork = Task.CompletedTask;
+    private readonly object stateWriteLock = new();
+    private (TrayState State, long GateVersion)? pendingStateWrite;
     private Task stateWrite = Task.CompletedTask;
     private long lastSavedGateVersion;
 
@@ -147,32 +150,63 @@ internal sealed partial class TrayApp : IDisposable
         InitializeTaskbarBackdrop();
         updateState = CreateInitialUpdateState();
 
-        Register(HostClass, &HostCallback);
-        Register(PopupClass, &PopupCallback);
-        Register(HoverCardClass, &HoverCardCallback);
-        // 横幅与悬停卡片同样不抢焦点、点击穿透，复用同一个消息处理。
-        Register(BannerClass, &HoverCardCallback);
-        Register(MenuClass, &MenuCallback);
-        Register(StripClass, &StripCallback);
-        host = MakeWindow(HostClass, 0, WS_POPUP);
-        icons = new(host, TrayMessage);
-        RegisterDeviceNotifications();
-        sessionNotifyRegistered = PInvoke.WTSRegisterSessionNotification(host, 0);
+        try
+        {
+            Register(HostClass, &HostCallback);
+            Register(PopupClass, &PopupCallback);
+            Register(HoverCardClass, &HoverCardCallback);
+            Register(BannerClass, &BannerCallback);
+            Register(MenuClass, &MenuCallback);
+            Register(StripClass, &StripCallback);
+            host = MakeWindow(HostClass, 0, WS_POPUP);
+            icons = new(host, TrayMessage);
+            RegisterDeviceNotifications();
+            sessionNotifyRegistered = PInvoke.WTSRegisterSessionNotification(host, 0);
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
     public static int Run(bool afterSetup)
     {
-        if (!afterSetup && Mutex.TryOpenExisting(@"Local\Jige.Battery.Setup", out var setup))
+        if (!afterSetup)
         {
-            setup.Dispose();
-            WakeExistingInstance();
-            Desktop.Log("检测到安装或更新正在进行，本次启动已跳过");
-            return 0;
+            try
+            {
+                if (Mutex.TryOpenExisting(@"Local\Jige.Battery.Setup", out var setup))
+                {
+                    setup.Dispose();
+                    Desktop.Log("检测到安装或更新正在进行，本次启动已跳过");
+                    return 0;
+                }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Desktop.Log("检测到安装或更新互斥量（无权打开），本次启动已跳过");
+                return 0;
+            }
         }
 
         string? pendingInstaller = null;
         int exitCode;
-        using (var singleton = new Mutex(true, @"Local\Jige.Battery.Tray", out bool first))
+        Mutex? singleton;
+        bool first;
+        try
+        {
+            singleton = new Mutex(true, @"Local\Jige.Battery.Tray", out first);
+        }
+        catch (UnauthorizedAccessException error)
+        {
+            Desktop.Log("无法打开单实例互斥量，跳过本次启动", error);
+            if (!afterSetup)
+                WakeExistingInstance();
+            return 0;
+        }
+
+        using (singleton)
         {
             bool ownsMutex = first;
             if (!first)
@@ -324,12 +358,19 @@ internal sealed partial class TrayApp : IDisposable
     private static void WinEvent(HWINEVENTHOOK hook, uint kind, HWND window, int objectId, int childId,
         uint thread, uint time)
     {
-        if (current is not { } app || app.host.IsNull)
-            return;
-        if (kind == ForegroundEvent && !app.foregroundPosted)
-            app.foregroundPosted = PInvoke.PostMessage(app.host, ForegroundMessage, default, default);
-        if (kind == LocationEvent && objectId == 0 && childId == 0 && window == app.foreground && !app.locationPosted)
-            app.locationPosted = PInvoke.PostMessage(app.host, MoveMessage, default, default);
+        try
+        {
+            if (current is not { } app || app.host.IsNull)
+                return;
+            if (kind == ForegroundEvent && !app.foregroundPosted)
+                app.foregroundPosted = PInvoke.PostMessage(app.host, ForegroundMessage, default, default);
+            if (kind == LocationEvent && objectId == 0 && childId == 0 && window == app.foreground && !app.locationPosted)
+                app.locationPosted = PInvoke.PostMessage(app.host, MoveMessage, default, default);
+        }
+        catch
+        {
+            // 非托管回调绝不能向外抛出托管异常。
+        }
     }
 
     private unsafe void SetForegroundTracking()
@@ -358,8 +399,12 @@ internal sealed partial class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log("处理托盘消息失败", error);
-            current?.ArmTimer(WorkTimer, 5_000);
+            try
+            {
+                Desktop.Log("处理托盘消息失败", error);
+                current?.ArmTimer(WorkTimer, 5_000);
+            }
+            catch { }
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
     }
@@ -394,8 +439,12 @@ internal sealed partial class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log("处理面板消息失败", error);
-            current?.DestroyPopup();
+            try
+            {
+                Desktop.Log("处理面板消息失败", error);
+                current?.DestroyPopup();
+            }
+            catch { }
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
     }
@@ -405,29 +454,64 @@ internal sealed partial class TrayApp : IDisposable
     {
         try
         {
-            switch (message)
-            {
-                case 0x0083: return default; // WM_NCCALCSIZE，保留 DWM 原生圆角与阴影。
-                case 0x0084: return new LRESULT(-1); // HTTRANSPARENT，鼠标点击穿透。
-                case 0x0021: return (LRESULT)3; // MA_NOACTIVATE，永不抢焦点。
-                case 0x0014: return (LRESULT)1; // WM_ERASEBKGND
-                case 0x000F: // WM_PAINT，图像由独立合成树提供。
-                    PAINTSTRUCT paint;
-                    PInvoke.BeginPaint(window, &paint);
-                    PInvoke.EndPaint(window, &paint);
-                    return default;
-                case 0x02E0: // WM_DPICHANGED
-                    if (current is { } app && !app.host.IsNull)
-                        PInvoke.PostMessage(app.host, 0x02E0, default, default);
-                    return default;
-            }
+            if (HandlePassthroughOverlay(window, message, out var handled))
+                return handled;
         }
         catch (Exception error)
         {
-            Desktop.Log("处理悬停卡片消息失败", error);
-            current?.DestroyHoverCard();
+            try
+            {
+                Desktop.Log("处理悬停卡片消息失败", error);
+                current?.DestroyHoverCard();
+            }
+            catch { }
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
+    private static unsafe LRESULT BannerCallback(HWND window, uint message, WPARAM wParam, LPARAM lParam)
+    {
+        try
+        {
+            if (HandlePassthroughOverlay(window, message, out var handled))
+                return handled;
+        }
+        catch (Exception error)
+        {
+            try
+            {
+                Desktop.Log("处理进游戏横幅消息失败", error);
+                current?.DestroyGameBanner();
+            }
+            catch { }
+        }
+        return PInvoke.DefWindowProc(window, message, wParam, lParam);
+    }
+
+    private static unsafe bool HandlePassthroughOverlay(HWND window, uint message, out LRESULT result)
+    {
+        switch (message)
+        {
+            case 0x0083: result = default; return true; // WM_NCCALCSIZE，保留 DWM 原生圆角与阴影。
+            case 0x0084: result = new LRESULT(-1); return true; // HTTRANSPARENT，鼠标点击穿透。
+            case 0x0021: result = (LRESULT)3; return true; // MA_NOACTIVATE，永不抢焦点。
+            case 0x0014: result = (LRESULT)1; return true; // WM_ERASEBKGND
+            case 0x000F: // WM_PAINT，图像由独立合成树提供。
+                PAINTSTRUCT paint;
+                PInvoke.BeginPaint(window, &paint);
+                PInvoke.EndPaint(window, &paint);
+                result = default;
+                return true;
+            case 0x02E0: // WM_DPICHANGED
+                if (current is { } app && !app.host.IsNull)
+                    PInvoke.PostMessage(app.host, 0x02E0, default, default);
+                result = default;
+                return true;
+            default:
+                result = default;
+                return false;
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvStdcall)])]
@@ -456,8 +540,12 @@ internal sealed partial class TrayApp : IDisposable
         }
         catch (Exception error)
         {
-            Desktop.Log("处理托盘菜单消息失败", error);
-            current?.DestroyMenu();
+            try
+            {
+                Desktop.Log("处理托盘菜单消息失败", error);
+                current?.DestroyMenu();
+            }
+            catch { }
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
     }
@@ -528,7 +616,11 @@ internal sealed partial class TrayApp : IDisposable
                 return true;
             case 0x0219: // WM_DEVICECHANGE（C1：设备插拔通知）
                 if (wParam.Value is 0x8000 or 0x8004 or 0x0007)
+                {
+                    if (wParam.Value is 0x8000 or 0x8004)
+                        pendingExplicitDeviceChange = true;
                     ArmTimer(DeviceChangeTimer, 1_200);
+                }
                 return true;
             case 0x0218: // WM_POWERBROADCAST（C2：睡眠/休眠恢复）
                 if (wParam.Value is 0x0012 or 0x0007 or 0x0006) // PBT_APMRESUMEAUTOMATIC / RESUMESUSPEND / RESUMECRITICAL
@@ -573,8 +665,13 @@ internal sealed partial class TrayApp : IDisposable
                 }
                 if (wParam.Value == DeviceChangeTimer)
                 {
+                    bool explicitChange = pendingExplicitDeviceChange;
+                    pendingExplicitDeviceChange = false;
                     poll.InvalidateTopology();
-                    schedule.NotifyDeviceChange();
+                    if (explicitChange)
+                        schedule.NotifyDeviceChange();
+                    else
+                        schedule.NotifyBackgroundDeviceChange();
                     ProcessWork();
                     return true;
                 }
@@ -585,7 +682,7 @@ internal sealed partial class TrayApp : IDisposable
                 }
                 if (wParam.Value == StripRetryTimer)
                 {
-                    RefreshStripGeometry();
+                    RefreshStripGeometry(forcePublish: true);
                     RefreshIcon();
                     return true;
                 }
@@ -600,6 +697,8 @@ internal sealed partial class TrayApp : IDisposable
                     if (StripGeometryPending)
                         RefreshStripGeometry();
                     RefreshIcon();
+                    ProcessWork();
+                    return true;
                 }
                 if (wParam.Value == CloseTimer && popup?.Closing == true)
                     DestroyPopup();
@@ -617,6 +716,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (menu?.Closing == true)
                         DestroyMenu();
+                    ProcessWork();
                     return true;
                 }
                 ProcessWork();
@@ -700,7 +800,7 @@ internal sealed partial class TrayApp : IDisposable
         {
             try
             {
-                activeMenu.Refresh(Anchor(menuPoint is { X: -1, Y: -1 } ? null : menuPoint), reset: resetPopup);
+                activeMenu.Refresh(Anchor(menuPoint), reset: resetPopup);
             }
             catch (Exception error)
             {
@@ -805,8 +905,11 @@ internal sealed partial class TrayApp : IDisposable
             (game.Game || !model.Settings.GameSilent && Desktop.IsFullscreen(currentForeground));
         if (changed || stripFullscreen != hideStrip)
         {
+            bool stripStateChanged = stripFullscreen != hideStrip;
             bool exitingFullscreen = stripFullscreen && !hideStrip;
             stripFullscreen = hideStrip;
+            if (stripStateChanged)
+                stripAutomation?.SetPaused(stripFullscreen);
             if (exitingFullscreen)
             {
                 stripZOrderPending = true;
@@ -874,7 +977,7 @@ internal sealed partial class TrayApp : IDisposable
         if (schedule.HeartbeatDue(nowTick, game.Game, hasHeartbeatDevices) is long hbTick)
             dueMs = EarlierMs(dueMs, Math.Max(0, hbTick - nowTick));
         if ((hasHeartbeatDevices || model.HasAsleepLogitechOrBluetoothDevices) && model.HasAsleepDevices && !game.Game && !schedule.Running && !schedule.HeartbeatRunning)
-            dueMs = EarlierMs(dueMs, PollSchedule.InputCheckIntervalMs);
+            dueMs = EarlierMs(dueMs, schedule.InputCheckDelayMs(nowTick));
 
         DateTimeOffset? wallDue = model.NextSleepTimeout(now);
         if (popup?.NoticeId is { } id)
@@ -1048,7 +1151,11 @@ internal sealed partial class TrayApp : IDisposable
     private void StartHeartbeat(long nowTick, IReadOnlySet<string>? onlyDeviceIds = null, bool inputWake = false)
     {
         schedule.StartHeartbeat(nowTick, inputWake);
-        bool pausedPush = currentPushTargets.Length > 0 && (inputWake || onlyDeviceIds is not null);
+        bool pausedPush = currentPushTargets.Length > 0 && onlyDeviceIds is not null &&
+            currentPushTargets.Any(target =>
+                onlyDeviceIds.Contains(target.Target.Device.Id) ||
+                target.IsMultiDevice && onlyDeviceIds.Any(id =>
+                    id.StartsWith($"{target.Target.Device.Id}/", StringComparison.OrdinalIgnoreCase)));
         if (pausedPush)
             StopPushListeners();
         var stoppingPush = pausedPush ? pushTask : Task.CompletedTask;
@@ -1185,15 +1292,11 @@ internal sealed partial class TrayApp : IDisposable
             RenderHoverCard();
         }
         if (needsFullRefresh)
-        {
             schedule.Request(userInitiated: false);
-            ProcessWork();
-        }
         else if (refreshIds.Length > 0)
-        {
             schedule.RequestTargeted(refreshIds);
+        if (uiChanged || needsFullRefresh || refreshIds.Length > 0)
             ProcessWork();
-        }
         MaybeSaveGates();
     }
 
@@ -1219,15 +1322,30 @@ internal sealed partial class TrayApp : IDisposable
     {
         long gateVersion = gates.Version;
         var snapshot = model.Snapshot(gates.Snapshot());
-        var previous = stateWrite;
-        stateWrite = Task.Run(async () =>
+        lock (stateWriteLock)
         {
-            try { await previous.ConfigureAwait(false); }
-            catch { }
+            pendingStateWrite = (snapshot, gateVersion);
+            if (stateWrite.IsCompleted)
+                stateWrite = Task.Run(DrainStateWrites);
+        }
+    }
+
+    private void DrainStateWrites()
+    {
+        while (true)
+        {
+            (TrayState State, long GateVersion) next;
+            lock (stateWriteLock)
+            {
+                if (pendingStateWrite is not { } item)
+                    return;
+                next = item;
+                pendingStateWrite = null;
+            }
             try
             {
-                files.SaveState(snapshot);
-                Interlocked.Exchange(ref lastSavedGateVersion, gateVersion);
+                files.SaveState(next.State);
+                Interlocked.Exchange(ref lastSavedGateVersion, next.GateVersion);
             }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException)
             {
@@ -1237,7 +1355,7 @@ internal sealed partial class TrayApp : IDisposable
             {
                 Desktop.Log("保存电量记录发生异常", error);
             }
-        });
+        }
     }
 
     private bool SaveSettings(TraySettings settings, bool userInitiated = false)
@@ -1452,6 +1570,19 @@ internal sealed partial class TrayApp : IDisposable
             active.Update(content, anchor, reset);
             hoverTextDue = now.AddMinutes(1);
         }
+        catch (Exception error) when (!reset && Graphics.IsDeviceLost(error))
+        {
+            try
+            {
+                active.Update(content, anchor, reset: true);
+                hoverTextDue = now.AddMinutes(1);
+            }
+            catch (Exception retryError)
+            {
+                DestroyHoverCard();
+                Desktop.Log("显卡设备重置后刷新悬停卡片仍失败", retryError);
+            }
+        }
         catch (Exception error)
         {
             DestroyHoverCard();
@@ -1658,8 +1789,24 @@ internal sealed partial class TrayApp : IDisposable
         try
         {
             active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, updateState,
-                DisplayLocationFallbackReason, reset);
+                DisplayLocationFallbackReason, reset, darkTaskbar);
             textDue = active.IsNotice ? null : now.AddMinutes(1);
+        }
+        catch (Exception error) when (!reset && Graphics.IsDeviceLost(error))
+        {
+            try
+            {
+                active.Render(now, schedule.Running, settingsError, diagnostics.Status, diagnostics.PreviewPending, updateState,
+                    DisplayLocationFallbackReason, reset: true, darkTaskbar);
+                textDue = active.IsNotice ? null : now.AddMinutes(1);
+            }
+            catch (Exception retryError)
+            {
+                DestroyPopup();
+                Desktop.Log("显卡设备重置后刷新面板仍失败", retryError);
+                if (active.IsNotice)
+                    nextPopupAttempt = now.AddSeconds(60);
+            }
         }
         catch (Exception error)
         {
@@ -1681,9 +1828,10 @@ internal sealed partial class TrayApp : IDisposable
                 if (MenuOpen || (message == 0x0008 && active.IsEditor((HWND)wParam.Value)))
                     return true;
                 var nextWindow = message == 0x0006 ? (HWND)lParam.Value : (HWND)wParam.Value;
-                var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
+                var targetWindow = nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow;
+                var kind = Desktop.Classify(targetWindow, out _);
                 string category = TrayLog.Foreground(kind);
-                if (kind == ForegroundKind.System && active.TryReclaimFocus())
+                if (Desktop.IsTaskbarWindow(targetWindow) && active.TryReclaimFocus())
                 {
                     Desktop.Log($"面板刚显示即失焦（{category}），重新激活");
                     return true;
@@ -1696,12 +1844,16 @@ internal sealed partial class TrayApp : IDisposable
             case 0x0010: // WM_CLOSE
                 PopupCommand(active, PopupAction.Close);
                 return true;
-            case 0x8010: // 托盘刚收回焦点时，确认前台仍是系统窗口才重新激活。
+            case 0x8010: // 托盘刚收回焦点时，确认前台仍是任务栏窗口才重新激活，避免抢夺桌面或开始菜单焦点。
+                active.CompleteReclaim();
                 var foregroundNow = PInvoke.GetForegroundWindow();
-                if (Desktop.Classify(foregroundNow, out _) == ForegroundKind.System)
+                if (Desktop.IsTaskbarWindow(foregroundNow))
                     PInvoke.SetForegroundWindow(active.Handle);
                 else if (foregroundNow != active.Handle)
                     ClosePopup();
+                return true;
+            case 0x0215: // WM_CAPTURECHANGED
+                active.CaptureChanged();
                 return true;
             case 0x0200: active.PointerMove(lParam); return true;
             case 0x02A3: active.PointerLeave(); return true;
@@ -1866,6 +2018,10 @@ internal sealed partial class TrayApp : IDisposable
 
     private void RedetectDevices()
     {
+        if (cancellation is { IsCancellationRequested: false } activePoll)
+            cancelWork = activePoll.CancelAsync();
+        if (heartbeatCancellation is { IsCancellationRequested: false } activeHeartbeat)
+            _ = activeHeartbeat.CancelAsync();
         gates.Clear();
         events.ResetSafetyGateLog();
         poll.InvalidateTopology();
@@ -1927,6 +2083,8 @@ internal sealed partial class TrayApp : IDisposable
         PInvoke.KillTimer(host, CloseTimer);
         var previous = popup;
         popup = null;
+        if (!MenuOpen)
+            openedFromStrip = false;
         textDue = null;
         welcomeExpires = null;
         previous?.Dispose();
@@ -1937,13 +2095,14 @@ internal sealed partial class TrayApp : IDisposable
     private void ShowMenu(Point point)
     {
         DestroyHoverCard();
-        menuPoint = point;
+        Point? normalized = point is { X: -1, Y: -1 } ? null : point;
+        menuPoint = normalized;
         try
         {
             PInvoke.KillTimer(host, MenuCloseTimer);
+            var anchor = Anchor(normalized);
             var extra = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
             HWND window = MakeWindow(MenuClass, extra, WS_POPUP | WS_THICKFRAME);
-            var anchor = Anchor(point is { X: -1, Y: -1 } ? null : point);
             menu = new TrayMenuWindow(window, model);
             menu.Show(anchor);
         }
@@ -1963,19 +2122,23 @@ internal sealed partial class TrayApp : IDisposable
             case 0x0006 when (ushort)wParam.Value == 0: // WM_ACTIVATE
             case 0x0008: // WM_KILLFOCUS
                 var nextWindow = message == 0x0006 ? (HWND)lParam.Value : (HWND)wParam.Value;
-                var kind = Desktop.Classify(nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow, out _);
-                if (kind == ForegroundKind.System && active.TryReclaimFocus())
+                var targetWindow = nextWindow.IsNull ? PInvoke.GetForegroundWindow() : nextWindow;
+                if (Desktop.IsTaskbarWindow(targetWindow) && active.TryReclaimFocus())
                     return true;
                 if (PInvoke.GetCursorPos(out var cursor) && (icons.ContainsCursor(cursor) || stripWindow?.Contains(cursor) == true))
                     lostFocusByTray = Environment.TickCount64;
                 CloseMenu();
                 return true;
             case 0x8010:
+                active.CompleteReclaim();
                 var foregroundNow = PInvoke.GetForegroundWindow();
-                if (Desktop.Classify(foregroundNow, out _) == ForegroundKind.System)
+                if (Desktop.IsTaskbarWindow(foregroundNow))
                     PInvoke.SetForegroundWindow(active.Handle);
                 else if (foregroundNow != active.Handle)
                     CloseMenu();
+                return true;
+            case 0x0215: // WM_CAPTURECHANGED
+                active.CaptureChanged();
                 return true;
             case 0x0010: // WM_CLOSE
                 CloseMenu();
@@ -2004,7 +2167,7 @@ internal sealed partial class TrayApp : IDisposable
 
     private void ExecuteMenuCommand(TrayMenuCommand command)
     {
-        var anchorPoint = menuPoint is { X: -1, Y: -1 } ? (Point?)null : menuPoint;
+        var anchorPoint = menuPoint;
         DestroyMenu();
         if (exitRequested)
             return;
@@ -2102,7 +2265,7 @@ internal sealed partial class TrayApp : IDisposable
         string current = ReleaseVersion.Current;
         string currentLabel = updateState.CurrentVersionLabel;
         bool installed = updateState.IsInstalled;
-        if (!ReleaseVersion.TryParseInstalled(current, out var version, out _, out _))
+        if (!ReleaseVersion.TryParseInstalled(current, out var version, out bool isPrerelease, out _))
         {
             events.LogUpdateCheck($"{prefix}失败（InvalidVersion）");
             if (background)
@@ -2127,13 +2290,14 @@ internal sealed partial class TrayApp : IDisposable
 
         updateWork = Task.Run(async () =>
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(TimeSpan.FromSeconds(25));
+            CancellationTokenSource? timeout = null;
             try
             {
+                timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(TimeSpan.FromSeconds(25));
                 using var http = UpdateClient.CreateHttpClient();
                 var client = new UpdateClient(http);
-                var update = await client.CheckAsync(version, timeout.Token).ConfigureAwait(false);
+                var update = await client.CheckAsync(version, timeout.Token, isPrerelease).ConfigureAwait(false);
                 var checkedAt = DateTimeOffset.UtcNow;
                 PostUpdateCallback(() =>
                 {
@@ -2146,7 +2310,12 @@ internal sealed partial class TrayApp : IDisposable
                     {
                         events.LogUpdateCheck($"{prefix}已是最新版本 {currentLabel}");
                         if (!background || updateState.Phase is UpdatePhase.Idle or UpdatePhase.UpToDate)
+                        {
+                            bool hadReady = updateState.Ready is not null;
                             updateState = UpdateViewState.UpToDate(currentLabel, installed, checkedAt);
+                            if (hadReady)
+                                CleanupUpdates();
+                        }
                     }
                     else if (background && updateState.IsReady && updateState.Available?.Version == update.Version)
                     {
@@ -2166,7 +2335,7 @@ internal sealed partial class TrayApp : IDisposable
             }
             catch (OperationCanceledException)
             {
-                bool timedOut = timeout.IsCancellationRequested && !token.IsCancellationRequested;
+                bool timedOut = timeout?.IsCancellationRequested == true && !token.IsCancellationRequested;
                 PostUpdateCallback(() =>
                 {
                     if (opId != updateOperationId || exitRequested)
@@ -2211,6 +2380,10 @@ internal sealed partial class TrayApp : IDisposable
                     updateState = UpdateViewState.Failed(currentLabel, installed, message);
                     RenderPopup();
                 });
+            }
+            finally
+            {
+                timeout?.Dispose();
             }
         });
     }
@@ -2261,18 +2434,19 @@ internal sealed partial class TrayApp : IDisposable
         // 安装路径失败或取消时 UpdateInstallation 会清空更新目录，已就绪的安装包随之失效。
         UpdateViewState Interrupted(UpdateViewState state) => install ? state with { Ready = null } : state;
 
-        updateWork = Task.Run(() =>
+        updateWork = Task.Run(async () =>
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-            timeout.CancelAfter(TimeSpan.FromMinutes(10));
+            CancellationTokenSource? timeout = null;
             try
             {
+                timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                timeout.CancelAfter(TimeSpan.FromMinutes(10));
                 using var http = UpdateClient.CreateHttpClient();
                 var client = new UpdateClient(http);
                 if (!install)
                 {
-                    var package = client.DownloadVerifiedAsync(update, files.Updates, progress, timeout.Token)
-                        .GetAwaiter().GetResult();
+                    var package = await client.DownloadVerifiedAsync(update, files.Updates, progress, timeout.Token)
+                        .ConfigureAwait(false);
                     PostUpdateCallback(() =>
                     {
                         if (opId != updateOperationId || exitRequested)
@@ -2289,18 +2463,18 @@ internal sealed partial class TrayApp : IDisposable
                 }
 
                 string? preparedPackage = null;
-                bool launched = UpdateInstallation.Run(
+                bool launched = await UpdateInstallation.RunAsync(
                     files.Updates,
-                    () => ready is not null && UpdateFiles.TryReverify(ready)
+                    async () => ready is not null && UpdateFiles.TryReverify(ready)
                         ? ready.Path
-                        : client.DownloadAsync(update, files.Updates, progress, timeout.Token).GetAwaiter().GetResult(),
+                        : await client.DownloadAsync(update, files.Updates, progress, timeout.Token).ConfigureAwait(false),
                     () => exitRequested || token.IsCancellationRequested,
                     package =>
                     {
                         if (!File.Exists(package))
                             throw new IOException("更新安装包不存在。");
                         preparedPackage = package;
-                    });
+                    }).ConfigureAwait(false);
                 if (launched && preparedPackage is not null)
                 {
                     PostUpdateCallback(() =>
@@ -2322,7 +2496,7 @@ internal sealed partial class TrayApp : IDisposable
             }
             catch (OperationCanceledException)
             {
-                bool timedOut = timeout.IsCancellationRequested && !token.IsCancellationRequested;
+                bool timedOut = timeout?.IsCancellationRequested == true && !token.IsCancellationRequested;
                 PostUpdateCallback(() =>
                 {
                     if (opId != updateOperationId || exitRequested)
@@ -2372,6 +2546,10 @@ internal sealed partial class TrayApp : IDisposable
                     }
                     RenderPopup();
                 });
+            }
+            finally
+            {
+                timeout?.Dispose();
             }
         });
     }
@@ -2428,6 +2606,7 @@ internal sealed partial class TrayApp : IDisposable
     private void CancelUpdate(PopupWindow activePopup)
     {
         bool wasChecking = updateState.Phase is UpdatePhase.Checking or UpdatePhase.Idle;
+        bool clearReady = updateState.Phase == UpdatePhase.Verifying;
         CancelUpdateTask();
         events.LogUpdateCheck("已取消");
         if (wasChecking)
@@ -2437,7 +2616,9 @@ internal sealed partial class TrayApp : IDisposable
         }
         else
         {
-            updateState = updateState.BackToAvailable();
+            updateState = updateState.BackToAvailable(clearReady: clearReady);
+            if (clearReady)
+                CleanupUpdates();
             RenderPopup();
         }
     }
@@ -2483,6 +2664,8 @@ internal sealed partial class TrayApp : IDisposable
                 UseShellExecute = false
             };
             using var installer = Process.Start(start) ?? throw new Win32Exception(0, "无法启动几格安装器。");
+            if (installer.WaitForExit(2_000) && installer.ExitCode != 0)
+                throw new Win32Exception(installer.ExitCode, $"几格安装器异常退出（退出码 {installer.ExitCode}）。");
         }
         catch (Exception error)
         {
@@ -2619,9 +2802,10 @@ internal sealed partial class TrayApp : IDisposable
     {
         try
         {
+            string notepad = Path.Combine(Environment.SystemDirectory, "notepad.exe");
             using var editor = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
             {
-                FileName = "notepad.exe",
+                FileName = notepad,
                 ArgumentList = { files.DiagnosticsPath },
                 UseShellExecute = false,
             });
@@ -2642,6 +2826,14 @@ internal sealed partial class TrayApp : IDisposable
             if (!File.Exists(files.DiagnosticsPath))
             {
                 diagnostics.FeedbackFailed();
+                RenderPopup();
+                return;
+            }
+            var info = new FileInfo(files.DiagnosticsPath);
+            if (info.Length > 8 * 1024 * 1024)
+            {
+                diagnostics.FeedbackFailed();
+                Desktop.Log($"诊断报告体积异常（{info.Length} 字节），已拒绝复制到剪贴板");
                 RenderPopup();
                 return;
             }
@@ -2683,58 +2875,69 @@ internal sealed partial class TrayApp : IDisposable
 
     public void Dispose()
     {
-        StopPushListeners();
+        exitRequested = true;
         if (!hidNotify.IsNull)
+        {
             PInvoke.UnregisterDeviceNotification(hidNotify);
+            hidNotify = default;
+        }
         if (!comNotify.IsNull)
+        {
             PInvoke.UnregisterDeviceNotification(comNotify);
+            comNotify = default;
+        }
         if (!foregroundHook.IsNull)
+        {
             PInvoke.UnhookWinEvent(foregroundHook);
+            foregroundHook = default;
+        }
         if (!locationHook.IsNull)
+        {
             PInvoke.UnhookWinEvent(locationHook);
+            locationHook = default;
+        }
         DestroyMenu();
         DestroyHoverCard();
         DestroyGameBanner();
         DestroyPopup();
         DisposeStrip();
-        icons.Dispose();
-        if (sessionNotifyRegistered && !host.IsNull)
-        {
-            PInvoke.WTSUnRegisterSessionNotification(host);
-            sessionNotifyRegistered = false;
-        }
-        var window = host;
-        host = default;
-        PInvoke.DestroyWindow(window);
-        if (cancellation is { } active)
-        {
-            _ = DisposeCancellation(active, active.IsCancellationRequested ? cancelWork : active.CancelAsync());
-            cancellation = null;
-        }
-        if (heartbeatCancellation is { } hb)
-        {
-            _ = DisposeCancellation(hb, hb.CancelAsync());
-            heartbeatCancellation = null;
-        }
-        if (updateCancellation is { } updateCts)
-        {
-            updateCancellation = null;
-            updateCts.Cancel();
-            try { updateWork.Wait(TimeSpan.FromSeconds(2)); }
-            catch { }
-            updateCts.Dispose();
-        }
-        diagnosticCancellation.Cancel();
+        icons?.Dispose();
+
+        // 先发出所有后台取消信号，待后台任务退出后再销毁消息窗口与 CTS，避免句柄复用投递与释放竞态。
+        var pushCts = pushCancellation;
+        pushCancellation = null;
+        try { pushCts?.Cancel(); } catch (ObjectDisposedException) { }
+
+        var pollCts = cancellation;
+        cancellation = null;
+        try { pollCts?.Cancel(); } catch (ObjectDisposedException) { }
+
+        var hbCts = heartbeatCancellation;
+        heartbeatCancellation = null;
+        try { hbCts?.Cancel(); } catch (ObjectDisposedException) { }
+
+        var updateCts = updateCancellation;
+        updateCancellation = null;
+        try { updateCts?.Cancel(); } catch (ObjectDisposedException) { }
+
+        try { diagnosticCancellation.Cancel(); } catch (ObjectDisposedException) { }
+
         // 退出前顺带保存剩余时间估算累计的在线时长；电量没变时 SaveState 字节比较后不会重复写盘。
         if (model.HasUnsavedRuntime)
             SaveState();
+
+        Task currentStateWrite;
+        lock (stateWriteLock)
+            currentStateWrite = stateWrite;
+
         long shutdownDeadline = Environment.TickCount64 + 3_000;
         foreach (var (name, task) in new (string Name, Task Work)[]
         {
             ("轮询", pollTask),
             ("心跳", heartbeatTask),
             ("推送", pushTask),
-            ("状态写盘", stateWrite),
+            ("更新", updateWork),
+            ("状态写盘", currentStateWrite),
             ("诊断导出", diagnostics.Work ?? Task.CompletedTask)
         })
         {
@@ -2746,6 +2949,26 @@ internal sealed partial class TrayApp : IDisposable
             }
             catch { }
         }
-        diagnosticCancellation.Dispose();
+
+        if (pollTask.IsCompleted)
+            try { pollCts?.Dispose(); } catch { }
+        if (heartbeatTask.IsCompleted)
+            try { hbCts?.Dispose(); } catch { }
+        if (pushTask.IsCompleted)
+            try { pushCts?.Dispose(); } catch { }
+        if (updateWork.IsCompleted)
+            try { updateCts?.Dispose(); } catch { }
+        if (diagnostics.Work?.IsCompleted != false)
+            try { diagnosticCancellation.Dispose(); } catch { }
+
+        if (sessionNotifyRegistered && !host.IsNull)
+        {
+            PInvoke.WTSUnRegisterSessionNotification(host);
+            sessionNotifyRegistered = false;
+        }
+        var window = host;
+        host = default;
+        if (!window.IsNull)
+            PInvoke.DestroyWindow(window);
     }
 }

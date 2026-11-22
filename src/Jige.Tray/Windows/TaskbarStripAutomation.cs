@@ -17,14 +17,15 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
 {
     private static readonly Guid AutomationClass = new("e22ad333-b25f-460c-83d0-0581107395c9"); // CUIAutomation8
     private const int EventDebounceMs = 120;
+    private const int EventMaxWaitMs = 400;
     private readonly HWND host;
     private readonly uint message;
     private readonly object sync = new();
     private readonly AutoResetEvent changed = new(false);
     private HWND requested;
     private TaskbarStripGeometry? pending, lastPublished;
-    private bool posted, disposed, changedDisposed, reconnect, urgent;
-    private long lastEventMs;
+    private bool posted, disposed, changedDisposed, reconnect, urgent, paused;
+    private long firstEventMs, lastEventMs;
     private bool alive = true;
     private string? lastErrorLog;
 
@@ -37,7 +38,24 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         new Thread(Run) { IsBackground = true, Name = "Jige taskbar UI Automation" }.Start();
     }
 
-    public void Request(HWND owner, bool reset = false)
+    public void SetPaused(bool value)
+    {
+        lock (sync)
+        {
+            if (disposed || changedDisposed || paused == value)
+                return;
+            paused = value;
+            if (!paused && !requested.IsNull)
+            {
+                lastPublished = null;
+                urgent = true;
+                try { changed.Set(); }
+                catch (ObjectDisposedException) { }
+            }
+        }
+    }
+
+    public void Request(HWND owner, bool reset = false, bool forcePublish = false)
     {
         lock (sync)
         {
@@ -48,6 +66,10 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                 pending = lastPublished = null;
                 requested = owner;
                 reconnect = true;
+            }
+            else if (forcePublish)
+            {
+                lastPublished = null;
             }
             urgent = true;
             try { changed.Set(); }
@@ -70,9 +92,12 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     {
         lock (sync)
         {
-            if (disposed || changedDisposed)
+            if (disposed || changedDisposed || paused)
                 return;
-            lastEventMs = Environment.TickCount64;
+            long now = Environment.TickCount64;
+            if (firstEventMs == 0)
+                firstEventMs = now;
+            lastEventMs = now;
             try { changed.Set(); }
             catch (ObjectDisposedException) { }
         }
@@ -105,7 +130,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         {
             while (changed.WaitOne())
             {
-                // 高频 UIA 事件先做短防抖合并，显式 Request（启动/AppBar/DPI）则立即执行。
+                // 高频 UIA 事件先做短防抖合并（带最大等待上限防止连续动画饥饿），显式 Request 则立即执行。
                 while (true)
                 {
                     int waitMs;
@@ -115,7 +140,10 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                             return;
                         if (urgent || reconnect)
                             break;
-                        long remaining = lastEventMs + EventDebounceMs - Environment.TickCount64;
+                        long now = Environment.TickCount64;
+                        long remaining = lastEventMs + EventDebounceMs - now;
+                        if (firstEventMs != 0)
+                            remaining = Math.Min(remaining, firstEventMs + EventMaxWaitMs - now);
                         if (remaining <= 0)
                             break;
                         waitMs = (int)Math.Clamp(remaining, 10, EventDebounceMs);
@@ -125,19 +153,22 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
 
                 HWND owner;
                 bool reset;
+                bool isPaused;
                 lock (sync)
                 {
                     if (disposed)
                         return;
                     owner = requested;
                     reset = reconnect;
+                    isPaused = paused;
                     reconnect = false;
                     urgent = false;
+                    firstEventMs = 0;
                 }
 
                 if (reset)
                     Disconnect(automation, ref root);
-                if (owner.IsNull)
+                if (owner.IsNull || isPaused)
                     continue;
 
                 TaskbarStripGeometry geometry = default;
@@ -151,8 +182,13 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                         geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, []) };
                     Graphics.Check(initialized, "初始化任务栏 UI Automation");
                     if (automation == null)
-                    {
                         automation = ConnectAutomation();
+                    if (cache == null || condition == null)
+                    {
+                        Graphics.Release(condition);
+                        Graphics.Release(cache);
+                        condition = null;
+                        cache = null;
                         CreateReadQuery(automation, out cache, out condition);
                     }
                     if (root == null)

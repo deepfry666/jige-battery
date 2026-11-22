@@ -67,35 +67,24 @@ internal static class HoverCardPolicy
 /// <summary>悬停卡片定位（H3）：贴着任务栏并对齐图标中心，支持四边任务栏、多显示器与边界夹紧。</summary>
 internal static class HoverCardPlacement
 {
-    public static Bounds Place(Bounds icon, Bounds monitor, Bounds work, int width, int height, int gap, int edgeMargin = 8)
+    public static Bounds Place(Bounds icon, Bounds monitor, Bounds work, int width, int height, int gap, int edgeMargin = 8,
+        TaskbarEdge? taskbarEdge = null)
     {
-        int top = work.Top > monitor.Top ? Math.Abs(icon.CenterY - monitor.Top) : int.MaxValue;
-        int bottom = work.Bottom < monitor.Bottom ? Math.Abs(monitor.Bottom - icon.CenterY) : int.MaxValue;
-        int left = work.Left > monitor.Left ? Math.Abs(icon.CenterX - monitor.Left) : int.MaxValue;
-        int right = work.Right < monitor.Right ? Math.Abs(monitor.Right - icon.CenterX) : int.MaxValue;
-        if (Math.Min(Math.Min(top, bottom), Math.Min(left, right)) == int.MaxValue)
-        {
-            top = Math.Abs(icon.CenterY - monitor.Top);
-            bottom = Math.Abs(monitor.Bottom - icon.CenterY);
-            left = Math.Abs(icon.CenterX - monitor.Left);
-            right = Math.Abs(monitor.Right - icon.CenterX);
-        }
-
-        int nearest = Math.Min(Math.Min(top, bottom), Math.Min(left, right));
+        var edge = PopupPlacement.ResolveEdge(icon, monitor, work, taskbarEdge);
         int x;
         int y;
-        bool horizontalEdge = nearest == bottom || nearest == top;
-        if (nearest == bottom)
+        bool horizontalEdge = edge is TaskbarEdge.Bottom or TaskbarEdge.Top;
+        if (edge == TaskbarEdge.Bottom)
         {
             x = icon.CenterX - width / 2;
             y = Math.Min(icon.Top, work.Bottom) - height - gap;
         }
-        else if (nearest == top)
+        else if (edge == TaskbarEdge.Top)
         {
             x = icon.CenterX - width / 2;
             y = Math.Max(icon.Bottom, work.Top) + gap;
         }
-        else if (nearest == left)
+        else if (edge == TaskbarEdge.Left)
         {
             x = Math.Max(icon.Right, work.Left) + gap;
             y = icon.CenterY - height / 2;

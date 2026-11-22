@@ -115,11 +115,8 @@ internal sealed class AsusHidAdapter(SafetyGateStore? gates = null) : IDeviceAda
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(hid => MatchKeyboard(hid) is not null)))
         {
-            if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
-            {
-                gates.RecordRejection(endpoint, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(endpoint, out _) == true)
                 continue;
-            }
             var model = MatchKeyboard(endpoint)!;
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"asus:{endpoint.ReceiverId}", model.Name, DeviceKind.Keyboard,

@@ -28,10 +28,10 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private RECT anchor = anchor;
     private PanelPage page = noticeId is null ? firstPage : PanelPage.Notice;
     private PanelPage updatesReturnPage = PanelPage.Main;
-    private int mainOffset, deviceOffset;
+    private int mainOffset, deviceOffset, wheelDelta;
     private bool offlineExpanded;
     private long shownAt;
-    private bool reclaimed, shown;
+    private bool reclaimed, reclaimPending, shown, captured, darkTaskbar = true;
     private DateTimeOffset now;
     private bool running;
     private string? error;
@@ -65,7 +65,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     }
 
     public void Render(DateTimeOffset time, bool pollRunning, string? settingsError, DiagnosticStatus diagnostics,
-        bool previewPending, UpdateViewState update, string? displayLocationFallback = null, bool reset = false)
+        bool previewPending, UpdateViewState update, string? displayLocationFallback = null, bool reset = false,
+        bool darkTaskbar = true)
     {
         if (Closing)
             return;
@@ -74,6 +75,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         running = pollRunning;
         error = settingsError;
         this.displayLocationFallback = displayLocationFallback;
+        this.darkTaskbar = darkTaskbar;
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
         updateState = update;
@@ -82,7 +84,8 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             return;
 
         var screen = PInvoke.MonitorFromRect(in anchor, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        var info = Desktop.Monitor(screen);
+        if (!Desktop.TryGetMonitor(screen, out var info))
+            throw new InvalidOperationException("找不到弹窗显示器");
         work = new(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         screenBounds = new(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         iconBounds = new(anchor.left, anchor.top, anchor.right, anchor.bottom);
@@ -163,7 +166,13 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             updatesReturnPage = page == PanelPage.Settings ? PanelPage.Settings : PanelPage.Main;
         page = target;
         tracking = false;
+        wheelDelta = 0;
         down = default;
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
+        }
         ReplaceScene(SizeOf(target));
         Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
         composition!.Commit();
@@ -186,7 +195,9 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
 
         int offset = page == PanelPage.Main ? mainOffset : page == PanelPage.Devices ? deviceOffset : 0;
         scene = reversing ? oldOutgoing! : new(composition!, colors, animations, model, page, NoticeId, size, offset, AvailableHeight, diagnosticFooter);
-        if (!reversing)
+        if (reversing)
+            scene.ClearPointer();
+        else
             oldOutgoing?.Dispose();
         outgoing = previous;
         transition = null;
@@ -219,9 +230,9 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
 
         transition = new(Environment.TickCount64, displayedHeight, size.Height, incomingPose, previousPose, direction);
         // D2（#14）：若切页高度不变，横向滑入与透明渐显完全由 DirectComposition 合成器在 GPU 执行，
-        // 只需一次性定时收尾，不再每 15 ms 唤醒重绘。
+        // 只需一次性定时收尾（额外 +20ms 裕量避免 Windows 定时器提前 1-15ms 触发导致再等一整轮），不再每 15 ms 唤醒重绘。
         uint tickMs = MathF.Abs(displayedHeight - size.Height) < .5f
-            ? (uint)PanelLayout.TransitionMilliseconds : 15u;
+            ? (uint)(PanelLayout.TransitionMilliseconds + 20) : 15u;
         if (PInvoke.SetTimer(Handle, AnimationTimer, tickMs, null) == 0)
             FinishTransition();
     }
@@ -301,15 +312,18 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         displayedHeight = height;
         var next = PopupPlacement.Place(iconBounds, screenBounds, work, Pixels(PanelLayout.Width),
-            Pixels(height), Pixels(12), IsNotice && !IsWelcome);
+            Pixels(height), Pixels(12), IsNotice && !IsWelcome, TaskbarStripShell.ReadTaskbarEdge());
         if (position == next && background is not null)
             return false;
 
         if (background is null || backgroundCapacity < height)
         {
             background?.Dispose();
-            backgroundCapacity = Math.Max((int)Math.Ceiling(height), scene!.SurfaceHeight);
-            background = new(composition!, backdrop, 0, 0, PanelLayout.Width, backgroundCapacity);
+            background = null;
+            backgroundCapacity = 0;
+            int nextCapacity = Math.Max((int)Math.Ceiling(height), scene!.SurfaceHeight);
+            background = new(composition!, backdrop, 0, 0, PanelLayout.Width, nextCapacity);
+            backgroundCapacity = nextCapacity;
         }
         background.Draw(canvas =>
         {
@@ -339,18 +353,28 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     /// <summary>显示后 400 ms 内的第一次失焦视为任务栏收回前台，重新激活而不是关闭。</summary>
     public bool TryReclaimFocus()
     {
+        if (reclaimPending)
+            return true;
         if (IsNotice || reclaimed || Editing || Environment.TickCount64 - shownAt > 400)
             return false;
         reclaimed = true;
+        reclaimPending = true;
         PInvoke.PostMessage(Handle, 0x8010, default, default);
         return true;
     }
+
+    public void CompleteReclaim() => reclaimPending = false;
 
     public bool BeginClose()
     {
         if (Closing)
             return true;
         Closing = true;
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
+        }
         PInvoke.KillTimer(Handle, AnimationTimer);
         if (!animations || IsNotice)
             return false;
@@ -366,7 +390,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (scene is null)
             return;
-        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState, displayLocationFallback);
+        scene.Render(now, running, error, editor?.DeviceId, diagnosticStatus, diagnosticPreviewPending, offlineExpanded, updateState, displayLocationFallback, darkTaskbar);
         if (scene.Page == PanelPage.Main)
             mainOffset = scene.Offset;
         else if (scene.Page == PanelPage.Devices)
@@ -376,14 +400,31 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     public void StartEdit(PopupTarget target)
     {
         if (scene?.TargetRect(target) is not { } box ||
-            model.OrderedDevices().FirstOrDefault(item => item.Device.Id == target.DeviceId) is not { } device)
+            model.OrderedDevices().FirstOrDefault(item =>
+                StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, target.DeviceId)) is not { } device)
             return;
+        if (editor is { } existing)
+        {
+            editor = null;
+            existing.Dispose();
+        }
         int left = Pixels(box.X + 2), top = Pixels(box.Y + 2);
         var bounds = RECT.FromXYWH(left, top, Pixels(box.X + box.Width - 2) - left, Pixels(box.Y + box.Height - 2) - top);
-        editor = new(Handle, device.Device.Id, model.Name(device.Device), bounds, Pixels(13.5f), colors);
-        DrawScene();
-        composition!.Commit();
-        editor.Focus();
+        var created = new InlineEdit(Handle, device.Device.Id, model.Name(device.Device), bounds, Pixels(13.5f), colors);
+        editor = created;
+        try
+        {
+            DrawScene();
+            composition!.Commit();
+            created.Focus();
+        }
+        catch
+        {
+            if (ReferenceEquals(editor, created))
+                editor = null;
+            created.Dispose();
+            throw;
+        }
     }
 
     public (string Id, string Name)? FinishEdit(bool save, bool restoreFocus)
@@ -447,6 +488,14 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             scene?.Pointer(-1, -1);
     }
 
+    public void CaptureChanged()
+    {
+        captured = false;
+        down = default;
+        if (transition is null)
+            scene?.Pointer(-1, -1, false);
+    }
+
     public PopupTarget PointerButton(LPARAM lParam, bool pressed)
     {
         if (transition is not null)
@@ -457,7 +506,17 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         if (pressed)
         {
             down = current;
+            if (current.Action != PopupAction.None)
+            {
+                PInvoke.SetCapture(Handle);
+                captured = true;
+            }
             return default;
+        }
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
         }
         var result = current == down ? current : default;
         down = default;
@@ -489,8 +548,17 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
 
     public void Wheel(short delta)
     {
-        if (delta != 0)
-            Scroll(delta > 0 ? -1 : 1);
+        if (delta == 0)
+            return;
+        // 反向滚轮清零残留微增量，高分辨率滚轮/触控板按 WHEEL_DELTA(120) 累加，避免每条微增量直接跳过一整行。
+        if ((wheelDelta > 0 && delta < 0) || (wheelDelta < 0 && delta > 0))
+            wheelDelta = 0;
+        wheelDelta += delta;
+        int steps = wheelDelta / 120;
+        if (steps == 0)
+            return;
+        wheelDelta -= steps * 120;
+        Scroll(-steps);
     }
 
     private void Scroll(int step)

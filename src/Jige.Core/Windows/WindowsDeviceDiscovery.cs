@@ -10,6 +10,7 @@ public static partial class WindowsDeviceDiscovery
     private static readonly SemaphoreSlim ScanGate = new(1);
     private static readonly Guid ComInterface = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly Guid PortsClass = new("4D36E978-E325-11CE-BFC1-08002BE10318");
+    private static readonly Guid BaseContainerId = new("00000000-0000-0000-FFFF-FFFFFFFFFFFF");
     private static readonly Native.PropertyKey ContainerId = new()
     {
         Format = new("8C7ED206-3F8A-4827-B3AB-AE9E1FAEFC6C"),
@@ -63,7 +64,7 @@ public static partial class WindowsDeviceDiscovery
             }
             bool known = inspectHid is null || inspectHid(vid, pid);
             if ((known || includeUnknownHid) &&
-                InspectHid(set, node, path, nodeId, vid, pid, known, includeReportIds, token) is { } endpoint)
+                InspectHid(set, node, path, nodeId, vid, pid, known, includeUnknownHid, includeReportIds, token) is { } endpoint)
                 hid.Add(endpoint);
         }, warnings, token);
 
@@ -137,10 +138,11 @@ public static partial class WindowsDeviceDiscovery
                 }
                 if (size < 8 || size > maxDetailBytes)
                 {
-                    warnings.Add(WindowsErrors.Last("读取设备路径长度").Message);
+                    warnings.Add($"读取设备路径长度异常（{size} 字节）");
                     continue;
                 }
 
+                string? devicePath = null;
                 var buffer = new byte[size];
                 fixed (byte* detail = buffer)
                 {
@@ -148,11 +150,17 @@ public static partial class WindowsDeviceDiscovery
                     *(uint*)detail = IntPtr.Size == 8 ? 8u : 6u;
                     if (Native.GetInterfaceDetail(set, in info, detail, size, out _, &node) != 0)
                     {
-                        add(set, node, new string((char*)(detail + 4)));
-                        continue;
+                        var chars = new ReadOnlySpan<char>((char*)(detail + 4), (int)((size - 4) / 2));
+                        int nul = chars.IndexOf('\0');
+                        devicePath = new string(nul >= 0 ? chars[..nul] : chars);
                     }
-                    warnings.Add(WindowsErrors.Last("读取设备路径").Message);
+                    else
+                    {
+                        warnings.Add(WindowsErrors.Last("读取设备路径").Message);
+                    }
                 }
+                if (devicePath is not null)
+                    add(set, node, devicePath);
             }
         }
         finally
@@ -169,7 +177,8 @@ public static partial class WindowsDeviceDiscovery
     }
 
     private static unsafe HidInterface? InspectHid(nint set, Native.DeviceData node, string path,
-        string nodeId, ushort? vid, ushort? pid, bool readProduct, bool includeReportIds, CancellationToken token)
+        string nodeId, ushort? vid, ushort? pid, bool readProduct, bool includeUnknownHid, bool includeReportIds,
+        CancellationToken token)
     {
         var number = ReadHexTag(path, "MI_", 2) ?? ReadHexTag(nodeId, "MI_", 2);
         byte? interfaceNumber = number.HasValue ? (byte)number.Value : null;
@@ -178,36 +187,62 @@ public static partial class WindowsDeviceDiscovery
         {
             using var handle = WindowsReceiverTransport.OpenMetadata(path);
             token.ThrowIfCancellationRequested();
-            var caps = WindowsReceiverTransport.ReadCaps(handle);
-            if (!readProduct && caps.UsagePage < 0xFF00)
-                return null;
             var attributes = WindowsReceiverTransport.ReadAttributes(handle);
             vid = attributes.VendorId;
             pid = attributes.ProductId;
-            (string? inputIds, string? outputIds, string? featureIds) = (null, null, null);
-            if (DomesticMouseStatus.Find(vid, pid) is { } route)
+            var domesticRoute = DomesticMouseStatus.Find(vid, pid);
+            bool wantFullReportIds = includeReportIds && (domesticRoute is not null || !includeUnknownHid || true);
+            Native.HidCaps caps;
+            string? inputIds = null, outputIds = null, featureIds = null;
+            if (domesticRoute is not null && !includeUnknownHid && !includeReportIds)
             {
-                if (!route.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
+                caps = WindowsReceiverTransport.ReadCaps(handle);
+                if (!domesticRoute.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
                     return null;
-                int type = route.Feature ? 2 : 0;
-                ushort length = route.Feature ? caps.FeatureLength : caps.InputLength;
-                if (!WindowsReceiverTransport.DeclaresReportId(handle, type, route.ReportId, length))
+                int type = domesticRoute.Feature ? 2 : 0;
+                ushort length = domesticRoute.Feature ? caps.FeatureLength : caps.InputLength;
+                if (!WindowsReceiverTransport.DeclaresReportId(handle, type, domesticRoute.ReportId, length))
                     return null;
-                if (route.Feature)
-                    featureIds = $"{route.ReportId:X2}";
+                if (domesticRoute.Feature)
+                    featureIds = $"{domesticRoute.ReportId:X2}";
                 else
-                    inputIds = $"{route.ReportId:X2}";
+                    inputIds = $"{domesticRoute.ReportId:X2}";
             }
-            else if (includeReportIds &&
-                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength))
+            else
             {
-                (inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps);
+                bool scanIds = includeReportIds && wantFullReportIds;
+                (caps, inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadCapsAndReportIds(handle, false);
+                if (!readProduct && !includeUnknownHid && caps.UsagePage < 0xFF00)
+                    return null;
+                if (domesticRoute is not null &&
+                    domesticRoute.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
+                {
+                    int type = domesticRoute.Feature ? 2 : 0;
+                    ushort length = domesticRoute.Feature ? caps.FeatureLength : caps.InputLength;
+                    if (WindowsReceiverTransport.DeclaresReportId(handle, type, domesticRoute.ReportId, length))
+                    {
+                        if (domesticRoute.Feature)
+                            featureIds = $"{domesticRoute.ReportId:X2}";
+                        else
+                            inputIds = $"{domesticRoute.ReportId:X2}";
+                    }
+                }
+                else if (scanIds &&
+                    (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
+                     domesticRoute is not null))
+                {
+                    (inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps);
+                }
             }
             if (readProduct && (caps.UsagePage >= 0xFF00 || vid == 0x046D && pid == 0x0AC4))
             {
                 char* chars = stackalloc char[126];
                 if (Native.GetProductString(handle, chars, 252) != 0 && chars[0] != '\0')
-                    product = new string(chars);
+                {
+                    var span = new ReadOnlySpan<char>(chars, 126);
+                    int nul = span.IndexOf('\0');
+                    product = new string(nul >= 0 ? span[..nul] : span);
+                }
             }
             token.ThrowIfCancellationRequested();
             var ancestors = ReadAncestors(node.DevInst);
@@ -223,7 +258,7 @@ public static partial class WindowsDeviceDiscovery
                 Bus = bus,
                 BluetoothHid = bus == HidBus.Bluetooth,
                 BluetoothAddress = vid == 0x046D && caps is { UsagePage: 0xFF43, Usage: 0x0202 }
-                    ? FindBluetoothAddress(node.DevInst) : null
+                    ? FindBluetoothAddress(ancestors) : null
             };
         }
         catch (TransportException error)
@@ -293,7 +328,7 @@ public static partial class WindowsDeviceDiscovery
         Guid container;
         if (Native.GetDeviceProperty(set, node, ContainerId, out uint type, &container, 16, out uint size, 0) != 0 &&
             type == 13 && size == 16 && container != Guid.Empty &&
-            container != new Guid("00000000-0000-0000-FFFF-FFFFFFFFFFFF"))
+            container != BaseContainerId)
             return container.ToString("D");
         return HidBusClassifier.ResolveFallbackReceiverId(nodeId, fallback, ancestors ?? ReadAncestors(node.DevInst));
     }

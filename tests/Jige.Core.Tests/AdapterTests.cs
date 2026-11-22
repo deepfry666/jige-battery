@@ -160,7 +160,8 @@ public sealed class AdapterTests
     {
         var clock = new FakeClock();
         int hubChecks = 0;
-        var adapter = new SonyInzoneAdapter(115200, () => { hubChecks++; return false; }, clock);
+        var adapter = new SonyInzoneAdapter(115200, () => { hubChecks++; return false; }, clock,
+            settleDelay: TimeSpan.Zero, queryTimeout: TimeSpan.FromMilliseconds(20));
         var registry = new AdapterRegistry(adapter);
         var device = Assert.Single(registry.Detect(new([], [Sony], [])));
         var transport = new TransportStub { Serial = new SilentSerialStub() };

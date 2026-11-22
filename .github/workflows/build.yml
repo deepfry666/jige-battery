@@ -21,14 +21,23 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: 安装 .NET 10
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: 缓存 NuGet 依赖
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
       - name: 还原依赖
         run: dotnet restore Jige.slnx
       - name: 编译解决方案
-        run: dotnet build Jige.slnx -c Release --no-restore
+        run: dotnet build Jige.slnx -c Release --no-restore -warnaserror
       - name: 运行测试
         run: dotnet test Jige.slnx -c Release --no-build -m:1 --blame-hang-timeout 60s
       - name: 发布 win-x64 NativeAOT 探针

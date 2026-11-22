@@ -347,20 +347,26 @@ public static class DeviceCatalog
             "docs/protocols.md / HeadsetControl")
     ];
 
+    private static readonly System.Collections.Frozen.FrozenDictionary<(ushort Vid, ushort Pid), DeviceCatalogEntry> EntryIndex =
+        BuildFirstIndex(Entries, entry => (entry.VendorId, entry.ProductId));
+
+    private static readonly System.Collections.Frozen.FrozenDictionary<(ushort Vid, ushort Pid), DisabledDevicePath> DisabledIndex =
+        BuildFirstIndex(DisabledPaths, entry => (entry.VendorId, entry.ProductId));
+
+    private static System.Collections.Frozen.FrozenDictionary<TKey, TValue> BuildFirstIndex<TKey, TValue>(
+        IReadOnlyList<TValue> items, Func<TValue, TKey> keySelector) where TKey : notnull
+    {
+        var map = new Dictionary<TKey, TValue>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+            map.TryAdd(keySelector(items[i]), items[i]);
+        return System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(map);
+    }
+
     public static IEnumerable<DeviceCatalogEntry> HardwareVerified =>
         Entries.Where(entry => entry.Verification == VerificationTier.HardwareVerified);
 
-    public static DeviceCatalogEntry? FindEntry(ushort? vid, ushort? pid)
-    {
-        if (vid is not ushort v || pid is not ushort p)
-            return null;
-        for (int i = 0; i < Entries.Count; i++)
-        {
-            if (Entries[i].VendorId == v && Entries[i].ProductId == p)
-                return Entries[i];
-        }
-        return null;
-    }
+    public static DeviceCatalogEntry? FindEntry(ushort? vid, ushort? pid) =>
+        vid is ushort v && pid is ushort p && EntryIndex.TryGetValue((v, p), out var entry) ? entry : null;
 
     public static VerificationTier VerificationFor(ushort? vid, ushort? pid) =>
         FindEntry(vid, pid)?.Verification ?? VerificationTier.DocsOnly;
@@ -384,17 +390,8 @@ public static class DeviceCatalog
         return VerificationTier.DocsOnly;
     }
 
-    public static DisabledDevicePath? FindDisabledPath(ushort? vid, ushort? pid)
-    {
-        if (vid is not ushort v || pid is not ushort p)
-            return null;
-        for (int i = 0; i < DisabledPaths.Count; i++)
-        {
-            if (DisabledPaths[i].VendorId == v && DisabledPaths[i].ProductId == p)
-                return DisabledPaths[i];
-        }
-        return null;
-    }
+    public static DisabledDevicePath? FindDisabledPath(ushort? vid, ushort? pid) =>
+        vid is ushort v && pid is ushort p && DisabledIndex.TryGetValue((v, p), out var entry) ? entry : null;
 
     public static bool IsDisabledPath(HidInterface endpoint, out DisabledDevicePath? disabled)
     {

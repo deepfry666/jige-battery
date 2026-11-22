@@ -102,9 +102,15 @@ internal sealed record UpdateViewState(
         Ready = package
     };
 
-    public UpdateViewState BackToAvailable() => Available is null
+    public UpdateViewState BackToAvailable(bool clearReady = false) => Available is null
         ? Idle(CurrentVersionLabel, IsInstalled)
-        : this with { Phase = UpdatePhase.Available, Progress = null, ErrorMessage = null };
+        : this with
+        {
+            Phase = UpdatePhase.Available,
+            Progress = null,
+            ErrorMessage = null,
+            Ready = clearReady ? null : Ready
+        };
 
     public static UpdateViewState Failed(string currentVersionLabel, bool isInstalled, string message,
         AvailableUpdate? available = null) =>
@@ -115,6 +121,8 @@ internal sealed record UpdateViewState(
 
     public static string ExplainError(Exception error) => error switch
     {
+        HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } =>
+            "更新服务器暂时限流，请稍后再试。",
         HttpRequestException { StatusCode: { } status } => $"更新服务器请求失败（HTTP {(int)status}）。",
         HttpRequestException { HttpRequestError: HttpRequestError.NameResolutionError } => "无法解析更新服务器的地址。",
         HttpRequestException { HttpRequestError: HttpRequestError.SecureConnectionError } => "无法与更新服务器建立安全连接。",

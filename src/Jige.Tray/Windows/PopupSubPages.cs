@@ -20,7 +20,7 @@ internal sealed partial class PopupScene
         {
             SettingRow? optionRow = focused.Action switch
             {
-                PopupAction.TrayMode => SettingRow.TrayMode,
+                PopupAction.TrayMode or PopupAction.TrayToggle => SettingRow.TrayMode,
                 PopupAction.DisplayLocation => SettingRow.DisplayLocation,
                 PopupAction.TaskbarStyle => SettingRow.TaskbarStyle,
                 PopupAction.TaskbarColor => SettingRow.TaskbarColor,
@@ -239,7 +239,7 @@ internal sealed partial class PopupScene
                 if (showSwatches)
                 {
                     var (fgSwatch, lowSwatch, chgSwatch) = TaskbarStripPalette.PreviewSwatches(
-                        (TaskbarStripColorScheme)choice.Target.Value, darkPanel: TaskbarColorMath.RelativeLuminance(colors.Solid.Rgb) < 0.5);
+                        (TaskbarStripColorScheme)choice.Target.Value, darkPanel: darkTaskbar);
                     float cy = rect.Y + rect.Height / 2;
                     DrawColorDot(canvas, SettingsPanel.Right - 46, cy, fgSwatch);
                     DrawColorDot(canvas, SettingsPanel.Right - 36, cy, lowSwatch);

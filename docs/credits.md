@@ -13,6 +13,7 @@
 | [HeadsetControl](https://github.com/Sapd/HeadsetControl)（GPL） | 参考罗技无线耳机 PID、集合、Centurion 桥和 ASTRO 数据字段。 |
 | [BatteryHub](https://github.com/krisgfx9/Wireless-Device-Battery-Monitor)（GPL） | 参考 Windows 蓝牙电量属性、连接属性及同物理设备去重思路。 |
 | [OpenRazer](https://github.com/openrazer/openrazer) | 参考雷蛇电量与充电命令、设备清单和公开抓包事实。 |
+| [G-Helper](https://github.com/seerge/g-helper)（GPL） | 参考 ASUS ROG 无线键盘（`0B05` 厂商集合）的只读电池百分比与充电状态查询报文格式。 |
 | [OpenMouse](https://github.com/OpenMouse-Project/mouse-protocol) | 参考 ATK、游狼、BitMouse、罗技的公开协议。国产鼠标两批仅参考协议和硬件事实，C# 实现及测试帧独立编写。 |
 | [mouse-battery-tray](https://github.com/incconutwo/mouse-battery-tray)（MIT） | 核对 ATTACK SHARK 接收器与上报型号字节。 |
 | [mouse_tray](https://github.com/Fan4Metal/ATK_tray) | 核对 VXE 接收器 VID:PID 事实。 |

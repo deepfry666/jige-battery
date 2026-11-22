@@ -10,8 +10,10 @@ namespace Jige.Tray;
 internal static class ReleaseVersion
 {
     public static string Current { get; } =
-        typeof(ReleaseVersion).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
-            .InformationalVersion.Split('+', 2)[0];
+        typeof(ReleaseVersion).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion?.Split('+', 2)[0]
+        ?? typeof(ReleaseVersion).Assembly.GetName().Version?.ToString(3)
+        ?? "0.0.0";
 
     /// <summary>C2：面向界面展示的版本文本（正式版如「0.2.3」，测试版如「0.2.3 测试版（abc1234）」）。</summary>
     public static string Display { get; } = FormatDisplay(Current);
@@ -132,16 +134,18 @@ internal sealed record AvailableUpdate(
 
     public UpdateSource EffectiveSource => Source ?? UpdateSource.GitHub;
 
-    public static AvailableUpdate? Select(ReleaseResponse? release, Version current) =>
-        Select(release, current, UpdateSource.GitHub);
+    public static AvailableUpdate? Select(ReleaseResponse? release, Version current, bool currentIsPrerelease = false) =>
+        Select(release, current, UpdateSource.GitHub, currentIsPrerelease);
 
-    public static AvailableUpdate? Select(ReleaseResponse? release, Version current, UpdateSource source)
+    public static AvailableUpdate? Select(ReleaseResponse? release, Version current, UpdateSource source,
+        bool currentIsPrerelease = false)
     {
         if (release is null || release.Draft || release.Prerelease ||
             release.Tag is not { Length: > 1 } tag || tag[0] != 'v' ||
             !ReleaseVersion.TryParse(tag[1..], out var version))
             throw new InvalidDataException($"{source.Name} 没有返回有效的正式版本。");
-        if (version <= current)
+        // 测试版（例如 0.2.19-beta.xxx）允许升级到同号正式版（v0.2.19），但不降级到更低版本。
+        if (version < current || (version == current && !currentIsPrerelease))
             return null;
 
         var installer = FindAsset($"Jige-Setup-{version}-x64.exe", MaxInstallerSize);
@@ -150,7 +154,7 @@ internal sealed record AvailableUpdate(
         if (string.IsNullOrEmpty(notes))
             notes = "此版本未附更新说明。";
         else
-            notes = Presentation.Shorten(notes, 1600);
+            notes = ShortenNotes(notes, 1600);
 
         var page = new Uri($"{Repository}/releases/tag/{tag}");
         AvailableUpdate? fallback = null;
@@ -171,6 +175,17 @@ internal sealed record AvailableUpdate(
                 throw new InvalidDataException($"发行版缺少有效的 {name}。");
             return match;
         }
+    }
+
+    private static string ShortenNotes(string raw, int limit)
+    {
+        if (raw.Length <= limit)
+            return raw;
+        // 优先在换行边界截断，避免把 Markdown 链接 `[文本](url)` 从中间腰斩后暴露残缺 URL。
+        int cut = raw.LastIndexOf('\n', Math.Min(limit - 1, raw.Length - 1));
+        if (cut > limit / 2)
+            return raw[..cut].TrimEnd() + "\n…";
+        return Presentation.Shorten(raw, limit);
     }
 }
 
@@ -198,18 +213,52 @@ internal static class UpdateInstallation
                 files.TryClear();
         }
     }
+
+    public static async Task<bool> RunAsync(UpdateFiles files, Func<Task<string>> downloadVerifiedPackageAsync,
+        Func<bool> isClosing, Action<string> launch)
+    {
+        bool started = false;
+        try
+        {
+            string package = await downloadVerifiedPackageAsync().ConfigureAwait(false);
+            if (isClosing())
+                return false;
+            launch(package);
+            started = true;
+            return true;
+        }
+        finally
+        {
+            if (!started)
+                files.TryClear();
+        }
+    }
 }
 
 internal sealed class UpdateFiles(string path)
 {
     public string PreparePackage(string name)
     {
-        TryClear();
+        Clear();
         Directory.CreateDirectory(path);
-        string target = Path.Combine(path, name);
-        if (File.Exists(target))
-            File.Delete(target);
-        return target;
+        return Path.Combine(path, name);
+    }
+
+    public void TryDeletePartAndPruneEmpty(string partPath)
+    {
+        try
+        {
+            if (File.Exists(partPath))
+                File.Delete(partPath);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        try
+        {
+            // 仅在目录为空时删除 updates 目录，既满足失败/取消后的清理语义，又避免误删并发启动的新下载。
+            if (Directory.Exists(path) && !Directory.EnumerateFileSystemEntries(path).Any())
+                Directory.Delete(path, recursive: false);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
     }
 
     public void Clear()
@@ -259,8 +308,11 @@ internal sealed class UpdateFiles(string path)
     {
         try
         {
-            VerifyAsync(package.Path, package.Size, package.Sha256, CancellationToken.None).GetAwaiter().GetResult();
-            return true;
+            using var stream = File.OpenRead(package.Path);
+            if (stream.Length != package.Size)
+                return false;
+            var actual = SHA256.HashData(stream);
+            return actual.AsSpan().SequenceEqual(package.Sha256);
         }
         catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -283,19 +335,22 @@ internal sealed class UpdateClient(
     HttpClient http,
     IReadOnlyList<UpdateSource>? sources = null,
     TimeSpan? mirrorCheckTimeout = null,
-    TimeProvider? timeProvider = null)
+    TimeProvider? timeProvider = null,
+    TimeSpan? downloadStallTimeout = null)
 {
     // C3：GitHub REST API 的 /releases/latest 端点按规范仅返回最新正式 Release，自动排除 draft 和 prerelease；
     // 客户端默认优先查询国内镜像（download.imfourj.cn），不可达或失败时自动回退 GitHub；
-    // 无论来源为何，AvailableUpdate.Select 都会再次拒绝 draft/prerelease 及非规范三段版本标签，且要求新正式版严格高于当前基础版本。
+    // 无论来源为何，AvailableUpdate.Select 都会再次拒绝 draft/prerelease 及非规范三段版本标签，且要求新正式版高于当前版本（测试版可升级同号正式版）。
     public static readonly Uri Latest = UpdateSource.GitHub.LatestUri;
     public static readonly Uri MirrorLatest = UpdateSource.Mirror.LatestUri;
     public static readonly TimeSpan DefaultMirrorCheckTimeout = TimeSpan.FromSeconds(8);
+    public static readonly TimeSpan DefaultDownloadStallTimeout = TimeSpan.FromSeconds(30);
 
     private readonly IReadOnlyList<UpdateSource> sources = sources is { Count: > 0 }
         ? sources
         : [UpdateSource.Mirror, UpdateSource.GitHub];
     private readonly TimeSpan primaryCheckTimeout = mirrorCheckTimeout ?? DefaultMirrorCheckTimeout;
+    private readonly TimeSpan stallTimeout = downloadStallTimeout ?? DefaultDownloadStallTimeout;
     private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
 
     public static HttpClient CreateHttpClient()
@@ -315,7 +370,8 @@ internal sealed class UpdateClient(
         return client;
     }
 
-    public async Task<AvailableUpdate?> CheckAsync(Version current, CancellationToken token)
+    public async Task<AvailableUpdate?> CheckAsync(Version current, CancellationToken token,
+        bool currentIsPrerelease = false)
     {
         bool anySucceeded = false;
         for (int i = 0; i < sources.Count; i++)
@@ -335,7 +391,7 @@ internal sealed class UpdateClient(
 
             try
             {
-                var found = await CheckSourceAsync(source, current, attemptToken).ConfigureAwait(false);
+                var found = await CheckSourceAsync(source, current, currentIsPrerelease, attemptToken).ConfigureAwait(false);
                 anySucceeded = true;
                 // 若首选源已找到严格高于当前版本的新正式版，直接采用以保持镜像优先策略；
                 // 仅当该源返回 null（可能镜像滞后）时继续向回退源确认是否存在更高版本。
@@ -358,16 +414,17 @@ internal sealed class UpdateClient(
         throw new InvalidOperationException("未配置有效的更新源。");
     }
 
-    private async Task<AvailableUpdate?> CheckSourceAsync(UpdateSource source, Version current, CancellationToken token)
+    private async Task<AvailableUpdate?> CheckSourceAsync(UpdateSource source, Version current,
+        bool currentIsPrerelease, CancellationToken token)
     {
-        using var response = await GetFollowAsync(source.LatestUri, source, HttpCompletionOption.ResponseContentRead, token)
+        using var response = await GetFollowAsync(source.LatestUri, source, HttpCompletionOption.ResponseHeadersRead, token)
             .ConfigureAwait(false);
         if (response.StatusCode == HttpStatusCode.NotFound)
             throw new InvalidDataException($"{source.Name} 上暂时没有可访问的正式版本。");
         response.EnsureSuccessStatusCode();
         var release = await response.Content.ReadFromJsonAsync(ReleaseJsonContext.Default.ReleaseResponse, token)
             .ConfigureAwait(false);
-        return AvailableUpdate.Select(release, current, source);
+        return AvailableUpdate.Select(release, current, source, currentIsPrerelease);
     }
 
     public Task<string> DownloadAsync(AvailableUpdate update, UpdateFiles files, CancellationToken token) =>
@@ -398,29 +455,33 @@ internal sealed class UpdateClient(
         IProgress<UpdateProgress>? progress, CancellationToken token)
     {
         var source = update.EffectiveSource;
+        string path = files.PreparePackage(update.Installer.Name!);
+        string partPath = $"{path}.{Guid.NewGuid():N}.part";
         try
         {
-            string path = files.PreparePackage(update.Installer.Name!);
             progress?.Report(new(0, update.Installer.Size, Verifying: false));
             using var checksums = new MemoryStream();
             await CopyAssetAsync(update.Checksums, source, checksums, onBytes: null, token).ConfigureAwait(false);
             string manifest = System.Text.Encoding.UTF8.GetString(checksums.GetBuffer(), 0, (int)checksums.Length);
             var hash = UpdateFiles.ReadChecksum(manifest, update.Installer.Name!);
-            await using (var file = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None,
+            await using (var file = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 64 * 1024, useAsync: true))
             {
                 await CopyAssetAsync(update.Installer, source, file,
                     downloaded => progress?.Report(new(downloaded, update.Installer.Size, Verifying: false)),
                     token).ConfigureAwait(false);
+                await file.FlushAsync(token).ConfigureAwait(false);
             }
             progress?.Report(new(update.Installer.Size, update.Installer.Size, Verifying: true));
-            await UpdateFiles.VerifyAsync(path, update.Installer.Size, hash, token).ConfigureAwait(false);
+            // 仅在 .part 临时文件完整通过大小与 SHA-256 校验后再原子重命名为最终 .exe，绝不落地未校验安装包。
+            await UpdateFiles.VerifyAsync(partPath, update.Installer.Size, hash, token).ConfigureAwait(false);
             token.ThrowIfCancellationRequested();
+            File.Move(partPath, path, overwrite: true);
             return new(path, update.Installer.Size, hash);
         }
         catch
         {
-            files.TryClear();
+            files.TryDeletePartAndPruneEmpty(partPath);
             throw;
         }
     }
@@ -459,17 +520,36 @@ internal sealed class UpdateClient(
     private async Task CopyAssetAsync(ReleaseAsset asset, UpdateSource source, Stream destination,
         Action<long>? onBytes, CancellationToken token)
     {
+        bool useStall = stallTimeout > TimeSpan.Zero && stallTimeout != Timeout.InfiniteTimeSpan;
+        using var headerTimeout = useStall ? new CancellationTokenSource(stallTimeout, timeProvider) : null;
+        using var headerCts = headerTimeout is not null
+            ? CancellationTokenSource.CreateLinkedTokenSource(token, headerTimeout.Token)
+            : null;
+        var headerToken = headerCts?.Token ?? token;
+
         using var response = await GetFollowAsync(new Uri(asset.DownloadUrl!), source,
-            HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
+            HttpCompletionOption.ResponseHeadersRead, headerToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
             throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
-        await using var sourceStream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
+        await using var sourceStream = await response.Content.ReadAsStreamAsync(headerToken).ConfigureAwait(false);
         byte[] buffer = new byte[64 * 1024];
         long total = 0;
-        int read;
-        while ((read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false)) > 0)
+        while (true)
         {
+            int read;
+            if (useStall)
+            {
+                using var readTimeout = new CancellationTokenSource(stallTimeout, timeProvider);
+                using var readCts = CancellationTokenSource.CreateLinkedTokenSource(token, readTimeout.Token);
+                read = await sourceStream.ReadAsync(buffer, readCts.Token).ConfigureAwait(false);
+            }
+            else
+            {
+                read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false);
+            }
+            if (read <= 0)
+                break;
             total += read;
             if (total > asset.Size)
                 break;

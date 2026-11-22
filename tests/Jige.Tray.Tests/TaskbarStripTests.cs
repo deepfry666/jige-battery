@@ -927,13 +927,22 @@ public sealed class TaskbarStripTests
     [Fact]
     public void ExportTaskbarStripPngsWhenRequested()
     {
-        if (Environment.GetEnvironmentVariable("JIGE_TRAY_PNG_DIR") is not { Length: > 0 } output)
-            return;
-        Directory.CreateDirectory(output);
+        string? output = Environment.GetEnvironmentVariable("JIGE_TRAY_PNG_DIR");
+        if (!string.IsNullOrEmpty(output))
+            Directory.CreateDirectory(output);
         foreach (uint dpi in new[] { 96u, 192u })
         foreach (bool dark in new[] { true, false })
-            TrayIconPreview.SaveTaskbarStrip(Path.Combine(output, $"taskbar-strip-{dpi * 100 / 96}-{(dark ? "dark" : "light")}.png"),
-                Example, dark, dpi);
+        {
+            int scale = TaskbarStripLayout.PixelScale(dpi);
+            var layout = TaskbarStripLayout.Build(Example);
+            uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
+            Assert.Equal(layout.Width * scale * TaskbarStripLayout.Height * scale, pixels.Length);
+            Assert.Contains(pixels, pixel => (pixel >> 24) != 0);
+            if (!string.IsNullOrEmpty(output))
+                TrayIconPreview.SaveTaskbarStrip(
+                    Path.Combine(output, $"taskbar-strip-{dpi * 100 / 96}-{(dark ? "dark" : "light")}.png"),
+                    Example, dark, dpi);
+        }
     }
 
     [Fact]

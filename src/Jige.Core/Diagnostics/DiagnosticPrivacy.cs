@@ -18,12 +18,25 @@ public static partial class DiagnosticPrivacy
          "Finalmouse UltralightX", "UltralightX", "G-Wolves Receiver RS", "Receiver RS",
          "MX Anywhere 3S", "Logitech MX Anywhere 3S", "MX Keys", "MX Keys S", "MX Keys Mini"];
 
+    // 仅内置型号白名单（来自协议表 CID/MID 与 Beken 型号码），不含任何用户自定义别名。
+    private static readonly HashSet<string> BuiltinSafeLabels = new(StringComparer.Ordinal)
+    {
+        "ATK 鼠标", "Finalmouse ULX", "INZONE H9",
+        "ATK F1 Pro", "ATK F1 Pro Max", "ATK F1 Ultimate", "ATK F1 Ultimate 2.0", "ATK F1 Extreme",
+        "ATK X1 Pro", "ATK X1 Pro Max", "ATK X1 Ultra", "ATK X1 Ultimate",
+        "ATK Z1 Pro Max", "ATK Z1 Ultra", "ATK U2 Pro Max", "ATK U2 Ultra", "ATK A9 Pro", "ATK A9 Ultra",
+        "ATTACK SHARK X11", "ATTACK SHARK X3 Max", "ATTACK SHARK R1 / X6", "ATTACK SHARK X6",
+        "ATTACK SHARK X3", "ATTACK SHARK X11 Pro", "ATTACK SHARK X11 SE", "Delux M600 Pro"
+    };
+
+    private static readonly UlxQuery[] UlxQueries = [UlxQuery.Link, UlxQuery.Percentage, UlxQuery.Voltage, UlxQuery.Charging];
+
     // 固件与蓝牙别名均可包含个人信息。日志与历史仅允许完整的目录名称和固定标签。
     public static string SafeDeviceLabel(DeviceIdentity device)
     {
         if (GenericProducts.Contains(device.Name, StringComparer.Ordinal) ||
-            DeviceCatalog.Entries.Any(entry => StringComparer.Ordinal.Equals(entry.Model, device.Name)) ||
-            device.Name is "ATK 鼠标" or "Finalmouse ULX" or "INZONE H9")
+            BuiltinSafeLabels.Contains(device.Name) ||
+            DeviceCatalog.Entries.Any(entry => StringComparer.Ordinal.Equals(entry.Model, device.Name)))
             return device.Name;
         return device.Kind switch
         {
@@ -38,7 +51,7 @@ public static partial class DiagnosticPrivacy
     {
         if (string.IsNullOrWhiteSpace(text))
             return "-";
-        string clean = text.ReplaceLineEndings(" ").Trim();
+        string clean = text.ReplaceLineEndings(" ").Replace('|', '｜').Trim();
         if (clean.Contains('\\') || clean.Contains('/') || clean.Contains('@'))
             return "[已遮蔽]";
         return clean.Length <= maxLength ? clean : clean[..maxLength];
@@ -71,7 +84,8 @@ public static partial class DiagnosticPrivacy
                 CopyHidpp(raw, request, result, features);
                 return result;
             case LogitechHeadsetAdapter:
-                CopyLogitechHeadset(hid.ProductId!.Value, raw, request, result);
+                if (hid.ProductId is ushort headsetPid)
+                    CopyLogitechHeadset(headsetPid, raw, request, result);
                 return result;
             case RazerFeatureAdapter:
                 CopyRazerFeature(hid.ProductId, raw, request, result);
@@ -83,13 +97,30 @@ public static partial class DiagnosticPrivacy
                 CopyAsusKeyboard(hid.ProductId, raw, result);
                 return result;
             case MchoseMouseAdapter:
-                if (MchoseMouseProtocol.Allows(request) &&
-                    MchoseMouseProtocol.TryDecode(raw, request[0], out _, out _))
+                if (MchoseMouseProtocol.Allows(request))
                 {
-                    // 保留重放所需的 VID、连接位域、电量与充电。型号、固件和尾部全部遮蔽。
-                    result.AsSpan().Fill(0xFF);
-                    raw[..4].CopyTo(result);
-                    raw[10..13].CopyTo(result.AsSpan(10));
+                    if (MchoseMouseProtocol.TryDecode(raw, request[0], out _, out _))
+                    {
+                        // 保留重放所需的 VID、连接位域、电量与充电。型号、固件和尾部全部遮蔽。
+                        result.AsSpan().Fill(0xFF);
+                        raw[..4].CopyTo(result);
+                        raw[10..13].CopyTo(result.AsSpan(10));
+                    }
+                    else if (MchoseMouseProtocol.IsIdleReply(raw))
+                    {
+                        // 合法空闲占位帧：保留无载荷空闲标记，避免被误报为畸形回复。
+                        if (raw.Length >= 2)
+                        {
+                            result[0] = request[0];
+                            result[1] = 0xF9;
+                        }
+                    }
+                    else if (result.Length >= 2)
+                    {
+                        // 畸形帧输出脱敏非空闲标记，避免全零在回放时被 IsIdleReply 误判为休眠。
+                        result[0] = request[0];
+                        result[1] = 0xEE;
+                    }
                 }
                 return result;
             case PassiveMouseAdapter or RapooVt9Adapter:
@@ -101,7 +132,7 @@ public static partial class DiagnosticPrivacy
         }
         if (FinalmouseAdapter.IsReceiver(hid))
         {
-            foreach (var query in new[] { UlxQuery.Link, UlxQuery.Percentage, UlxQuery.Voltage, UlxQuery.Charging })
+            foreach (var query in UlxQueries)
                 if (FinalmouseProtocol.TryReadPayload(raw, query, out var payload))
                     raw[..(4 + payload.Length)].CopyTo(result);
             return result;
@@ -121,6 +152,22 @@ public static partial class DiagnosticPrivacy
                     raw[..length].CopyTo(result);
                     if (hasChecksum)
                         result[1] = MouseBatteryProtocol.BitMouseChecksum(result.AsSpan(2));
+                }
+                else if (MouseBatteryProtocol.IsBitMousePush(raw))
+                {
+                    // 保留 BitMouse 主动推送头（0x73）并清除载荷，避免回放时被当作畸形回复触发安全门误封。
+                    result[0] = 0x08;
+                    if (raw[1] == 0x72 && raw[2] == 0x73)
+                    {
+                        result[1] = 0x72;
+                        result[2] = 0x73;
+                    }
+                    else
+                    {
+                        result[2] = 0x72;
+                        result[3] = 0x73;
+                        result[1] = MouseBatteryProtocol.BitMouseChecksum(result.AsSpan(2));
+                    }
                 }
                 break;
             case MouseFamily.XviOld or MouseFamily.XviNew:
@@ -218,8 +265,24 @@ public static partial class DiagnosticPrivacy
     {
         if (LogitechHeadsetProtocol.TryFixedBattery(raw, pid, out _, out _))
         {
-            int end = pid switch { 0x0B21 => 14, 0x0B1C => 9, _ => 13 };
-            raw[..end].CopyTo(result);
+            // 按解码依赖的最小字节白名单拷贝，不放行未校验载荷字节。
+            switch (pid)
+            {
+                case 0x0B21:
+                    raw[..11].CopyTo(result);
+                    result[12] = raw[12];
+                    result[13] = raw[13];
+                    break;
+                case 0x0B1C:
+                    raw[..7].CopyTo(result);
+                    result[8] = raw[8];
+                    break;
+                default: // 0x0AF7
+                    raw[..10].CopyTo(result);
+                    result[10] = raw[10];
+                    result[12] = raw[12];
+                    break;
+            }
             return;
         }
         if (pid is not (0x0AF7 or 0x0B18) || request.Length != LogitechHeadsetProtocol.ReportLength)
@@ -245,19 +308,32 @@ public static partial class DiagnosticPrivacy
 
     private static void CopyRazerFeature(ushort? pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
     {
-        if (request.Length != RazerFeatureProtocol.ReportLength || RazerFeatureProtocol.Find(pid) is not { } model ||
-            !RazerFeatureProtocol.TryDecode(raw, model, (RazerFeatureQuery)request[8], out byte status, out _))
+        if (request.Length != RazerFeatureProtocol.ReportLength || RazerFeatureProtocol.Find(pid) is not { } model)
             return;
-        raw[..(status == 2 ? 11 : 9)].CopyTo(result);
-        result[89] = RazerFeatureProtocol.Checksum(result);
+        var query = (RazerFeatureQuery)request[8];
+        if (RazerFeatureProtocol.TryDecode(raw, model, query, out byte status, out _))
+        {
+            raw[..(status == 2 ? 11 : 9)].CopyTo(result);
+            result[89] = RazerFeatureProtocol.Checksum(result);
+        }
+        else if (RazerFeatureProtocol.IsForeignReply(raw, model, query))
+        {
+            // 保留无载荷的 9 字节头并重算校验，使外部程序冲突重试语义在诊断报告中可无损回放。
+            raw[..9].CopyTo(result);
+            result[89] = RazerFeatureProtocol.Checksum(result);
+        }
     }
 
     private static void CopyRazerHeadset(ushort? pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
     {
         if (pid == RazerHeadsetProtocol.BlackShark2020Pid)
         {
-            if (RazerHeadsetProtocol.TryDecodeBlackShark2020(raw, out _, out _, out _, out _))
-                raw[..15].CopyTo(result);
+            if (RazerHeadsetProtocol.TryDecodeBlackShark2020(raw, out bool offline, out _, out _, out _))
+            {
+                raw[..9].CopyTo(result);
+                if (!offline || raw[1] == 0x0F)
+                    raw[11..15].CopyTo(result[11..]);
+            }
             return;
         }
         if (pid is not ushort headsetPid ||
@@ -288,7 +364,11 @@ public static partial class DiagnosticPrivacy
     {
         if (!MchoseKbProtocol.TryDecodeBattery(raw, out _))
             return;
-        raw[..7].CopyTo(result);
+        result[0] = raw[0];
+        result[1] = raw[1];
+        result[5] = raw[5];
+        if (raw[5] == 0)
+            result[6] = raw[6];
         result[19] = MchoseKbProtocol.Checksum(result[..19]);
     }
 
@@ -329,6 +409,8 @@ public static partial class DiagnosticPrivacy
     internal static string SummarizeUnrecognizedHidReply(
         IDeviceAdapter adapter, HidInterface hid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request)
     {
+        if (raw.IsEmpty)
+            return "len=0 empty";
         if (adapter is PassiveMouseAdapter or RapooVt9Adapter)
             return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2} 未识别");
         if (raw.Length < 8)

@@ -24,10 +24,19 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: 安装 .NET 10
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
+      - name: 缓存 NuGet 依赖
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
       - name: 读取正式版版本与更新记录
         id: version
         shell: pwsh
@@ -54,12 +63,18 @@ jobs:
             throw "CHANGELOG.md 缺少 $version 的更新记录"
           }
           $section.Groups[1].Value.Trim() | Set-Content release-notes.md -Encoding utf8
+          foreach ($siteFile in @('site/index.html', 'site/download.html')) {
+            $siteText = Get-Content $siteFile -Raw -Encoding utf8
+            if ($siteText -notmatch [regex]::Escape("v$version")) {
+              throw "$siteFile 中的静态回退版本号与标签 v$version 不一致，请先同步官网回退版本"
+            }
+          }
           "number=$version" >> $env:GITHUB_OUTPUT
       - name: 编译解决方案
         shell: pwsh
         env:
           JIGE_VERSION: ${{ steps.version.outputs.number }}
-        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_VERSION"
+        run: dotnet build Jige.slnx -c Release "-p:Version=$env:JIGE_VERSION" -warnaserror
       - name: 运行测试
         shell: pwsh
         run: dotnet test Jige.slnx -c Release --no-build -m:1 --blame-hang-timeout 60s

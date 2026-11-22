@@ -4,8 +4,28 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
 {
     private const string CatalogName = "Finalmouse UltralightX";
     private const string GenericName = "Finalmouse ULX";
+    private readonly Lock confirmLock = new();
+    private readonly HashSet<string> confirmedPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
+
+    public void ResetCache()
+    {
+        lock (confirmLock)
+            confirmedPaths.Clear();
+    }
+
+    private bool IsConfirmed(string path)
+    {
+        lock (confirmLock)
+            return confirmedPaths.Contains(path);
+    }
+
+    private void Confirm(string path)
+    {
+        lock (confirmLock)
+            confirmedPaths.Add(path);
+    }
 
     public static bool IsReceiver(HidInterface hid) => hid.VendorId == 0x361D;
     public static bool IsCatalogPid(ushort? pid) => pid == 0x0100;
@@ -45,11 +65,8 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             var selected = candidates[0];
             if (DeviceCatalog.IsDisabledPath(selected, out _))
                 continue;
-            if (gates?.IsBlocked(selected, out var blockedReason) == true)
-            {
-                gates.RecordRejection(selected, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(selected, out _) == true)
                 continue;
-            }
 
             var source = IsCatalogPid(selected.ProductId) ? AdaptationSource.Catalog : AdaptationSource.Generic;
             string name = source == AdaptationSource.Catalog ? CatalogName : GenericName;
@@ -66,7 +83,8 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
     public async ValueTask<BatteryReading> ReadAsync(
         DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken cancellationToken)
     {
-        var endpoint = (HidInterface)target.Endpoint;
+        if (target.Endpoint is not HidInterface endpoint)
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, "ULX 接口类型不匹配");
         if (endpoint.MetadataIssue != ReadIssue.None)
             return AdapterRegistry.Failure(target, endpoint.MetadataIssue, endpoint.MetadataError ?? "无法读取 HID 描述符");
         if (!IsVendorCollection(endpoint))
@@ -76,14 +94,14 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
-        using var session = transport.OpenHid(endpoint, cancellationToken);
+        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x05, RequiredOutputReportId = 0x04 }, cancellationToken);
         // 安全门 ②：第一条只发无害的 0x24 链路状态查询，回复格式正确才继续。
         var (link, sawReply) = await QueryAsync(session, UlxQuery.Link, trace, cancellationToken).ConfigureAwait(false);
         if (link is null)
         {
             if (sawReply)
             {
-                if (target.Device.Source == AdaptationSource.Generic)
+                if (target.Device.Source == AdaptationSource.Generic && !IsConfirmed(endpoint.Path))
                     gates?.Block(endpoint, "ULX 链路状态查询回复格式不符合协议");
                 return AdapterRegistry.Failure(target, ReadIssue.InvalidResponse, "链路状态回复格式不符合 ULX 协议");
             }
@@ -91,6 +109,7 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow,
                 ReadIssue.Timeout, "链路状态查询超时，设备可能正在休眠");
         }
+        Confirm(endpoint.Path);
         if (link[0] == 0)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow,
                 Detail: "无线链路未连接，接收器无法区分休眠和关机");
@@ -129,17 +148,18 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
-        using var session = transport.OpenHid(endpoint, cancellationToken);
+        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x05, RequiredOutputReportId = 0x04 }, cancellationToken);
         var (link, sawReply) = await QueryAsync(session, UlxQuery.Link, null, cancellationToken).ConfigureAwait(false);
         if (link is null)
         {
-            if (sawReply && target.Device.Source == AdaptationSource.Generic)
+            if (sawReply && target.Device.Source == AdaptationSource.Generic && !IsConfirmed(endpoint.Path))
                 gates?.Block(endpoint, "ULX 心跳链路回复格式不符合协议");
             // R1：ULX 查询超时算休眠（不置离线），异常回复返回 Unknown。
             return new(endpoint.ReceiverId, null, target.Device.Id,
                 sawReply ? LinkState.Unknown : LinkState.Asleep,
                 sawReply ? ReadIssue.InvalidResponse : ReadIssue.Timeout);
         }
+        Confirm(endpoint.Path);
         return new(endpoint.ReceiverId, null, target.Device.Id, link[0] == 0 ? LinkState.Asleep : LinkState.Online);
     }
 

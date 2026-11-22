@@ -89,6 +89,20 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
 
     internal static Native.HidCaps ReadCaps(SafeFileHandle handle, HidInterface? endpoint = null)
     {
+        var (caps, _, _, _) = ReadCapsInternal(handle, endpoint, false);
+        return caps;
+    }
+
+    internal static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsAndReportIds(
+        SafeFileHandle handle, bool includeReportIds, byte? requiredReportType = null, byte requiredReportId = 0)
+    {
+        return ReadCapsInternal(handle, null, includeReportIds, requiredReportType, requiredReportId);
+    }
+
+    private static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsInternal(
+        SafeFileHandle handle, HidInterface? endpoint, bool includeReportIds,
+        byte? requiredReportType = null, byte requiredReportId = 0)
+    {
         if (Native.GetPreparsedData(handle, out var data) == 0)
             throw WindowsErrors.Last("读取 HID 描述符");
         try
@@ -102,7 +116,20 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 VerifyReportId(data, 1, endpoint.RequiredOutputReportId, caps.OutputLength);
                 VerifyReportId(data, 2, endpoint.RequiredFeatureReportId, caps.FeatureLength);
             }
-            return caps;
+            if (requiredReportType is byte checkType)
+            {
+                ushort checkLen = checkType == 2 ? caps.FeatureLength : checkType == 1 ? caps.OutputLength : caps.InputLength;
+                if (!DeclaresReportId(data, checkType, requiredReportId, checkLen))
+                    return (caps, null, null, null);
+            }
+            if (!includeReportIds)
+                return (caps, null, null, null);
+            return (
+                caps,
+                ScanReportIds(data, 0, caps.InputLength),
+                ScanReportIds(data, 1, caps.OutputLength),
+                ScanReportIds(data, 2, caps.FeatureLength)
+            );
         }
         finally
         {
@@ -215,6 +242,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
 
     private static unsafe void ConfigureSerial(SafeFileHandle handle, int baudRate)
     {
+        Native.SetupComm(handle, 4096, 4096);
         var settings = new Native.Dcb { Length = (uint)sizeof(Native.Dcb) };
         if (Native.GetCommState(handle, ref settings) == 0)
             throw WindowsErrors.Last("读取串口参数");
@@ -222,6 +250,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         settings.BaudRate = checked((uint)baudRate);
         // 8N1、二进制模式、关闭流控，DTR 和 RTS 置位，只配置本次串口连接。
         settings.Flags = 0x1011;
+        settings.Reserved = 0;
         settings.ByteSize = 8;
         settings.Parity = 0;
         settings.StopBits = 0;
@@ -239,6 +268,10 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         };
         if (Native.SetCommTimeouts(handle, in timeouts) == 0)
             throw WindowsErrors.Last("设置串口超时");
+
+        // 清空历史错误标志与驱动 RX/TX 残留字节，避免旧帧或切波特率垃圾污染首包解析。
+        Native.ClearCommError(handle, out _, 0);
+        Native.PurgeComm(handle, 0x000Fu);
     }
 
     private sealed class SerialSession(OverlappedDevice io) : ISerialSession
