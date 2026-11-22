@@ -776,19 +776,20 @@ public sealed class TaskbarStripTests
             var model = new TrayModel(loaded, new());
             var panel = new SettingsPanel(900);
             Assert.Equal(5, panel.Choices(SettingRow.TaskbarStyle).Length);
-            Assert.Equal(6, panel.Choices(SettingRow.TaskbarColor).Length);
+            Assert.Equal(9, panel.Choices(SettingRow.TaskbarColor).Length);
 
             Assert.True(panel.Toggle(SettingRow.TaskbarStyle, 0, animate: false, selectedIndex: 0));
             Assert.True(panel.Select(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Badges), model, 1, false, Save));
             Assert.Equal(SettingRow.TaskbarStyle, panel.Expanded); // 保持展开便于实时对比任务栏。
 
             Assert.True(panel.Toggle(SettingRow.TaskbarColor, 2, animate: false, selectedIndex: 0));
-            Assert.True(panel.Select(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.IceBlue), model, 3, false, Save));
+            Assert.True(panel.Scroll(3)); // 验证 9 套配色在 6 项可视窗内可平滑滚动。
+            Assert.True(panel.Select(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Sakura), model, 3, false, Save));
             Assert.Equal(SettingRow.TaskbarColor, panel.Expanded);
 
             Assert.True(files.TryLoadSettings(out var persisted));
             Assert.Equal(TaskbarStripStyle.Badges, persisted.TaskbarStyle);
-            Assert.Equal(TaskbarStripColorScheme.IceBlue, persisted.TaskbarColor);
+            Assert.Equal(TaskbarStripColorScheme.Sakura, persisted.TaskbarColor);
 
             void Save(TraySettings next)
             {

@@ -369,6 +369,36 @@ internal readonly record struct TaskbarStripPalette(
         new(new(0x073b61), new(0x703a00), new(0x9c122a), new(0x005951), new(0x0b4c7c, 60)),
         0xf0f7fcu, new(0x0b4c7c, 34), DefaultMinContrast, false);
 
+    private static readonly SchemeInks SakuraDark = new(
+        new(new(0xffd6e7), new(0xffe066), new(0xff7d99), new(0x7ef5b8), new(0xffc2dc, 56)),
+        new(new(0xffe5f0), new(0xffea85), new(0xff94ac), new(0x96fac6), new(0xffc2dc, 72)),
+        0x1b1117u, new(0xffc2dc, 40), DefaultMinContrast, false);
+
+    private static readonly SchemeInks SakuraLight = new(
+        new(new(0x8f2250), new(0x8f4e00), new(0xb81d38), new(0x0d7048), new(0x8f2250, 48)),
+        new(new(0x75173f), new(0x733c00), new(0x9c122a), new(0x085938), new(0x8f2250, 60)),
+        0xfdf4f8u, new(0x8f2250, 34), DefaultMinContrast, false);
+
+    private static readonly SchemeInks AmberDark = new(
+        new(new(0xffcf70), new(0xffe966), new(0xff7b6b), new(0x7ee887), new(0xffcf70, 52)),
+        new(new(0xffde96), new(0xfff085), new(0xff9487), new(0x98f29f), new(0xffcf70, 68)),
+        0x1c160eu, new(0xffcf70, 38), DefaultMinContrast, false);
+
+    private static readonly SchemeInks AmberLight = new(
+        new(new(0x6e3f00), new(0x8a4b00), new(0xb02215), new(0x0e6e35), new(0x6e3f00, 48)),
+        new(new(0x573000), new(0x703900), new(0x94160b), new(0x085728), new(0x6e3f00, 60)),
+        0xfbf7eeu, new(0x6e3f00, 34), DefaultMinContrast, false);
+
+    private static readonly SchemeInks NeonGreenDark = new(
+        new(new(0x80ff9e), new(0xfff056), new(0xff7c8a), new(0x4df5ff), new(0x80ff9e, 52)),
+        new(new(0xa3ffb8), new(0xfff57a), new(0xff96a1), new(0x7af8ff), new(0x80ff9e, 68)),
+        0x0e1a12u, new(0x80ff9e, 38), DefaultMinContrast, false);
+
+    private static readonly SchemeInks NeonGreenLight = new(
+        new(new(0x0b662a), new(0x8a4b00), new(0xb41e2e), new(0x006680), new(0x0b662a, 48)),
+        new(new(0x065220), new(0x703900), new(0x961422), new(0x005266), new(0x0b662a, 60)),
+        0xf1fbf4u, new(0x0b662a, 34), DefaultMinContrast, false);
+
     public bool UsesLightInk => TaskbarColorMath.RelativeLuminance(Foreground.Rgb) > 0.5;
     public bool HasPlate => Plate is not null;
 
@@ -507,6 +537,12 @@ internal readonly record struct TaskbarStripPalette(
         (TaskbarStripColorScheme.Monochrome, false) => MonochromeLight,
         (TaskbarStripColorScheme.IceBlue, true) => IceBlueDark,
         (TaskbarStripColorScheme.IceBlue, false) => IceBlueLight,
+        (TaskbarStripColorScheme.Sakura, true) => SakuraDark,
+        (TaskbarStripColorScheme.Sakura, false) => SakuraLight,
+        (TaskbarStripColorScheme.Amber, true) => AmberDark,
+        (TaskbarStripColorScheme.Amber, false) => AmberLight,
+        (TaskbarStripColorScheme.NeonGreen, true) => NeonGreenDark,
+        (TaskbarStripColorScheme.NeonGreen, false) => NeonGreenLight,
         (_, true) => StandardDark,
         (_, false) => StandardLight
     };

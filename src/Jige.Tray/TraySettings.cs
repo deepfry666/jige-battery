@@ -24,7 +24,7 @@ internal enum ThemeMode { Auto, Light, Dark }
 internal enum TaskbarStripStyle { Auto, Frameless, Capsule, Badges, Meter }
 
 [JsonConverter(typeof(JsonStringEnumConverter<TaskbarStripColorScheme>))]
-internal enum TaskbarStripColorScheme { Auto, Light, Dark, HighContrast, Monochrome, IceBlue }
+internal enum TaskbarStripColorScheme { Auto, Light, Dark, HighContrast, Monochrome, IceBlue, Sakura, Amber, NeonGreen }
 
 internal sealed record TraySettings
 {
@@ -154,7 +154,8 @@ internal sealed record TraySettings
                 ? TaskbarStyle : TaskbarStripStyle.Auto,
             TaskbarColor = TaskbarColor is TaskbarStripColorScheme.Light or TaskbarStripColorScheme.Dark
                 or TaskbarStripColorScheme.HighContrast or TaskbarStripColorScheme.Monochrome
-                or TaskbarStripColorScheme.IceBlue
+                or TaskbarStripColorScheme.IceBlue or TaskbarStripColorScheme.Sakura
+                or TaskbarStripColorScheme.Amber or TaskbarStripColorScheme.NeonGreen
                 ? TaskbarColor : TaskbarStripColorScheme.Auto,
             Theme = Theme is ThemeMode.Light or ThemeMode.Dark ? Theme : ThemeMode.Auto,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),

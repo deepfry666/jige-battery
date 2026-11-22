@@ -71,7 +71,10 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Dark), "墨黑深彩（浅底）"),
         new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.HighContrast), "高对比锐利"),
         new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Monochrome), "极简纯色"),
-        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.IceBlue), "冰蓝赛博")
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.IceBlue), "冰蓝赛博"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Sakura), "樱花粉"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Amber), "复古琥珀"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.NeonGreen), "荧光绿")
     ];
 
     public static readonly SettingChoice[] ThemeChoices =

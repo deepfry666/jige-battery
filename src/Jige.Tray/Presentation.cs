@@ -232,6 +232,9 @@ internal static class Presentation
         TaskbarStripColorScheme.HighContrast => "高对比",
         TaskbarStripColorScheme.Monochrome => "极简纯色",
         TaskbarStripColorScheme.IceBlue => "冰蓝赛博",
+        TaskbarStripColorScheme.Sakura => "樱花粉",
+        TaskbarStripColorScheme.Amber => "复古琥珀",
+        TaskbarStripColorScheme.NeonGreen => "荧光绿",
         _ => "自动适配"
     };
 
