@@ -182,11 +182,12 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         if (route.Family == MouseFamily.CompxOut)
         {
             // R1：优先发轻量的 Compx 0x03 在线查询：
-            // 1) 明确回复在线标志为 0 → 立即离线；明确回复 1 → 在线；
+            // 1) 在线标志为 1 → 在线；为 0 → 休眠。实机日志显示鼠标静止十几秒就会回 0，
+            //    无法区分省电休眠和关机，所以交给「连续休眠 10 分钟转离线」处理；
             // 2) 无回复超时（如 Compx 静止几秒后不再应答，或固件不支持 0x03）→ 回退 0x04；若仍超时一律算休眠而非离线。
             var online = await QueryCompxOnlineAsync(session, endpoint, cancellationToken).ConfigureAwait(false);
             if (online is bool state)
-                return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Offline);
+                return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Asleep);
             var battery = await QueryAsync(session, endpoint, route, false, target.SiblingInputHids, transport, null, cancellationToken)
                 .ConfigureAwait(false);
             if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric)

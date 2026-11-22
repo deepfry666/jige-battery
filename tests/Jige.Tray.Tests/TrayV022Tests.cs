@@ -193,7 +193,7 @@ public sealed class TrayV022Tests
         var unknown = new UnknownReceiverInfo("1234:5678:FF00:0001:64:64:0", 0x1234, 0x5678, 0xFF00, 1, 64, 64, 0);
         tracker.LogUnknownReceivers([unknown]);
         tracker.LogUnknownReceivers([unknown]);
-        Assert.Single(lines, line => line.Contains("未识别接收器 1234:5678"));
+        Assert.Single(lines, line => line.Contains("未识别设备 1234:5678"));
 
         // 4. 安全门拦截原因
         var rejection = new SafetyGateRejection("373B:1999:FF02:0002:17:17:0", 0x373B, 0x1999, 0xFF02, 2, 3, "回复格式不符合");

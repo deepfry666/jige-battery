@@ -39,9 +39,25 @@ public sealed partial class DeviceTopologyCache(
 
     public bool IsDirty => Volatile.Read(ref generation) != Volatile.Read(ref scannedGeneration);
 
-    /// <summary>仅把外部 USB/蓝牙 HID 的厂商自定义集合计入未识别接收器，避免笔记本内置 I2C/ACPI 触控板等误报。</summary>
+    /// <summary>
+    /// 已知不带电池、只用于灯效或设置的外接 HID，不计入未识别设备。
+    /// ITE IT5702 / IT5711 / IT8297：技嘉 RGB Fusion 2 主板灯控，见
+    /// <see href="https://gitlab.com/CalcProgrammer1/OpenRGB/-/tree/master/Controllers/GigabyteRGBFusion2USBController">OpenRGB 设备表</see>。
+    /// </summary>
+    private static readonly HashSet<(ushort Vid, ushort Pid)> KnownNonBattery =
+    [
+        (0x048D, 0x5702), (0x048D, 0x5711), (0x048D, 0x8297)
+    ];
+
+    public static bool IsKnownNonBattery(HidInterface hid) =>
+        hid.VendorId is { } vid && hid.ProductId is { } pid && KnownNonBattery.Contains((vid, pid));
+
+    /// <summary>
+    /// 仅把外部 USB/蓝牙 HID 的厂商自定义集合计入未识别设备，避免笔记本内置 I2C/ACPI 触控板等误报。
+    /// 有线键盘、显示器等也带厂商集合，所以计数只表示「没认出来」，不代表一定带电池。
+    /// </summary>
     public static bool IsUnknownReceiverCandidate(HidInterface hid) =>
-        hid.UsagePage is >= 0xFF00 && hid.IsExternalReceiverBus;
+        hid.UsagePage is >= 0xFF00 && hid.IsExternalReceiverBus && !IsKnownNonBattery(hid);
 
     /// <summary>标记缓存失效（收到插拔通知、休眠唤醒、设备断开错误或用户点「重新检测」时调用）。</summary>
     public void Invalidate() => Interlocked.Increment(ref generation);

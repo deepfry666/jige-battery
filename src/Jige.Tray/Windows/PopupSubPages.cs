@@ -431,7 +431,7 @@ internal sealed partial class PopupScene
         }
 
         string unidentified = model.UnknownReceivers > 0
-            ? $"检测到 {model.UnknownReceivers} 个未识别接收器" : "没看到设备？";
+            ? $"有 {model.UnknownReceivers} 个 USB 设备未识别" : "没看到设备？";
         string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
         if (HasDiagnosticReport)
         {

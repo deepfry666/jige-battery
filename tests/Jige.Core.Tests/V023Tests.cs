@@ -22,7 +22,7 @@ public sealed class V023Tests
     }
 
     [Fact]
-    public async Task R1_CompxTimeoutReturnsAsleepWhileExplicitDisconnectAndUnplugReturnOffline()
+    public async Task R1_CompxTimeoutAndZeroOnlineFlagReturnAsleepWhileUnplugReturnsOffline()
     {
         var compx = new HidInterface("rx-atk", "p-atk", 0x373B, 0x11D9, null, 0xFF02, 2, 17, 17, 0, 1);
         var registry = AdapterRegistry.CreateDefault();
@@ -55,7 +55,7 @@ public sealed class V023Tests
         Assert.Equal(ReadIssue.Timeout, readAsleep.Issue);
         readTimeoutTransport.AssertComplete();
 
-        // 2) 接收器明确回复 0x03 在线标志为 0 → 立即离线。
+        // 2) 0x03 在线标志为 0：实机上鼠标静止十几秒就会出现，按休眠处理，交给 10 分钟规则转离线。
         var explicitOfflineTransport = new FakeReceiverTransport((compx.Path,
         [
             new(DiagnosticOperation.OpenHid),
@@ -64,7 +64,7 @@ public sealed class V023Tests
         ]));
         var offline = await registry.CheckPresenceAsync(device, explicitOfflineTransport, CancellationToken.None);
         Assert.NotNull(offline);
-        Assert.Equal(LinkState.Offline, offline!.Link);
+        Assert.Equal(LinkState.Asleep, offline!.Link);
         Assert.Equal(ReadIssue.None, offline.Issue);
         explicitOfflineTransport.AssertComplete();
 

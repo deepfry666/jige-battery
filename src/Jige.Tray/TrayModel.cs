@@ -441,6 +441,14 @@ internal sealed class TrayModel
             var previous = devices.GetValueOrDefault(device.Id);
             if (device.UsesPassiveBatteryReports && previous is not null && reading.Link != LinkState.Online)
                 device = previous.Device;
+            // 休眠、超时等没读到电量的回复不会带上协议细化出的型号名（如 ATK 读 CID/MID 后的具体型号），
+            // 沿用上次的名称，避免同一设备在面板和日志里来回换名。
+            if (previous is not null && reading.Percentage is null && reading.Link != LinkState.Online &&
+                device.Name != previous.Device.Name)
+            {
+                device = device with { Name = previous.Device.Name };
+                reading = reading with { Device = device };
+            }
             if (previous is null && (reading.Percentage is null || reading.Link != LinkState.Online) &&
                 !(device.UsesPassiveBatteryReports && reading.Link is LinkState.Online or LinkState.Asleep))
             {
