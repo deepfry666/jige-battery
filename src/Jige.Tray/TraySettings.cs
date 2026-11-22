@@ -23,6 +23,8 @@ internal enum ThemeMode { Auto, Light, Dark }
 internal sealed record TraySettings
 {
     public static IReadOnlyList<int> PollIntervals { get; } = Array.AsReadOnly<int>([30, 60, 120]);
+    /// <summary>单台设备可选的提醒阈值；比全局多一个 5%，适合掉电很慢的键盘。</summary>
+    public static IReadOnlyList<int> DeviceThresholdOptions { get; } = Array.AsReadOnly<int>([5, 10, 15, 20, 30]);
 
     public TrayDisplayLocation DisplayLocation { get; init; } = TrayDisplayLocation.Taskbar;
     public ThemeMode Theme { get; init; } = ThemeMode.Auto;
@@ -42,10 +44,45 @@ internal sealed record TraySettings
     [JsonIgnore]
     public bool AutoUpdateEnabled => AutoCheckUpdates != false;
     public bool? WelcomeShown { get; init; }
+    /// <summary>显示预计可用时间（估算）。默认关闭；关闭时后台仍继续学习，打开后立即有数。</summary>
+    public bool ShowRuntimeEstimate { get; init; }
+    /// <summary>充满时提醒拔线，默认关闭。</summary>
+    public bool FullChargeReminder { get; init; }
+    /// <summary>进入游戏时若有设备电量偏低，弹一条不抢焦点的小横幅。默认开启（可空值兼容旧配置）。</summary>
+    public bool? GameEntryReminder { get; init; }
+
+    [JsonIgnore]
+    public bool GameEntryReminderEnabled => GameEntryReminder != false;
+    /// <summary>单台设备的低电量提醒阈值；未设置的设备跟随 <see cref="LowBatteryThreshold"/>。</summary>
+    public Dictionary<string, int> DeviceThresholds { get; init; } = [];
     public string[] GameProcessNames { get; init; } = [];
     public Dictionary<string, string> DeviceAliases { get; init; } = [];
     public string[] HiddenDeviceIds { get; init; } = [];
     public string[] TrayExcludedDeviceIds { get; init; } = [];
+
+    public int ThresholdFor(string id) =>
+        DeviceThresholds.TryGetValue(id, out int value) ? value : LowBatteryThreshold;
+
+    /// <summary>设备页「提醒」标签的点击循环：默认 → 5% → 10% → 15% → 20% → 30% → 默认。</summary>
+    public TraySettings CycleDeviceThreshold(string id)
+    {
+        var thresholds = new Dictionary<string, int>(DeviceThresholds, StringComparer.OrdinalIgnoreCase);
+        var options = DeviceThresholdOptions;
+        if (!thresholds.TryGetValue(id, out int current))
+            thresholds[id] = options[0];
+        else
+        {
+            int index = -1;
+            for (int i = 0; i < options.Count; i++)
+                if (options[i] == current)
+                    index = i;
+            if (index < 0 || index == options.Count - 1)
+                thresholds.Remove(id);
+            else
+                thresholds[id] = options[index + 1];
+        }
+        return this with { DeviceThresholds = thresholds };
+    }
 
     public bool IsInTray(string id) =>
         !TrayExcludedDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase);
@@ -77,6 +114,8 @@ internal sealed record TraySettings
         var settings = WithAlias(id, "");
         return settings with
         {
+            DeviceThresholds = DeviceThresholds.Where(pair => !StringComparer.OrdinalIgnoreCase.Equals(pair.Key, id))
+                .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
             HiddenDeviceIds = HiddenDeviceIds.Where(hidden => !StringComparer.OrdinalIgnoreCase.Equals(hidden, id)).ToArray(),
             TrayExcludedDeviceIds = TrayExcludedDeviceIds.Where(excluded => !StringComparer.OrdinalIgnoreCase.Equals(excluded, id)).ToArray()
         };
@@ -105,6 +144,11 @@ internal sealed record TraySettings
             Theme = Theme is ThemeMode.Light or ThemeMode.Dark ? Theme : ThemeMode.Auto,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             AutoCheckUpdates = AutoUpdateEnabled,
+            GameEntryReminder = GameEntryReminderEnabled,
+            DeviceThresholds = (DeviceThresholds ?? [])
+                .Where(pair => !string.IsNullOrWhiteSpace(pair.Key) && DeviceThresholdOptions.Contains(pair.Value))
+                .GroupBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last().Value, StringComparer.OrdinalIgnoreCase),
             PollSeconds = normal,
             GamePollSeconds = Math.Clamp(GamePollSeconds, normal, 86_400),
             DeviceAliases = aliases,
@@ -140,6 +184,7 @@ internal sealed record TrayState
     public string[] RemovedOfflineDevices { get; init; } = [];
     public Dictionary<string, SavedDeviceHistory> History { get; init; } = [];
     public Dictionary<string, string> BlockedReceivers { get; init; } = [];
+    public Dictionary<string, SavedRuntimeEstimate> Runtime { get; init; } = [];
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = true)]
@@ -235,6 +280,7 @@ internal sealed class TrayFiles(string folder)
             Readings = WithoutEmpty(saved.Readings),
             Reminders = WithoutEmpty(saved.Reminders),
             History = WithoutEmpty(saved.History),
+            Runtime = WithoutEmpty(saved.Runtime),
             RemovedOfflineDevices = (saved.RemovedOfflineDevices ?? []).Where(id => !emptyIds.Contains(id)).ToArray()
         };
         try { SaveState(migrated); }

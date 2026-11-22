@@ -72,7 +72,7 @@ internal sealed class TrayLog(string path)
 
 /// <summary>
 /// 统一记录诊断所需的低噪声状态变化事件（D1）：
-/// 仅在状态变化时记录，未识别接收器去重，读取失败按小时汇总，全程无路径/用户名/序列号。
+/// 仅在状态变化时记录，未识别设备去重，读取失败按小时汇总，全程无路径/用户名/序列号。
 /// </summary>
 internal sealed class TrayEventTracker(Action<string> write)
 {
@@ -125,7 +125,7 @@ internal sealed class TrayEventTracker(Action<string> write)
                 string pid = item.ProductId?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
                 string up = item.UsagePage?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
                 string u = item.Usage?.ToString("X4", CultureInfo.InvariantCulture) ?? "----";
-                write($"未识别接收器 {vid}:{pid} {up}:{u} in={item.InputLength}/out={item.OutputLength}/feat={item.FeatureLength}");
+                write($"未识别设备 {vid}:{pid} {up}:{u} in={item.InputLength}/out={item.OutputLength}/feat={item.FeatureLength}");
             }
         }
     }

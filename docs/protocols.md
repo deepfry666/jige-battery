@@ -190,9 +190,9 @@ V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实
 ### 统一判定规则
 
 1. **明确离线**：仅在以下两种情况下立即判定为 `Offline`（托盘图标变灰，悬停显示「已断开 · 上次 xx%」）：
-   - 协议明确回复无线端未连接：例如 Compx `0x03` 在线标志为 `0`、Razer 90B 状态字节为 `0x04`、Razer BlackShark V2 HyperSpeed `0x20` 链路为 `0`、Logitech HID++ 错误 `04/09`、推送 `0x41`（bit6=1）或 `0x40`、Windows 蓝牙明确报告断开；
+   - 协议明确回复无线端未连接：例如 Razer 90B 状态字节为 `0x04`、Razer BlackShark V2 HyperSpeed `0x20` 链路为 `0`、Logitech HID++ 错误 `04/09`、推送 `0x41`（bit6=1）或 `0x40`、Windows 蓝牙明确报告断开；
    - USB 接收器被物理拔出（传输层返回 `Disconnected`，或非失败枚举中接收器已消失）。
-2. **查询超时一律算休眠**：Compx、游狼（含 XVI-OLD 与 XVI-NEW）、ULX、BitMouse 等协议在查询超时且没有任何回复时（以及 XVI-OLD 休眠帧、ULX `0x24=0`），均归为 `Asleep`（休眠）：
+2. **查询超时一律算休眠**：Compx、游狼（含 XVI-OLD 与 XVI-NEW）、ULX、BitMouse 等协议在查询超时且没有任何回复时（以及 XVI-OLD 休眠帧、ULX `0x24=0`、Compx `0x03` 在线标志为 `0`），均归为 `Asleep`（休眠）。Compx 在线标志原先按明确离线处理，但 ATK 鼠标的实机日志显示鼠标静止十几秒就会回 `0`，动一下又回 `1`，和关机无法区分，所以改按休眠处理：
    - 保留上次有效电量读数；
    - 托盘图标与面板**不变灰**，继续按上次读数对应正常/偏低/低电量色显示，且不把设备折叠进「离线设备」；
    - 托盘悬停提示写明「休眠中 · 上次 xx%」；休眠期间不触发低电量提醒。

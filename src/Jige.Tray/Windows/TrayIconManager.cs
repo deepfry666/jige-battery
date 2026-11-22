@@ -132,7 +132,6 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         var slots = TrayIconPlan.Build(model, suppressTooltip, showIcons);
         var desiredKeys = slots.Select(slot => slot.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        int threshold = model.Settings.LowBatteryThreshold;
         foreach (var slot in slots)
         {
             if (!icons.TryGetValue(slot.Key, out var icon))
@@ -147,6 +146,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
             bool hasLocation = icon.TryGetRect(out var bounds);
             if (!hasLocation)
                 bounds = Desktop.TaskbarAnchor();
+            int threshold = slot.Device is { } shown ? model.ThresholdFor(shown.Device.Id) : model.Settings.LowBatteryThreshold;
             var appearance = Presentation.Icon(slot.Device, darkTaskbar, threshold);
             try
             {

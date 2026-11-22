@@ -222,7 +222,7 @@ public sealed class GenericAndPresenceTests
     }
 
     [Fact]
-    public async Task B1_CompxHeartbeatUses0x03AndDetectsOffline()
+    public async Task B1_CompxHeartbeatUses0x03AndTreatsZeroAsAsleep()
     {
         var compx = new HidInterface("rx-atk", "p-atk", 0x373B, 0x11D9, null, 0xFF02, 2, 17, 17, 0, 1);
         var registry = AdapterRegistry.CreateDefault();
@@ -237,7 +237,7 @@ public sealed class GenericAndPresenceTests
         ]));
         var update = await registry.CheckPresenceAsync(device, transport, CancellationToken.None);
         Assert.NotNull(update);
-        Assert.Equal(LinkState.Offline, update!.Link);
+        Assert.Equal(LinkState.Asleep, update!.Link);
         transport.AssertComplete();
     }
 
@@ -494,5 +494,14 @@ public sealed class GenericAndPresenceTests
         var inserted = Assert.Single(withUnknownUsb.Changes);
         Assert.True(inserted.Inserted);
         Assert.Equal((ushort)0x1234, inserted.VendorId);
+
+        // 主板 RGB 灯控等已知无电池设备不计入未识别设备
+        var rgb = new HidInterface("rx-rgb", "p-rgb", 0x048D, 0x5702, null, 0xFF89, 0xCC, 0, 0, 64, null) { Bus = HidBus.Usb };
+        Assert.False(DeviceTopologyCache.IsUnknownReceiverCandidate(rgb));
+        current = new([atk, mchose, touchpad, unknownUsb, rgb], [], []);
+        cache.Invalidate();
+        var withRgb = await cache.GetOrScanAsync(false, CancellationToken.None);
+        Assert.Equal(1, withRgb.UnknownCount);
+        Assert.Empty(withRgb.Changes);
     }
 }

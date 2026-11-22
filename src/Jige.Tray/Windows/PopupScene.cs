@@ -7,9 +7,10 @@ namespace Jige.Tray.Windows;
 internal enum PopupAction
 {
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
-    GameSilent, Autostart, AutoUpdate, ShowBluetooth, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
+    GameSilent, Autostart, AutoUpdate, ShowBluetooth, RuntimeEstimate, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
-    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme
+    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme,
+    GameEntryReminder, FullChargeReminder, DeviceThreshold
 }
 
 internal readonly record struct PopupTarget(PopupAction Action, int Value = 0, string? DeviceId = null)
@@ -75,10 +76,10 @@ internal sealed partial class PopupScene : IDisposable
     private readonly List<HitBox> subButtons = [];
     private Composition.Layer? gameThumb;
     private Composition.Layer? autostartThumb;
-    private Composition.Layer? bluetoothThumb;
     private Composition.Layer? autoUpdateThumb;
+    private Composition.Layer? runtimeThumb;
     private Composition.Layer? updatePulse;
-    private ThumbMotion? gameMotion, autostartMotion, bluetoothMotion, autoUpdateMotion;
+    private ThumbMotion? gameMotion, autostartMotion, autoUpdateMotion, runtimeMotion;
     private string? error;
     private string? displayLocationFallback;
     private DiagnosticStatus diagnosticStatus;
@@ -89,13 +90,14 @@ internal sealed partial class PopupScene : IDisposable
     private Version? lastUpdateNotesVersion;
     private readonly bool hasDiagnosticFooter;
     private bool HasDiagnosticReport => hasDiagnosticFooter && DiagnosticExport.HasReportStatus(diagnosticStatus);
-    private int Threshold => model.Settings.LowBatteryThreshold;
+    private int Threshold(DeviceStatus device) => model.ThresholdFor(device.Device.Id);
     private string? editorId;
     private DeviceStatus[] devices = [];
     private MainPanelPlan mainPlan = new(null, false, [], []);
     private MainRowEntry[] mainEntries = [];
     private bool offlineExpanded;
     private DeviceStatus? notice;
+    private ReminderKind noticeKind;
     private DateTimeOffset now;
     private bool reading;
     private int offset;
@@ -206,7 +208,10 @@ internal sealed partial class PopupScene : IDisposable
         diagnosticStatus = diagnostics;
         diagnosticPreviewPending = previewPending;
         editorId = editing;
-        notice = model.OrderedDevices().FirstOrDefault(device => string.Equals(device.Device.Id, noticeId, StringComparison.OrdinalIgnoreCase));
+        var (kind, noticeDevice) = noticeId is null ? (ReminderKind.LowBattery, "") : ReminderKeys.Parse(noticeId);
+        noticeKind = kind;
+        notice = noticeId is null ? null : model.OrderedDevices().FirstOrDefault(device =>
+            string.Equals(device.Device.Id, noticeDevice, StringComparison.OrdinalIgnoreCase));
         now = time;
         reading = running;
         offset = Math.Min(offset, MaxOffset);
@@ -480,7 +485,7 @@ internal sealed partial class PopupScene : IDisposable
         }
         DrawBadge(canvas, device.Device, metaX, 87.5f, dimmed: false);
 
-        var tone = Presentation.Tone(device, Threshold);
+        var tone = Presentation.Tone(device, Threshold(device));
         var ink = tone switch
         {
             BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging => colors.Status(tone),
@@ -490,7 +495,8 @@ internal sealed partial class PopupScene : IDisposable
         DrawNumber(canvas, device, 23, 109, 145, 52, 44, 18, 24, ink, false);
         DrawCells(canvas, device, 172, 120, 12, 22, 3, 10);
         canvas.Dot(26, 172, 3, colors.Status(tone));
-        canvas.Text(Presentation.Status(device, Threshold), 35, 162, 284, 22, 12,
+        canvas.Text(Presentation.Status(device, Threshold(device), model.Runtime(device, DateTimeOffset.UtcNow), compact: false),
+            35, 162, 284, 22, 12,
             tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Secondary,
             ellipsis: true);
     }
@@ -514,11 +520,11 @@ internal sealed partial class PopupScene : IDisposable
         }
 
         var device = entry.Device!;
-        var tone = Presentation.Tone(device, Threshold);
+        var tone = Presentation.Tone(device, Threshold(device));
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
-        string status = Presentation.Status(device, Threshold);
+        string status = Presentation.Status(device, Threshold(device), model.Runtime(device, DateTimeOffset.UtcNow), compact: true);
         bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
         float nameMaxWidth = isGeneric ? 98 : 153;
         float nameWidth = canvas.Text(model.Name(device.Device), 56, 5, nameMaxWidth, 19, 13.5f,
@@ -538,7 +544,7 @@ internal sealed partial class PopupScene : IDisposable
         DrawNumber(canvas, device, 260, 7, 64, 34, 20, 12, 11, ink, true);
     });
 
-    private void DrawBadge(Canvas canvas, DeviceIdentity device, float x, float y, bool dimmed)
+    private float DrawBadge(Canvas canvas, DeviceIdentity device, float x, float y, bool dimmed)
     {
         var badge = DeviceVerification.Badge(device);
         string label = DeviceVerification.Label(badge);
@@ -556,6 +562,7 @@ internal sealed partial class PopupScene : IDisposable
         }
         canvas.Fill(x, y, badgeWidth, 15.5f, 4, bg);
         canvas.Text(label, x + 5, y, badgeWidth - 10, 15.5f, 10.5f, fg, 600);
+        return badgeWidth;
     }
 
     private void DrawNumber(Canvas canvas, DeviceStatus device, float x, float y, float width, float height,
@@ -581,7 +588,7 @@ internal sealed partial class PopupScene : IDisposable
     private void DrawCells(Canvas canvas, DeviceStatus device, float x, float y, float w, float h, float radius, int count)
     {
         int filled = Presentation.FilledCells(device.Percentage, count);
-        var ink = colors.Status(Presentation.Tone(device, Threshold));
+        var ink = colors.Status(Presentation.Tone(device, Threshold(device)));
         for (int i = 0; i < count; i++)
         {
             if (i == filled && device.IsCharging)
@@ -621,14 +628,17 @@ internal sealed partial class PopupScene : IDisposable
         }
         if (notice is null)
             return;
-        DeviceIcon(canvas, notice.Device.Kind, 14, 46, 36, colors.Low.WithAlpha(36), colors.Low);
-        canvas.Text(Presentation.ReminderTitle(notice.Device.Kind), 62, 44, 269, 21, 14, colors.Ink, 600);
-        string value = $" 只剩 {Presentation.Value(notice)}";
-        float valueWidth = canvas.Measure(value, 13) + 2;
-        float available = 268 - valueWidth;
-        float nameWidth = canvas.Text(model.Name(notice.Device), 62, 64, available, 20, 13, colors.Secondary,
-            ellipsis: true);
-        canvas.Text(value, 62 + Math.Min(nameWidth, available), 64, valueWidth, 20, 13, colors.Secondary);
+        var accent = noticeKind switch
+        {
+            ReminderKind.FullCharge => colors.Charging,
+            ReminderKind.Predicted => colors.Warning,
+            _ => colors.Low
+        };
+        DeviceIcon(canvas, notice.Device.Kind, 14, 46, 36, accent.WithAlpha(36), accent);
+        var (title, suffix) = Presentation.ReminderParts(noticeKind, notice, model.Runtime(notice, DateTimeOffset.UtcNow));
+        canvas.Text(title, 62, 44, 269, 21, 14, colors.Ink, 600, ellipsis: true);
+        // 名称过长时只省略名称，「只剩 xx%」「预计可用约 40 分钟」等后缀始终完整可见。
+        canvas.NameWithSuffix(model.Name(notice.Device), suffix, 62, 64, 268, 20, 13, colors.Secondary);
         DrawNoticeButton(canvas, NoticeButtons[0], "1 小时后提醒", false);
         DrawNoticeButton(canvas, NoticeButtons[1], "知道了", true);
     }
@@ -677,8 +687,8 @@ internal sealed partial class PopupScene : IDisposable
         refresh?.Dispose();
         gameThumb?.Dispose();
         autostartThumb?.Dispose();
-        bluetoothThumb?.Dispose();
         autoUpdateThumb?.Dispose();
+        runtimeThumb?.Dispose();
         updatePulse?.Dispose();
         frame.Dispose();
     }
