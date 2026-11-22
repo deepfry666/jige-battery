@@ -9,6 +9,7 @@ using Windows.Win32.Graphics.Dwm;
 using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.System.Memory;
 using Windows.Win32.System.Threading;
+using Windows.Win32.UI.Accessibility;
 using Windows.Win32.UI.Controls;
 using Windows.Win32.UI.HiDpi;
 using Windows.Win32.UI.Input.KeyboardAndMouse;
@@ -24,9 +25,198 @@ internal static unsafe class Desktop
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "Jige Battery";
 
-    public static bool DarkTaskbar => GetRegistry(ThemeKey, "SystemUsesLightTheme") is not 1;
+    public static bool DarkTaskbar => ReadTaskbarBackdropFallback().PrefersDarkPalette();
     public static bool DarkApps => GetRegistry(ThemeKey, "AppsUseLightTheme") is 0;
     private static bool Transparency => GetRegistry(ThemeKey, "EnableTransparency") is not 0;
+
+    public static TaskbarBackdrop ReadTaskbarBackdropFallback()
+    {
+        bool highContrast = IsHighContrast();
+        uint? highContrastBg = highContrast
+            ? TaskbarColorMath.AbgrToRgb(PInvoke.GetSysColor(SYS_COLOR_INDEX.COLOR_WINDOW))
+            : null;
+        bool lightTheme = GetRegistry(ThemeKey, "SystemUsesLightTheme") is int light && light != 0;
+        bool colorPrevalence = GetRegistry(ThemeKey, "ColorPrevalence") is int prevalence && prevalence != 0;
+        uint? accentRgb = colorPrevalence ? ReadTaskbarAccentRgb() : null;
+        return TaskbarBackdrop.FromSystemTheme(lightTheme, colorPrevalence, accentRgb, highContrast, highContrastBg);
+    }
+
+    private static bool IsHighContrast()
+    {
+        var hc = new HIGHCONTRASTW { cbSize = (uint)sizeof(HIGHCONTRASTW) };
+        return PInvoke.SystemParametersInfo(SYSTEM_PARAMETERS_INFO_ACTION.SPI_GETHIGHCONTRAST, hc.cbSize, &hc, 0) &&
+               ((uint)hc.dwFlags & 1u) != 0; // HCF_HIGHCONTRASTON
+    }
+
+    private static uint? ReadTaskbarAccentRgb()
+    {
+        // Windows 10/11 在 AccentPalette 索引 5（字节 20..22，RGBA 顺序）保存 AccentDark2，用作任务栏强调底色。
+        if (GetRegistry(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentPalette") is byte[] palette &&
+            palette.Length >= 24)
+            return ((uint)palette[20] << 16) | ((uint)palette[21] << 8) | palette[22];
+        if (GetRegistry(@"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentColorMenu") is int menu)
+            return TaskbarColorMath.AbgrToRgb(unchecked((uint)menu));
+        if (GetRegistry(@"Software\Microsoft\Windows\DWM", "AccentColor") is int dwm)
+            return TaskbarColorMath.AbgrToRgb(unchecked((uint)dwm));
+        return null;
+    }
+
+    /// <summary>
+    /// 采样任务栏直读条周围未被遮挡的真实像素，仅在内存中归约为平均色与亮度区间以适配配色，不保存或记录任何画面。
+    /// </summary>
+    public static bool TrySampleTaskbarBackdrop(HWND taskbar, HWND stripWindow, Bounds bar, Bounds strip,
+        int scale, out TaskbarBackdrop backdrop)
+    {
+        backdrop = default;
+        if (taskbar.IsNull || !PInvoke.IsWindowVisible(taskbar))
+            return false;
+
+        var plan = TaskbarBackdropSamplePlan.Compute(bar, strip, scale);
+        if (!plan.HasRegions)
+            return false;
+
+        Span<Bounds> candidates = stackalloc Bounds[2];
+        int regionCount = 0;
+        if (plan.Above is { } above && IsRegionUnobstructed(above, taskbar, stripWindow))
+            candidates[regionCount++] = above;
+        if (plan.Below is { } below && IsRegionUnobstructed(below, taskbar, stripWindow))
+            candidates[regionCount++] = below;
+        if (regionCount == 0)
+        {
+            if (plan.Left is { } left && IsRegionUnobstructed(left, taskbar, stripWindow))
+                candidates[regionCount++] = left;
+            if (plan.Right is { } right && IsRegionUnobstructed(right, taskbar, stripWindow))
+                candidates[regionCount++] = right;
+        }
+        if (regionCount == 0)
+            return false;
+
+        int maxWidth = 0, maxHeight = 0;
+        for (int i = 0; i < regionCount; i++)
+        {
+            maxWidth = Math.Max(maxWidth, candidates[i].Width);
+            maxHeight = Math.Max(maxHeight, candidates[i].Height);
+        }
+        if (maxWidth <= 0 || maxHeight <= 0 || maxWidth > 4096 || maxHeight > 4096)
+            return false;
+
+        HDC screenDc = PInvoke.GetDC(default);
+        if (screenDc.IsNull)
+            return false;
+
+        try
+        {
+            var memoryDc = PInvoke.CreateCompatibleDC(screenDc);
+            if (memoryDc.IsNull)
+                return false;
+
+            try
+            {
+                var bitmapInfo = new BITMAPINFO
+                {
+                    bmiHeader = new BITMAPINFOHEADER
+                    {
+                        biSize = (uint)sizeof(BITMAPINFOHEADER),
+                        biWidth = maxWidth,
+                        biHeight = -maxHeight,
+                        biPlanes = 1,
+                        biBitCount = 32
+                    }
+                };
+                void* bits = null;
+                var bitmap = PInvoke.CreateDIBSection(screenDc, &bitmapInfo, DIB_USAGE.DIB_RGB_COLORS, &bits, default, 0);
+                if (bitmap.IsNull || bits == null)
+                {
+                    if (!bitmap.IsNull)
+                        PInvoke.DeleteObject(bitmap);
+                    return false;
+                }
+
+                var previous = PInvoke.SelectObject(memoryDc, new HGDIOBJ(bitmap.Value));
+                if (previous.IsNull)
+                {
+                    PInvoke.DeleteObject(bitmap);
+                    return false;
+                }
+
+                try
+                {
+                    Span<uint> samples = stackalloc uint[256];
+                    int totalSamples = 0;
+                    int perRegionBudget = samples.Length / regionCount;
+                    var buffer = new ReadOnlySpan<uint>(bits, maxWidth * maxHeight);
+
+                    for (int i = 0; i < regionCount; i++)
+                    {
+                        var region = candidates[i];
+                        if (!PInvoke.BitBlt(memoryDc, 0, 0, region.Width, region.Height,
+                            screenDc, region.Left, region.Top, ROP_CODE.SRCCOPY))
+                            continue;
+                        PInvoke.GdiFlush();
+
+                        int pixelCount = region.Width * region.Height;
+                        int take = Math.Min(pixelCount, perRegionBudget);
+                        for (int s = 0; s < take; s++)
+                        {
+                            int index = take == pixelCount ? s : (int)((long)s * pixelCount / take);
+                            int row = index / region.Width;
+                            int col = index % region.Width;
+                            samples[totalSamples++] = buffer[row * maxWidth + col];
+                        }
+                    }
+
+                    if (totalSamples == 0)
+                        return false;
+
+                    backdrop = TaskbarBackdrop.FromBgraSamples(samples[..totalSamples]);
+                    return true;
+                }
+                finally
+                {
+                    PInvoke.SelectObject(memoryDc, previous);
+                    PInvoke.DeleteObject(bitmap);
+                }
+            }
+            finally
+            {
+                PInvoke.DeleteDC(memoryDc);
+            }
+        }
+        finally
+        {
+            PInvoke.ReleaseDC(default, screenDc);
+        }
+    }
+
+    private static bool IsRegionUnobstructed(Bounds region, HWND taskbar, HWND stripWindow)
+    {
+        if (region.Width >= region.Height)
+        {
+            int y = region.Top;
+            return IsSamplePointUnobstructed(region.Left, y, taskbar, stripWindow) &&
+                   IsSamplePointUnobstructed(region.CenterX, y, taskbar, stripWindow) &&
+                   IsSamplePointUnobstructed(region.Right - 1, y, taskbar, stripWindow);
+        }
+
+        int x = region.Left;
+        return IsSamplePointUnobstructed(x, region.Top, taskbar, stripWindow) &&
+               IsSamplePointUnobstructed(x, region.CenterY, taskbar, stripWindow) &&
+               IsSamplePointUnobstructed(x, region.Bottom - 1, taskbar, stripWindow);
+    }
+
+    private static bool IsSamplePointUnobstructed(int x, int y, HWND taskbar, HWND stripWindow)
+    {
+        var hit = PInvoke.WindowFromPoint(new Point(x, y));
+        if (hit.IsNull)
+            return false;
+        var root = PInvoke.GetAncestor(hit, GET_ANCESTOR_FLAGS.GA_ROOT);
+        if (root.IsNull || (!stripWindow.IsNull && root == stripWindow))
+            return false;
+        if (root == taskbar)
+            return true;
+        // 兼容 RoundedTB 等将任务栏空白区裁剪穿透到桌面壁纸的工具，同时排除弹窗、菜单与普通应用窗口。
+        return ClassOf(root) is "WorkerW" or "Progman";
+    }
 
     private static object? GetRegistry(string path, string name)
     {

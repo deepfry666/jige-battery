@@ -102,3 +102,16 @@ IUIAutomationElementArray
 IUIAutomationCacheRequest
 WTSRegisterSessionNotification
 WTSUnRegisterSessionNotification
+BitBlt
+CreateCompatibleDC
+DeleteDC
+GdiFlush
+GetAncestor
+GetDC
+GetSysColor
+HIGHCONTRASTW
+IDXGIDevice3
+ReleaseDC
+SelectObject
+UpdateLayeredWindow
+WindowFromPoint

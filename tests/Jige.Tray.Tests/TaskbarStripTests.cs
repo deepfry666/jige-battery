@@ -61,8 +61,8 @@ public sealed class TaskbarStripTests
     }
 
     [Theory]
-    [InlineData(true, 0xfff0ece4u, 0xfffce100u, 0xffff8080u, 0xff4ce07au, 0xff393e4cu)]
-    [InlineData(false, 0xff211d19u, 0xff9d5d00u, 0xffb42318u, 0xff0f7b38u, 0xffd2d2d2u)]
+    [InlineData(true, 0xfff0ece4u, 0xfffce100u, 0xffff8080u, 0xff4ce07au, 0x30303030u)]
+    [InlineData(false, 0xff211d19u, 0xff9d5d00u, 0xffb42318u, 0xff0f7b38u, 0x28000000u)]
     public void PixelsUseOnlyOpaqueStatusInkAndTransparentEmptySpace(bool dark, uint fg, uint warning, uint low,
         uint charging, uint separator)
     {
@@ -580,6 +580,351 @@ public sealed class TaskbarStripTests
     }
 
     [Fact]
+    public void AdaptivePaletteGuaranteesContrastAndDistanceAcrossAllTaskbarColors()
+    {
+        uint[] backgrounds =
+        [
+            // Windows 10/11 默认深浅与 48 种常见系统强调色 + 极端三原色/明暗灰
+            0x000000u, 0x101010u, 0x1c1f28u, 0x202020u, 0x3b3e47u, 0x5c6068u, 0x767676u, 0x808080u,
+            0x9aa2aeu, 0xdce4f0u, 0xeeeeeeu, 0xffffffu,
+            0xffb900u, 0xff8c00u, 0xf7630cu, 0xca5010u, 0xda3b01u, 0xef6950u, 0xd13438u, 0xff4343u,
+            0xe74856u, 0xe81123u, 0xea005eu, 0xc30052u, 0xe3008cu, 0xbf0077u, 0xc239b3u, 0x9a0089u,
+            0x0078d7u, 0x0063b1u, 0x8e8cd8u, 0x6b69d6u, 0x8764b8u, 0x744da9u, 0xb146c2u, 0x881798u,
+            0x0099bcu, 0x2d7d9au, 0x00b7c3u, 0x038387u, 0x00b294u, 0x018574u, 0x00cc6au, 0x10893eu,
+            0x7a7574u, 0x5d5a58u, 0x68768au, 0x515c6bu, 0x567c73u, 0x486860u, 0x498205u, 0x107c10u,
+            0x4c4a48u, 0x69797eu, 0x4a5459u, 0x647c64u, 0x525e54u, 0x847545u, 0x7e735fu,
+            0xff0000u, 0x00ff00u, 0x0000ffu, 0xffff00u, 0x00ffffu, 0xff00ffu, 0xfff099u, 0xf8bbd0u
+        ];
+
+        foreach (uint bg in backgrounds)
+        {
+            var backdrop = TaskbarBackdrop.Uniform(bg, sampled: true);
+            var palette = TaskbarStripPalette.Create(backdrop);
+            uint effectiveBg = palette.Plate is { } plate
+                ? TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, bg)
+                : bg;
+            double effectiveLum = TaskbarColorMath.RelativeLuminance(effectiveBg);
+
+            foreach (var ink in new[] { palette.Foreground, palette.Warning, palette.Low, palette.Charging })
+            {
+                double contrast = TaskbarColorMath.Contrast(TaskbarColorMath.RelativeLuminance(ink.Rgb), effectiveLum);
+                Assert.True(contrast >= 4.5, $"bg=0x{bg:x6}, ink=0x{ink.Rgb:x6}, contrast={contrast:F2}");
+            }
+            foreach (var status in new[] { palette.Warning, palette.Low, palette.Charging })
+            {
+                double dist = TaskbarColorMath.OkLabDistance(status.Rgb, effectiveBg);
+                Assert.True(dist >= 0.36, $"bg=0x{bg:x6}, status=0x{status.Rgb:x6}, dist={dist:F3}");
+            }
+        }
+
+        // 极端黑白拼接壁纸（透明任务栏下 minL=0, maxL=1）同样保证全局可读。
+        foreach (uint bg in new[] { 0x101010u, 0x767676u, 0xf0f0f0u, 0x0078d7u, 0xc42b1cu })
+        {
+            var busy = new TaskbarBackdrop(bg, 0.0, 1.0, Sampled: true);
+            var palette = TaskbarStripPalette.Create(busy);
+            Assert.True(palette.HasPlate);
+            var plate = palette.Plate!.Value;
+            uint effBg = TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, bg);
+            double lo = Math.Min(TaskbarColorMath.RelativeLuminance(effBg),
+                TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, 0x000000u)));
+            double hi = Math.Max(TaskbarColorMath.RelativeLuminance(effBg),
+                TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, 0xffffffu)));
+            foreach (var ink in new[] { palette.Foreground, palette.Warning, palette.Low, palette.Charging })
+                Assert.True(TaskbarColorMath.WorstContrast(ink.Rgb, lo, hi) >= 4.5);
+        }
+    }
+
+    [Fact]
+    public void StandardTaskbarsStayFramelessWhileColoredAndBusyTaskbarsEnableAdaptivePlate()
+    {
+        foreach (uint cleanDark in new[] { 0x000000u, 0x101010u, 0x1c1f28u, 0x172336u, 0x3b3e47u })
+        {
+            var palette = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(cleanDark, sampled: true));
+            Assert.True(palette.UsesLightInk);
+            Assert.False(palette.HasPlate);
+        }
+
+        foreach (uint cleanLight in new[] { 0xffffffu, 0xeeeeeeu, 0xdce4f0u, 0xf5d8e0u, 0xffb900u })
+        {
+            var palette = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(cleanLight, sampled: true));
+            Assert.False(palette.UsesLightInk);
+            Assert.False(palette.HasPlate);
+        }
+
+        foreach (uint coloredDark in new[] { 0x0078d7u, 0xc42b1cu, 0x107c10u, 0xda3b01u, 0x881798u, 0x767676u })
+        {
+            var palette = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(coloredDark, sampled: true));
+            Assert.True(palette.UsesLightInk);
+            Assert.True(palette.HasPlate);
+            Assert.NotNull(palette.PlateBorder);
+            Assert.InRange(palette.Plate!.Value.Alpha, (byte)112, (byte)224);
+        }
+
+        foreach (uint coloredLight in new[] { 0x9aa2aeu, 0x00b7c3u, 0x00cc6au })
+        {
+            var palette = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(coloredLight, sampled: true));
+            Assert.False(palette.UsesLightInk);
+            Assert.True(palette.HasPlate);
+            Assert.NotNull(palette.PlateBorder);
+            Assert.InRange(palette.Plate!.Value.Alpha, (byte)112, (byte)224);
+        }
+    }
+
+    [Fact]
+    public void SystemThemeFallbackResolvesDarkLightAccentAndHighContrast()
+    {
+        var dark = TaskbarBackdrop.FromSystemTheme(false, false, null, false, null);
+        Assert.Equal(TaskbarBackdrop.DefaultDarkRgb, dark.Rgb);
+        Assert.True(dark.PrefersDarkPalette());
+
+        var light = TaskbarBackdrop.FromSystemTheme(true, true, 0xc42b1cu, false, null);
+        Assert.Equal(TaskbarBackdrop.DefaultLightRgb, light.Rgb);
+        Assert.False(light.PrefersDarkPalette());
+
+        var redAccent = TaskbarBackdrop.FromSystemTheme(false, true, 0xc42b1cu, false, null);
+        Assert.Equal(0xc42b1cu, redAccent.Rgb);
+        Assert.True(redAccent.PrefersDarkPalette());
+
+        var goldAccent = TaskbarBackdrop.FromSystemTheme(false, true, 0xffb900u, false, null);
+        Assert.Equal(0xffb900u, goldAccent.Rgb);
+        Assert.False(goldAccent.PrefersDarkPalette());
+
+        var highContrastLight = TaskbarBackdrop.FromSystemTheme(false, false, null, true, 0xfffaefu);
+        Assert.Equal(0xfffaefu, highContrastLight.Rgb);
+        Assert.False(highContrastLight.PrefersDarkPalette());
+    }
+
+    [Fact]
+    public void BgraSamplesComputeRepresentativeColorAndIgnoreSinglePixelOutliers()
+    {
+        uint[] darkWithOneSparkle = Enumerable.Repeat(0x001c1f28u, 49).Append(0x00ffffffu).ToArray();
+        var clean = TaskbarBackdrop.FromBgraSamples(darkWithOneSparkle);
+        Assert.True(clean.Sampled);
+        Assert.True(clean.MaxLuminance < 0.05);
+        Assert.False(TaskbarStripPalette.Create(clean).HasPlate);
+
+        uint[] splitWallpaper = Enumerable.Repeat(0x00141820u, 40)
+            .Concat(Enumerable.Repeat(0x00f4f6fau, 40)).ToArray();
+        var busy = TaskbarBackdrop.FromBgraSamples(splitWallpaper);
+        Assert.True(busy.MaxLuminance - busy.MinLuminance > 0.8);
+        Assert.True(TaskbarStripPalette.Create(busy).HasPlate);
+    }
+
+    [Fact]
+    public void PaletteHysteresisPreventsFlickerNearLightDarkBoundary()
+    {
+        var initialDark = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(0x7e7e7eu, sampled: true));
+        Assert.True(initialDark.UsesLightInk);
+
+        // 略微越过 0.50 中线（#848484 -> 0.518），在滞回带内仍保持深色极性不抖动。
+        var stillDark = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(0x848484u, sampled: true), initialDark);
+        Assert.True(stillDark.UsesLightInk);
+
+        // 明确进入浅色区（#969696 -> 0.588）后切换到浅色极性。
+        var flippedLight = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(0x969696u, sampled: true), stillDark);
+        Assert.False(flippedLight.UsesLightInk);
+
+        // 回到略低于 0.50 中线（#7b7b7b -> 0.482）时仍保持浅色极性不抖动。
+        var stillLight = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(0x7b7b7bu, sampled: true), flippedLight);
+        Assert.False(stillLight.UsesLightInk);
+    }
+
+    [Fact]
+    public void BackdropSamplePlanStaysInsideTaskbarAndOutsideStrip()
+    {
+        var strip = Place().Bounds;
+        var plan1x = TaskbarBackdropSamplePlan.Compute(Bar, strip, scale: 1);
+        Assert.NotNull(plan1x.Above);
+        Assert.NotNull(plan1x.Below);
+        Assert.Null(plan1x.Left);
+        Assert.Null(plan1x.Right);
+        Assert.True(plan1x.Above!.Value.Top >= Bar.Top + 2);
+        Assert.True(plan1x.Above.Value.Bottom <= strip.Top - 1);
+        Assert.True(plan1x.Below!.Value.Top >= strip.Bottom + 1);
+        Assert.True(plan1x.Below.Value.Bottom <= Bar.Bottom - 1);
+
+        // 极窄 22px 任务栏上下无余量时自动回退到左右间隙列。
+        var thinBar = new Bounds(0, 1058, 1920, 1080);
+        var thinStrip = new Bounds(1575, 1058, 1716, 1080);
+        var thinPlan = TaskbarBackdropSamplePlan.Compute(thinBar, thinStrip, scale: 1);
+        Assert.Null(thinPlan.Above);
+        Assert.Null(thinPlan.Below);
+        Assert.NotNull(thinPlan.Left);
+        Assert.NotNull(thinPlan.Right);
+        Assert.True(thinPlan.Left!.Value.Right <= thinStrip.Left - 1);
+        Assert.True(thinPlan.Right!.Value.Left >= thinStrip.Right + 1);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void FrostedPlateRendersRoundedCornersAndCompositesBorderAndSeparatorCleanly(int scale)
+    {
+        var layout = TaskbarStripLayout.Build(Example);
+        var palette = TaskbarStripPalette.Create(TaskbarBackdrop.Uniform(0x0078d7u, sampled: true));
+        Assert.True(palette.HasPlate);
+        uint plateArgb = palette.Plate!.Value.Premultiplied;
+        uint rimArgb = TaskbarStripPixels.CompositeOver(palette.PlateBorder!.Value.Premultiplied, plateArgb);
+        uint sepArgb = TaskbarStripPixels.CompositeOver(palette.Separator.Premultiplied, plateArgb);
+
+        uint[] pixels = TaskbarStripPixels.Render(layout, palette, scale);
+        int width = layout.Width * scale;
+        int height = TaskbarStripLayout.Height * scale;
+
+        // 四个 2px 圆角的外切角保持全透明。
+        Assert.Equal(0u, pixels[0]);
+        Assert.Equal(0u, pixels[scale]);
+        Assert.Equal(0u, pixels[scale * width]);
+        Assert.Equal(0u, pixels[width - 1]);
+        Assert.Equal(0u, pixels[(height - 1) * width]);
+        Assert.Equal(0u, pixels[(height - 1) * width + width - 1]);
+
+        // 边框像素叠加在底衬之上，不产生细缝；分隔线叠加在底衬之上，不挖空底衬。
+        Assert.Equal(rimArgb, pixels[2 * scale]);
+        Assert.Equal(rimArgb, pixels[scale * width + scale]);
+        var sep = layout.Segments[0].Separator!.Value;
+        Assert.Equal(sepArgb, pixels[sep.Y * scale * width + sep.X * scale]);
+
+        // 整数倍率缩放保持像素格整齐一致。
+        var basePixels = TaskbarStripPixels.Render(layout, palette, 1);
+        for (int y = 0; y < height; y++)
+        for (int x = 0; x < width; x++)
+            Assert.Equal(basePixels[y / scale * layout.Width + x / scale], pixels[y * width + x]);
+    }
+
+    [Fact]
+    public void WallpaperChangeCountsAsRelevantDesktopSettingChange()
+    {
+        Assert.True(DesktopRefreshDebouncer.IsRelevantSettingChange(0x0014, null));
+    }
+
+    [Fact]
+    public void UserSelectableStylesAndColorSchemesRenderAndMeetContrastTargets()
+    {
+        var layout = TaskbarStripLayout.Build(Example);
+        var darkBg = TaskbarBackdrop.Uniform(0x1c1f28u, sampled: true);
+        var lightBg = TaskbarBackdrop.Uniform(0xeeeeeeu, sampled: true);
+        var redBg = TaskbarBackdrop.Uniform(0xc42b1cu, sampled: true);
+        var greenBg = TaskbarBackdrop.Uniform(0x107c10u, sampled: true);
+
+        // 1) Frameless 始终无底衬；Capsule / Badges 始终有底衬。
+        Assert.False(TaskbarStripPalette.Create(redBg, TaskbarStripStyle.Frameless, TaskbarStripColorScheme.Auto).HasPlate);
+        Assert.True(TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Capsule, TaskbarStripColorScheme.Auto).HasPlate);
+        Assert.True(TaskbarStripPalette.Create(lightBg, TaskbarStripStyle.Badges, TaskbarStripColorScheme.Auto).HasPlate);
+
+        // 2) 固定浅字/深字配色在反色任务栏上自动加底衬保证可读；纯色方案在绿底上无撞色可保持无框。
+        var lightInkOnLightBg = TaskbarStripPalette.Create(lightBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Light);
+        Assert.True(lightInkOnLightBg.UsesLightInk);
+        Assert.True(lightInkOnLightBg.HasPlate);
+        var darkInkOnDarkBg = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Dark);
+        Assert.False(darkInkOnDarkBg.UsesLightInk);
+        Assert.True(darkInkOnDarkBg.HasPlate);
+        var monoOnGreen = TaskbarStripPalette.Create(greenBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Monochrome);
+        Assert.True(monoOnGreen.IsMonochrome);
+        Assert.Equal(monoOnGreen.Foreground, monoOnGreen.Low);
+        Assert.Equal(monoOnGreen.Foreground, monoOnGreen.Charging);
+        Assert.False(monoOnGreen.HasPlate);
+
+        // 3) 所有非无框样式 × 全部 6 套配色在红/蓝/深/浅/拼接壁纸上均满足最低对比度要求。
+        TaskbarBackdrop[] testBackdrops = [darkBg, lightBg, redBg, greenBg, new(0x767676u, 0.0, 1.0, true)];
+        foreach (var style in new[] { TaskbarStripStyle.Auto, TaskbarStripStyle.Capsule, TaskbarStripStyle.Badges, TaskbarStripStyle.Meter })
+        foreach (var scheme in Enum.GetValues<TaskbarStripColorScheme>())
+        foreach (var bg in testBackdrops)
+        {
+            var pal = TaskbarStripPalette.Create(bg, style, scheme);
+            double minTarget = scheme == TaskbarStripColorScheme.HighContrast ? 5.5 : 4.5;
+            uint effBg = pal.Plate is { } plate ? TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, bg.Rgb) : bg.Rgb;
+            double lo = pal.Plate is { } pLo
+                ? Math.Min(TaskbarColorMath.RelativeLuminance(effBg),
+                    TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(pLo.Rgb, pLo.Alpha, TaskbarColorMath.GrayFromLuminance(bg.MinLuminance))))
+                : bg.MinLuminance;
+            double hi = pal.Plate is { } pHi
+                ? Math.Max(TaskbarColorMath.RelativeLuminance(effBg),
+                    TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(pHi.Rgb, pHi.Alpha, TaskbarColorMath.GrayFromLuminance(bg.MaxLuminance))))
+                : bg.MaxLuminance;
+            foreach (var ink in new[] { pal.Foreground, pal.Warning, pal.Low, pal.Charging })
+                Assert.True(TaskbarColorMath.WorstContrast(ink.Rgb, lo, hi) >= minTarget,
+                    $"style={style}, scheme={scheme}, bg=0x{bg.Rgb:x6}");
+        }
+
+        // 4) Badges 样式：段间 4px 间隙保持全透明，低电与充电徽章带独立底衬色且无竖分隔线。
+        var badgesPalette = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Badges, TaskbarStripColorScheme.Auto);
+        uint[] badgesPixels = TaskbarStripPixels.Render(layout, badgesPalette, 1);
+        var sep = layout.Segments[0].Separator!.Value;
+        Assert.Equal(0u, badgesPixels[sep.Y * layout.Width + sep.X]);
+        Assert.NotEqual(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Low, false));
+        Assert.NotEqual(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Charging, true));
+        Assert.Equal(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Charging, false));
+
+        // 5) Meter 样式：y=17..18 绘制 4 格微电量条，整数倍率缩放清晰无错位。
+        var meterPalette = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Meter, TaskbarStripColorScheme.IceBlue);
+        uint[] meter1x = TaskbarStripPixels.Render(layout, meterPalette, 1);
+        uint[] meter2x = TaskbarStripPixels.Render(layout, meterPalette, 2);
+        var lowSeg = layout.Segments[1];
+        Assert.Equal(meterPalette.Low.Premultiplied, meter1x[17 * layout.Width + lowSeg.Icon.X]);
+        int width2x = layout.Width * 2;
+        for (int y = 0; y < TaskbarStripLayout.Height * 2; y++)
+        for (int x = 0; x < width2x; x++)
+            Assert.Equal(meter1x[y / 2 * layout.Width + x / 2], meter2x[y * width2x + x]);
+    }
+
+    [Fact]
+    public void TaskbarStyleAndColorSettingsRoundTripAndKeepDropdownOpenForLivePreview()
+    {
+        var directory = Directory.CreateTempSubdirectory("jige-strip-style-test-");
+        try
+        {
+            var files = new TrayFiles(directory.FullName);
+            const string legacy = """{"displayLocation":"Taskbar","pollSeconds":60}""";
+            File.WriteAllText(files.ConfigPath, legacy);
+            Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Equal(TaskbarStripStyle.Auto, loaded.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.Auto, loaded.TaskbarColor);
+            Assert.Equal(legacy, File.ReadAllText(files.ConfigPath));
+
+            var normalized = (new TraySettings
+            {
+                TaskbarStyle = (TaskbarStripStyle)99,
+                TaskbarColor = (TaskbarStripColorScheme)99
+            }).Normalize();
+            Assert.Equal(TaskbarStripStyle.Auto, normalized.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.Auto, normalized.TaskbarColor);
+
+            var model = new TrayModel(loaded, new());
+            var panel = new SettingsPanel(900);
+            Assert.Equal(5, panel.Choices(SettingRow.TaskbarStyle).Length);
+            Assert.Equal(9, panel.Choices(SettingRow.TaskbarColor).Length);
+
+            Assert.True(panel.Toggle(SettingRow.TaskbarStyle, 0, animate: false, selectedIndex: 0));
+            Assert.True(panel.Select(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Badges), model, 1, false, Save));
+            Assert.Equal(SettingRow.TaskbarStyle, panel.Expanded); // 保持展开便于实时对比任务栏。
+
+            Assert.True(panel.Toggle(SettingRow.TaskbarColor, 2, animate: false, selectedIndex: 0));
+            Assert.True(panel.Scroll(3)); // 验证 9 套配色在 6 项可视窗内可平滑滚动。
+            Assert.True(panel.Select(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Sakura), model, 3, false, Save));
+            Assert.Equal(SettingRow.TaskbarColor, panel.Expanded);
+
+            Assert.True(files.TryLoadSettings(out var persisted));
+            Assert.Equal(TaskbarStripStyle.Badges, persisted.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.Sakura, persisted.TaskbarColor);
+
+            void Save(TraySettings next)
+            {
+                files.SaveSettings(next.Normalize());
+                model.ApplySettings(next, DateTimeOffset.UnixEpoch);
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExportTaskbarStripPngsWhenRequested()
     {
         if (Environment.GetEnvironmentVariable("JIGE_TRAY_PNG_DIR") is not { Length: > 0 } output)
@@ -589,6 +934,55 @@ public sealed class TaskbarStripTests
         foreach (bool dark in new[] { true, false })
             TrayIconPreview.SaveTaskbarStrip(Path.Combine(output, $"taskbar-strip-{dpi * 100 / 96}-{(dark ? "dark" : "light")}.png"),
                 Example, dark, dpi);
+    }
+
+    [Fact]
+    public void LayeredHitAlphaConvertsOnlyTransparentPixelsAndPreservesOpaqueInk()
+    {
+        var layout = TaskbarStripLayout.Build(Example);
+        uint[] original = TaskbarStripPixels.Render(layout, dark: true, scale: 1);
+        uint[] layered = [.. original];
+        TaskbarStripPixels.FillLayeredHitAlpha(layered);
+
+        Assert.Contains(0u, original);
+        Assert.DoesNotContain(0u, layered);
+        for (int i = 0; i < original.Length; i++)
+        {
+            Assert.Equal(original[i] == 0u ? TaskbarStripPixels.LayeredHitPixel : original[i], layered[i]);
+        }
+    }
+
+    [Fact]
+    public void TaskbarControlsStabilizerHoldsTransientUnknownBoundsThenFallsBack()
+    {
+        var stabilizer = new TaskbarControlsStabilizer();
+        var valid = new TaskbarControls(Tray, 1300);
+        var missingButtons = new TaskbarControls(Tray, null);
+
+        var (first, retry1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 1_000);
+        Assert.Equal(valid, first);
+        Assert.False(retry1);
+
+        // 连续两次瞬态丢失应用按钮边界时，宽限保留上次位置并要求快速重试，避免直读条↔托盘闪烁。
+        var (miss1, retryMiss1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_200);
+        Assert.Equal(1300, miss1.OccupiedRight);
+        Assert.True(retryMiss1);
+
+        var (miss2, retryMiss2) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_600);
+        Assert.Equal(1300, miss2.OccupiedRight);
+        Assert.True(retryMiss2);
+
+        // 超过宽限次数后正常回退。
+        var (miss3, retryMiss3) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 2_000);
+        Assert.Null(miss3.OccupiedRight);
+        Assert.False(retryMiss3);
+
+        // 任务栏几何变化后不沿用旧缓存。
+        stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 3_000);
+        var movedBar = new Bounds(0, 1000, 1920, 1080);
+        var (afterMove, retryMove) = stabilizer.Apply(movedBar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 3_100);
+        Assert.Null(afterMove.OccupiedRight);
+        Assert.False(retryMove);
     }
 
     private static TaskbarStripPlacement Place(int occupiedRight = 1300, bool visible = true, bool bottom = true) =>

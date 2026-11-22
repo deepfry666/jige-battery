@@ -125,6 +125,7 @@ internal sealed class TrayIconManager(HWND window, uint callback) : IDisposable
         byId.Clear();
         keyById.Clear();
         lastActiveId = null;
+        TrayIcon.DisposeSharedRenderer();
     }
 
     public void Sync(TrayModel model, bool darkTaskbar, bool suppressTooltip, bool showIcons = true)

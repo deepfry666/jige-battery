@@ -17,10 +17,13 @@ internal static class PanelLayout
     public const int FooterHeight = 42;
     public const int DiagnosticFooterHeight = 68;
     public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
-    public const int SettingsHeight = 571;
+    public const int SettingsRowCount = 11;
+    public const int SettingsRowHeight = 44, SettingsCompactRowHeight = 38;
+    public const int SettingsHeight = 659;
     public const int SettingsHeaderHeight = 20, SettingsSections = 3, SettingsOptionHeight = 34;
-    /// <summary>屏幕太矮时省掉三组小标题（卡片间距保留），避免整个面板被等比缩小。</summary>
-    public const int SettingsCompactHeight = SettingsHeight - SettingsSections * SettingsHeaderHeight;
+    /// <summary>屏幕太矮时省掉三组小标题并收紧行高（卡片间距保留），避免整个面板被等比缩小或展开区太窄。</summary>
+    public const int SettingsCompactHeight = SettingsHeight - SettingsSections * SettingsHeaderHeight
+        - SettingsRowCount * (SettingsRowHeight - SettingsCompactRowHeight);
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
     public const int DeviceRowsTop = 117;

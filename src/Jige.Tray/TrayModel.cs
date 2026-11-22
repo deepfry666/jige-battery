@@ -381,6 +381,14 @@ internal sealed class TrayModel
         ApplyReadings(readings, scanFailed, now, unknownReceivers, onLinkChanged, liveTargets,
             mergeChannels: true, sweepMissing: completePoll, incompleteReceivers: incompleteReceivers);
 
+    /// <summary>定向刷新刚唤醒的单台或少数设备，不覆盖全量扫描状态，也不清扫未参与本次查询的设备。</summary>
+    public bool ApplyTargetedPoll(
+        IReadOnlyList<BatteryReading> readings,
+        DateTimeOffset now,
+        Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null) =>
+        ApplyReadings(readings, ScanFailed, now, UnknownReceivers, onLinkChanged, liveTargets: null,
+            mergeChannels: false, sweepMissing: false);
+
     private bool ApplyReadings(IReadOnlyList<BatteryReading> readings, bool scanFailed, DateTimeOffset now,
         int unknownReceivers, Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged,
         IReadOnlySet<string>? liveTargets, bool mergeChannels, bool sweepMissing,
@@ -678,8 +686,19 @@ internal sealed class TrayModel
         DateTimeOffset now,
         Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null)
     {
+        var (uiChanged, needsFullRefresh, refreshIds) = ApplyPresenceDetailed(updates, now, onLinkChanged);
+        return (uiChanged, needsFullRefresh || refreshIds.Length > 0);
+    }
+
+    /// <summary>应用心跳或设备推送，并区分需要全量刷新（未知新设备）还是仅定向补查刚唤醒的设备。</summary>
+    public (bool UiChanged, bool NeedsFullRefresh, string[] RefreshDeviceIds) ApplyPresenceDetailed(
+        IReadOnlyList<PresenceUpdate> updates,
+        DateTimeOffset now,
+        Action<DeviceIdentity, LinkState?, LinkState>? onLinkChanged = null)
+    {
         bool uiChanged = false;
-        bool needsRefresh = false;
+        bool needsFullRefresh = false;
+        HashSet<string>? refreshIds = null;
 
         foreach (var update in updates)
         {
@@ -706,7 +725,7 @@ internal sealed class TrayModel
             if (matches.Count == 0)
             {
                 if (update.Link == LinkState.Online)
-                    needsRefresh = true;
+                    needsFullRefresh = true;
                 continue;
             }
 
@@ -738,13 +757,14 @@ internal sealed class TrayModel
                 uiChanged = true;
                 if (becameOnline)
                 {
-                    needsRefresh = true;
+                    refreshIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    refreshIds.Add(id);
                     UpdateHistory(id, next, now);
                 }
                 onLinkChanged?.Invoke(previous.Device, previous.Link, next.Link);
             }
         }
-        return (uiChanged, needsRefresh);
+        return (uiChanged, needsFullRefresh, refreshIds is null ? [] : [.. refreshIds]);
     }
 
     /// <summary>

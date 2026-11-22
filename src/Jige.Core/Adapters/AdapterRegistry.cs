@@ -45,6 +45,18 @@ public sealed class AdapterRegistry
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
+    /// <summary>拓扑重建、系统恢复或用户主动刷新时重置适配器离线退避与旁路缓存。</summary>
+    public void ResetPollingCaches()
+    {
+        foreach (var adapter in adapters)
+        {
+            if (adapter is SonyInzoneAdapter sony)
+                sony.ResetBackoff();
+            else if (adapter is MouseReceiverAdapter mouse)
+                mouse.ResetPrimaryCache();
+        }
+    }
+
     /// <summary>只为支持的接收器家族或已收录接收器读取 HID 描述符；托盘、探针、诊断共用这一判定。</summary>
     public static bool IsKnownHidReceiver(ushort? vid, ushort? pid) =>
         vid == 0x361D || vid == 0x373B || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||

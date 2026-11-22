@@ -282,7 +282,8 @@ internal sealed class UpdateFiles(string path)
 internal sealed class UpdateClient(
     HttpClient http,
     IReadOnlyList<UpdateSource>? sources = null,
-    TimeSpan? mirrorCheckTimeout = null)
+    TimeSpan? mirrorCheckTimeout = null,
+    TimeProvider? timeProvider = null)
 {
     // C3：GitHub REST API 的 /releases/latest 端点按规范仅返回最新正式 Release，自动排除 draft 和 prerelease；
     // 客户端默认优先查询国内镜像（download.imfourj.cn），不可达或失败时自动回退 GitHub；
@@ -295,6 +296,7 @@ internal sealed class UpdateClient(
         ? sources
         : [UpdateSource.Mirror, UpdateSource.GitHub];
     private readonly TimeSpan primaryCheckTimeout = mirrorCheckTimeout ?? DefaultMirrorCheckTimeout;
+    private readonly TimeProvider timeProvider = timeProvider ?? TimeProvider.System;
 
     public static HttpClient CreateHttpClient()
     {
@@ -323,9 +325,12 @@ internal sealed class UpdateClient(
             // 有备用源或前序源已成功确认“当前已是最新”时，为本次查询设置独立超时预算，避免备用源挂死拖垮整体检查。
             bool useAttemptTimeout = (hasFallback || anySucceeded) &&
                 primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan;
-            using var attemptCts = useAttemptTimeout ? CancellationTokenSource.CreateLinkedTokenSource(token) : null;
-            if (attemptCts is not null)
-                attemptCts.CancelAfter(primaryCheckTimeout);
+            using var attemptTimeout = useAttemptTimeout
+                ? new CancellationTokenSource(primaryCheckTimeout, timeProvider)
+                : null;
+            using var attemptCts = attemptTimeout is not null
+                ? CancellationTokenSource.CreateLinkedTokenSource(token, attemptTimeout.Token)
+                : null;
             var attemptToken = attemptCts?.Token ?? token;
 
             try

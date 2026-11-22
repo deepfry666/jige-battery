@@ -16,13 +16,15 @@ namespace Jige.Tray.Windows;
 internal sealed unsafe class TaskbarStripAutomation : IDisposable
 {
     private static readonly Guid AutomationClass = new("e22ad333-b25f-460c-83d0-0581107395c9"); // CUIAutomation8
+    private const int EventDebounceMs = 120;
     private readonly HWND host;
     private readonly uint message;
     private readonly object sync = new();
     private readonly AutoResetEvent changed = new(false);
     private HWND requested;
     private TaskbarStripGeometry? pending, lastPublished;
-    private bool posted, disposed, changedDisposed, reconnect;
+    private bool posted, disposed, changedDisposed, reconnect, urgent;
+    private long lastEventMs;
     private bool alive = true;
     private string? lastErrorLog;
 
@@ -47,6 +49,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                 requested = owner;
                 reconnect = true;
             }
+            urgent = true;
             try { changed.Set(); }
             catch (ObjectDisposedException) { }
         }
@@ -69,6 +72,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         {
             if (disposed || changedDisposed)
                 return;
+            lastEventMs = Environment.TickCount64;
             try { changed.Set(); }
             catch (ObjectDisposedException) { }
         }
@@ -94,11 +98,31 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
     {
         var initialized = PInvoke.CoInitializeEx(COINIT.COINIT_MULTITHREADED);
         IUIAutomation2* automation = null;
+        IUIAutomationCacheRequest* cache = null;
+        IUIAutomationCondition* condition = null;
         IUIAutomationElement* root = null;
         try
         {
             while (changed.WaitOne())
             {
+                // 高频 UIA 事件先做短防抖合并，显式 Request（启动/AppBar/DPI）则立即执行。
+                while (true)
+                {
+                    int waitMs;
+                    lock (sync)
+                    {
+                        if (disposed)
+                            return;
+                        if (urgent || reconnect)
+                            break;
+                        long remaining = lastEventMs + EventDebounceMs - Environment.TickCount64;
+                        if (remaining <= 0)
+                            break;
+                        waitMs = (int)Math.Clamp(remaining, 10, EventDebounceMs);
+                    }
+                    changed.WaitOne(waitMs);
+                }
+
                 HWND owner;
                 bool reset;
                 lock (sync)
@@ -108,6 +132,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                     owner = requested;
                     reset = reconnect;
                     reconnect = false;
+                    urgent = false;
                 }
 
                 if (reset)
@@ -126,7 +151,10 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                         geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, []) };
                     Graphics.Check(initialized, "初始化任务栏 UI Automation");
                     if (automation == null)
+                    {
                         automation = ConnectAutomation();
+                        CreateReadQuery(automation, out cache, out condition);
+                    }
                     if (root == null)
                     {
                         root = automation->ElementFromHandle(owner);
@@ -134,7 +162,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                             throw new COMException();
                         TrySubscribeEvents(automation, root);
                     }
-                    var controls = ReadControls(automation, root);
+                    var controls = ReadControls(root, cache, condition);
                     geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, controls) };
                     lastErrorLog = null;
                 }
@@ -168,6 +196,8 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
             try
             {
                 Disconnect(automation, ref root);
+                Graphics.Release(condition);
+                Graphics.Release(cache);
                 Graphics.Release(automation);
                 if (initialized.Succeeded)
                     PInvoke.CoUninitialize();
@@ -263,13 +293,14 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         root = null;
     }
 
-    private static TaskbarControl[] ReadControls(IUIAutomation2* automation, IUIAutomationElement* root)
+    private static void CreateReadQuery(IUIAutomation2* automation,
+        out IUIAutomationCacheRequest* cache, out IUIAutomationCondition* condition)
     {
-        var cache = automation->CreateCacheRequest();
-        IUIAutomationCondition* condition = null;
-        IUIAutomationElementArray* elements = null;
+        cache = null;
+        condition = null;
         try
         {
+            cache = automation->CreateCacheRequest();
             cache->AutomationElementMode = AutomationElementMode.AutomationElementMode_None;
             cache->AddProperty(UIA_BoundingRectanglePropertyId);
             cache->AddProperty(UIA_IsOffscreenPropertyId);
@@ -281,6 +312,23 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
             // is read, and Name/Value (including application titles) are never queried.
             condition = automation->CreateTrueCondition();
             cache->TreeFilter = condition;
+        }
+        catch
+        {
+            Graphics.Release(condition);
+            Graphics.Release(cache);
+            condition = null;
+            cache = null;
+            throw;
+        }
+    }
+
+    private static TaskbarControl[] ReadControls(
+        IUIAutomationElement* root, IUIAutomationCacheRequest* cache, IUIAutomationCondition* condition)
+    {
+        IUIAutomationElementArray* elements = null;
+        try
+        {
             elements = root->FindAllBuildCache(TreeScope.TreeScope_Descendants, condition, cache);
             int count = elements == null ? 0 : elements->Length;
             List<TaskbarControl> controls = new(count);
@@ -312,8 +360,6 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         finally
         {
             Graphics.Release(elements);
-            Graphics.Release(condition);
-            Graphics.Release(cache);
         }
     }
 

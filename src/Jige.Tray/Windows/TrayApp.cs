@@ -41,7 +41,7 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12, StripBackdropTimer = 13;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -64,7 +64,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly PollSchedule schedule = new(Environment.TickCount64);
     private readonly DesktopRefreshDebouncer desktopRefresh = new();
     private readonly DevicePoll poll;
-    private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets)> results = new();
+    private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets, bool Targeted)> results = new();
     private readonly ConcurrentQueue<PresenceUpdate[]> heartbeatResults = new();
     private readonly ConcurrentQueue<PresenceUpdate> pushResults = new();
     private readonly ConcurrentQueue<Action> updateCallbacks = new();
@@ -144,7 +144,7 @@ internal sealed partial class TrayApp : IDisposable
         lastSavedGateVersion = gates.Version;
         gates.Rejected += events.LogSafetyGateRejection;
         poll = new(gates, model.SavedLogitechSlots());
-        darkTaskbar = Desktop.DarkTaskbar;
+        InitializeTaskbarBackdrop();
         updateState = CreateInitialUpdateState();
 
         Register(HostClass, &HostCallback);
@@ -512,7 +512,9 @@ internal sealed partial class TrayApp : IDisposable
             case ForegroundMessage:
                 foregroundPosted = false;
                 SetForegroundTracking();
-                RefreshStripGeometry();
+                if (ShouldRefreshStripOnForeground())
+                    RefreshStripGeometry();
+                NotifyStripBackdropTransition();
                 // 再验证一次，给 Explorer 和 DWM 留出更新全屏状态的时间。
                 ArmTimer(GameSettleTimer, 750);
                 ProcessWork();
@@ -521,6 +523,7 @@ internal sealed partial class TrayApp : IDisposable
                 locationPosted = false;
                 if (popup?.IsNotice == true || model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar)
                     ReadGameMode();
+                NotifyStripBackdropTransition();
                 ArmTimer(GameSettleTimer, 350);
                 return true;
             case 0x0219: // WM_DEVICECHANGE（C1：设备插拔通知）
@@ -534,6 +537,7 @@ internal sealed partial class TrayApp : IDisposable
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
                     stripWindow?.DisposeGraphics();
+                    InvalidateStripBackdropSample();
                     RefreshStripGeometry();
                     RefreshIcon();
                     ProcessWork();
@@ -548,6 +552,7 @@ internal sealed partial class TrayApp : IDisposable
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
                     stripWindow?.DisposeGraphics();
+                    InvalidateStripBackdropSample();
                     RefreshStripGeometry();
                     RefreshIcon();
                     ScheduleDesktopRefresh(resetPopup: true);
@@ -584,6 +589,11 @@ internal sealed partial class TrayApp : IDisposable
                     RefreshIcon();
                     return true;
                 }
+                if (wParam.Value == StripBackdropTimer)
+                {
+                    HandleStripBackdropTimer();
+                    return true;
+                }
                 if (wParam.Value == IconRetryTimer)
                 {
                     iconRetryArmed = false;
@@ -610,8 +620,15 @@ internal sealed partial class TrayApp : IDisposable
                     return true;
                 }
                 ProcessWork();
+                if (wParam.Value == GameSettleTimer && stripZOrderPending)
+                {
+                    stripZOrderPending = false;
+                    if (!stripFullscreen && popup is null && menu is null && hoverCard is null)
+                        stripWindow?.EnsureTopmost();
+                }
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
+                InvalidateStripBackdropSample();
                 RefreshStripGeometry();
                 ScheduleDesktopRefresh(resetPopup: false);
                 return true;
@@ -623,8 +640,8 @@ internal sealed partial class TrayApp : IDisposable
                     ScheduleDesktopRefresh(resetPopup: true);
                 }
                 return true;
-            case 0x031A or 0x031E or 0x0320:
-                // 主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
+            case 0x0015 or 0x031A or 0x031E or 0x0320:
+                // 系统配色、主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
                 RefreshTaskbarTheme();
                 ScheduleDesktopRefresh(resetPopup: true);
                 return true;
@@ -665,7 +682,7 @@ internal sealed partial class TrayApp : IDisposable
     private void RefreshDesktop(bool resetPopup = false)
     {
         ReadGameMode();
-        darkTaskbar = Desktop.DarkTaskbar;
+        RefreshTaskbarTheme(redraw: false);
         RefreshStripGeometry();
         RefreshIcon();
         if (popup is { } active)
@@ -788,7 +805,13 @@ internal sealed partial class TrayApp : IDisposable
             (game.Game || !model.Settings.GameSilent && Desktop.IsFullscreen(currentForeground));
         if (changed || stripFullscreen != hideStrip)
         {
+            bool exitingFullscreen = stripFullscreen && !hideStrip;
             stripFullscreen = hideStrip;
+            if (exitingFullscreen)
+            {
+                stripZOrderPending = true;
+                ArmTimer(GameSettleTimer, 750);
+            }
             RefreshIcon();
         }
     }
@@ -894,9 +917,50 @@ internal sealed partial class TrayApp : IDisposable
 
     private void StartPoll(long nowTick)
     {
-        bool forceRescan = schedule.Start(nowTick, game.Game);
-        startedInGame = game.Game;
         bool showBluetooth = model.Settings.ShowBluetoothDevices;
+        if (schedule.TryStartTargeted(model.Settings, nowTick, game.Game, out var targetedIds))
+        {
+            startedInGame = game.Game;
+            bool pausePush = currentPushTargets.Length > 0 && currentPushTargets.Any(target =>
+                targetedIds!.Contains(target.Target.Device.Id) ||
+                target.IsMultiDevice && targetedIds.Any(id =>
+                    id.StartsWith($"{target.Target.Device.Id}/", StringComparison.OrdinalIgnoreCase)));
+            if (pausePush)
+                StopPushListeners();
+            var stoppingTargetedPush = pausePush ? pushTask : Task.CompletedTask;
+            var targetedSource = new CancellationTokenSource();
+            cancellation = targetedSource;
+            cancelWork = Task.CompletedTask;
+            var targetedToken = targetedSource.Token;
+            var targetedDestination = host;
+            pollTask = Task.Run(async () =>
+            {
+                PollResult? result;
+                try
+                {
+                    await stoppingTargetedPush.ConfigureAwait(false);
+                    result = await poll.RunTargetedAsync(targetedIds!, showBluetooth, targetedToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (targetedToken.IsCancellationRequested)
+                {
+                    result = null;
+                }
+                catch (Exception error)
+                {
+                    Desktop.Log("定向查询设备失败", error);
+                    result = new([], false, Complete: false);
+                }
+                results.Enqueue((result, [], true));
+                PInvoke.PostMessage(targetedDestination, ResultMessage, default, default);
+            });
+            RenderPopup();
+            return;
+        }
+
+        bool forceRescan = schedule.Start(nowTick, game.Game);
+        if (schedule.StartedByUser)
+            poll.ResetPollingCaches();
+        startedInGame = game.Game;
         // 完整轮询期间暂停监听，由读取路径使用相同集合。
         StopPushListeners();
         var stoppingPush = pushTask;
@@ -923,7 +987,7 @@ internal sealed partial class TrayApp : IDisposable
                 Desktop.Log("查询设备失败", error);
                 result = new([], true);
             }
-            results.Enqueue((result, pushTargets));
+            results.Enqueue((result, pushTargets, false));
             PInvoke.PostMessage(destination, ResultMessage, default, default);
         });
         RenderPopup();
@@ -933,7 +997,7 @@ internal sealed partial class TrayApp : IDisposable
     {
         if (!results.TryDequeue(out var item))
             return;
-        var (result, pushTargets) = item;
+        var (result, pushTargets, targeted) = item;
         bool cancelled = cancellation?.IsCancellationRequested == true;
         if (cancellation is { } completed)
             _ = DisposeCancellation(completed, cancelWork);
@@ -946,23 +1010,33 @@ internal sealed partial class TrayApp : IDisposable
         if (result is not null && !cancelled)
         {
             long nowTick = Environment.TickCount64;
-            hasHeartbeatDevices = result.HasHeartbeatDevices;
-            currentPushTargets = pushTargets;
-            events.LogReceiverChanges(result.ReceiverChanges);
-            events.LogUnknownReceivers(result.Unknowns);
             foreach (var reading in result.Readings)
                 events.RecordReadFailure(reading.Issue, nowTick);
             events.FlushReadFailuresIfDue(nowTick);
 
-            bool shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
-                result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets, result.Complete,
-                result.IncompleteReceivers);
+            bool shouldSave;
+            if (targeted)
+            {
+                shouldSave = model.ApplyTargetedPoll(result.Readings, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
+                if (pushCancellation is null && currentPushTargets.Length > 0)
+                    StartPushListeners(currentPushTargets);
+            }
+            else
+            {
+                hasHeartbeatDevices = result.HasHeartbeatDevices;
+                currentPushTargets = pushTargets;
+                events.LogReceiverChanges(result.ReceiverChanges);
+                events.LogUnknownReceivers(result.Unknowns);
+                shouldSave = model.ApplyPoll(result.Readings, result.ScanFailed, DateTimeOffset.UtcNow,
+                    result.UnknownReceivers, events.LogDeviceLinkChange, result.LiveTargets, result.Complete,
+                    result.IncompleteReceivers);
+                StartPushListeners(pushTargets);
+            }
             if (shouldSave || gates.Version != Volatile.Read(ref lastSavedGateVersion))
                 SaveState();
             RefreshIcon();
-            StartPushListeners(pushTargets);
         }
-        else if (currentPushTargets.Length > 0)
+        else if (pushCancellation is null && currentPushTargets.Length > 0)
         {
             StartPushListeners(currentPushTargets);
         }
@@ -1020,7 +1094,8 @@ internal sealed partial class TrayApp : IDisposable
             long nowTick = Environment.TickCount64;
             foreach (var update in updates)
                 events.RecordReadFailure(update.Issue, nowTick);
-            var (uiChanged, needsRefresh) = model.ApplyPresence(updates, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
+            var (uiChanged, needsFullRefresh, refreshIds) = model.ApplyPresenceDetailed(
+                updates, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
             if (uiChanged)
             {
                 if (updates.Any(update => update.Battery is not null))
@@ -1029,8 +1104,10 @@ internal sealed partial class TrayApp : IDisposable
                 RenderPopup();
                 RenderHoverCard();
             }
-            if (needsRefresh)
+            if (needsFullRefresh)
                 schedule.Request(userInitiated: false);
+            else if (refreshIds.Length > 0)
+                schedule.RequestTargeted(refreshIds);
         }
         MaybeSaveGates();
         ProcessWork();
@@ -1097,7 +1174,8 @@ internal sealed partial class TrayApp : IDisposable
         if (batch.Count == 0)
             return;
 
-        var (uiChanged, needsRefresh) = model.ApplyPresence(batch, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
+        var (uiChanged, needsFullRefresh, refreshIds) = model.ApplyPresenceDetailed(
+            batch, DateTimeOffset.UtcNow, events.LogDeviceLinkChange);
         if (uiChanged)
         {
             if (batch.Any(update => update.Battery is not null))
@@ -1106,9 +1184,14 @@ internal sealed partial class TrayApp : IDisposable
             RenderPopup();
             RenderHoverCard();
         }
-        if (needsRefresh)
+        if (needsFullRefresh)
         {
             schedule.Request(userInitiated: false);
+            ProcessWork();
+        }
+        else if (refreshIds.Length > 0)
+        {
+            schedule.RequestTargeted(refreshIds);
             ProcessWork();
         }
         MaybeSaveGates();
@@ -1212,6 +1295,8 @@ internal sealed partial class TrayApp : IDisposable
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
+        bool stripAppearanceChanged = settings.TaskbarStyle != model.Settings.TaskbarStyle ||
+            settings.TaskbarColor != model.Settings.TaskbarColor;
         bool themeChanged = settings.Theme != model.Settings.Theme;
         bool autoUpdateChanged = settings.AutoUpdateEnabled != model.Settings.AutoUpdateEnabled;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
@@ -1221,6 +1306,8 @@ internal sealed partial class TrayApp : IDisposable
             SetForegroundTracking();
         if (displayLocationChanged)
             RefreshStripGeometry();
+        if (stripAppearanceChanged)
+            ApplyStripAppearanceSettings();
         if (autoUpdateChanged)
         {
             if (settings.AutoUpdateEnabled)
@@ -1699,7 +1786,8 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation
+                or PopupAction.TaskbarStyle or PopupAction.TaskbarColor or PopupAction.Theme
                 or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder:
                 active.SelectSetting(target, ChangeSettings);
                 break;
@@ -2051,6 +2139,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    FinishUpdateCancellation(opId);
                     if (background)
                         autoUpdate.Succeeded(Environment.TickCount64);
                     if (update is null)
@@ -2082,6 +2171,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    FinishUpdateCancellation(opId);
                     if (background)
                     {
                         events.LogUpdateCheck(timedOut ? "后台检查：失败（Timeout）" : "后台检查：已取消");
@@ -2110,6 +2200,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    FinishUpdateCancellation(opId);
                     events.LogUpdateCheck($"{prefix}失败（{kind}）");
                     if (background)
                     {
@@ -2186,6 +2277,7 @@ internal sealed partial class TrayApp : IDisposable
                     {
                         if (opId != updateOperationId || exitRequested)
                             return;
+                        FinishUpdateCancellation(opId);
                         events.LogUpdateCheck($"新版本 v{update.Version} 已下载并通过校验，等待重启升级");
                         updateState = updateState.WithReady(package);
                         if (background)
@@ -2218,6 +2310,7 @@ internal sealed partial class TrayApp : IDisposable
                             files.Updates.TryClear();
                             return;
                         }
+                        FinishUpdateCancellation(opId);
                         pendingInstallerPackage = preparedPackage;
                         exitRequested = true;
                         DestroyMenu();
@@ -2234,6 +2327,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    FinishUpdateCancellation(opId);
                     if (timedOut && background)
                     {
                         events.LogUpdateCheck("后台下载：失败（Timeout）");
@@ -2262,6 +2356,7 @@ internal sealed partial class TrayApp : IDisposable
                 {
                     if (opId != updateOperationId || exitRequested)
                         return;
+                    FinishUpdateCancellation(opId);
                     if (background)
                     {
                         // 后台下载失败不显示错误页，回到「发现新版本」，用户仍可手动下载；稍后再自动重试。
@@ -2354,6 +2449,14 @@ internal sealed partial class TrayApp : IDisposable
             return;
         updateCancellation = null;
         _ = DisposeCancellation(active, active.CancelAsync());
+    }
+
+    private void FinishUpdateCancellation(int opId)
+    {
+        if (opId != updateOperationId || updateCancellation is not { } active)
+            return;
+        updateCancellation = null;
+        active.Dispose();
     }
 
     private void PostUpdateCallback(Action action)
