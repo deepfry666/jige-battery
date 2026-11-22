@@ -61,14 +61,43 @@ internal static unsafe class TaskbarStripShell
         bool visible = PInvoke.IsWindowVisible(taskbar) &&
             (!autoHide || (rect.bottom <= screen.Bottom + 2 &&
                 screen.Bottom - rect.top > (int)((4L * dpi + 48) / 96)));
-        HWND tray;
-        fixed (char* name = "TrayNotifyWnd")
-            tray = PInvoke.FindWindowEx(taskbar, default, new PCWSTR(name), default(PCWSTR));
-        if (!tray.IsNull && PInvoke.IsWindowVisible(tray) && PInvoke.GetWindowRect(tray, out var trayRect))
-            nativeTray = ToBounds(trayRect);
+        var bar = ToBounds(rect);
+        nativeTray = ReadNativeRightBoundary(taskbar, bar);
 
-        geometry = new(taskbar, screen, ToBounds(rect), default, dpi, visible, bottom);
+        geometry = new(taskbar, screen, bar, default, dpi, visible, bottom);
         return true;
+    }
+
+    private static readonly string[] RightSideWidgetClasses = ["DynamicContent2", "DynamicContent1", "PeopleBand"];
+
+    private static Bounds? ReadNativeRightBoundary(HWND taskbar, Bounds bar)
+    {
+        Bounds? boundary = ReadChildBounds(taskbar, "TrayNotifyWnd");
+        if (boundary is not { } tray)
+            return null;
+        // Windows 10 通知区左侧可能有「资讯和兴趣」或「人脉」直接挂在 Shell_TrayWnd 下。
+        foreach (string className in RightSideWidgetClasses)
+        {
+            if (ReadChildBounds(taskbar, className) is { } widget &&
+                widget.Left > bar.CenterX && widget.Right <= bar.Right + 2 &&
+                widget.Top < bar.Bottom && widget.Bottom > bar.Top &&
+                widget.Left < tray.Left)
+            {
+                tray = tray with { Left = widget.Left };
+            }
+        }
+        return tray;
+    }
+
+    private static Bounds? ReadChildBounds(HWND parent, string className)
+    {
+        HWND child;
+        fixed (char* name = className)
+            child = PInvoke.FindWindowEx(parent, default, new PCWSTR(name), default(PCWSTR));
+        if (child.IsNull || !PInvoke.IsWindowVisible(child) || !PInvoke.GetWindowRect(child, out var rect))
+            return null;
+        var bounds = ToBounds(rect);
+        return bounds is { Width: > 0, Height: > 0 } ? bounds : null;
     }
 
     public static Bounds ToBounds(RECT rect) => new(rect.left, rect.top, rect.right, rect.bottom);

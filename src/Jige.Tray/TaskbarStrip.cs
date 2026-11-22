@@ -666,7 +666,8 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             bool tray = control.Id is "SystemTrayFrame" or "SystemTrayFrameGrid" or "NotificationAreaIcons" or
                 "NotifyIconStack" or "ShowHiddenIconsButton" or "ControlCenterButton" or "NotificationCenterButton" ||
                 control.ClassName.StartsWith("SystemTray.", StringComparison.Ordinal) ||
-                control.ClassName is "SystemTrayFrame" or "ChevronIconView";
+                control.ClassName is "SystemTrayFrame" or "ChevronIconView" or
+                    "DynamicContent1" or "DynamicContent2" or "PeopleBand";
             if (tray && FitsNotificationArea(bounds) &&
                 (notification is null || bounds.Left < notification.Value.Left))
                 notification = bounds;
@@ -675,9 +676,9 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
         if (notification is not { } trayBounds)
             return default;
 
-        bool sawStart = false, sawTaskList = false, sawFrame = false;
+        bool sawStart = false, sawModernTaskList = false, sawModernTaskListClass = false, sawFrame = false;
+        Bounds? legacyListBounds = null;
         int taskbarFrameRight = bar.Left;
-        int right = bar.Left;
         foreach (var control in controls)
         {
             var bounds = control.Bounds;
@@ -690,24 +691,63 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             if (frame && bounds.Right <= trayBounds.Left)
                 taskbarFrameRight = Math.Max(taskbarFrameRight, bounds.Right);
             sawStart |= start;
+            if (IsModernTaskListClass(control))
+                sawModernTaskListClass = true;
+            if (IsTaskListButton(control))
+                sawModernTaskList = true;
+            if (control.ClassName == "MSTaskListWClass" &&
+                (legacyListBounds is null || bounds.Width > legacyListBounds.Value.Width))
+                legacyListBounds = bounds;
+        }
+
+        // Windows 10 使用经典 Win32 任务栏：MSTaskListWClass 是撑满可用区间的任务列表容器，
+        // 其右边界已避让「资讯和兴趣」、语言栏、第三方 ReBar 工具栏与溢出翻页按钮；
+        // 真正占用宽度来自容器左侧的固定控件和容器内部的各个应用按钮，而非容器自身右边界。
+        // 注意 Windows 10 任务按钮同样可能带 Appid: 前缀，不能据此误判为 Windows 11 XAML 任务栏。
+        bool useLegacyTaskList = legacyListBounds is not null && !sawFrame && !sawModernTaskListClass;
+        var effectiveNotification = trayBounds;
+        if (useLegacyTaskList && legacyListBounds is { } legacy &&
+            legacy.Right > bar.Left && legacy.Right < effectiveNotification.Left)
+        {
+            effectiveNotification = effectiveNotification with { Left = legacy.Right };
+        }
+
+        int rightBoundary = effectiveNotification.Left;
+        int right = useLegacyTaskList && legacyListBounds is { } legacyBounds
+            ? Math.Max(bar.Left, legacyBounds.Left)
+            : bar.Left;
+        foreach (var control in controls)
+        {
+            var bounds = control.Bounds;
+            if (!InsideBar(bounds))
+                continue;
+            bool start = control.Id == "StartButton" || control.ClassName == "Start";
             // The modern taskbar frame can span the entire HWND. Its button bounds,
             // including Start, Search, Widgets and overflow, are what consume space.
-            bool taskListButton = control.ClassName is "TaskListButton" or "Taskbar.TaskListButton" or
-                "Taskbar.TaskListButtonAutomationPeer" or "Taskbar.TaskListLabeledButtonPanel" ||
-                control.Id == "TaskListButton" ||
-                control.Id.StartsWith("Appid:", StringComparison.OrdinalIgnoreCase);
+            bool taskListButton = IsTaskListButton(control);
             bool shellButton = control.Id is "SearchButton" or "TaskViewButton" or "WidgetsButton" or "OverflowButton";
-            bool legacyList = control.ClassName == "MSTaskListWClass";
-            sawTaskList |= taskListButton || legacyList;
-            if (start || taskListButton || legacyList || (shellButton || control.Button) && bounds.Left < trayBounds.Left)
+            bool leftOfBoundary = useLegacyTaskList
+                ? bounds.Left < rightBoundary - 2 || (bounds.Left < rightBoundary && bounds.Right <= rightBoundary + 2)
+                : bounds.Left < rightBoundary;
+            if (start || taskListButton || (shellButton || control.Button) && leftOfBoundary)
                 right = Math.Max(right, bounds.Right);
         }
 
+        bool sawTaskList = sawModernTaskList || useLegacyTaskList;
         int? occupied = sawTaskList ? right
             : taskbarFrameRight > bar.Left ? Math.Max(right, taskbarFrameRight)
             : sawFrame ? right
             : null;
-        return new(notification, sawStart ? occupied : null);
+        return new(effectiveNotification, sawStart ? occupied : null);
+
+        static bool IsModernTaskListClass(TaskbarControl control) =>
+            control.ClassName is "TaskListButton" or "Taskbar.TaskListButton" or
+                "Taskbar.TaskListButtonAutomationPeer" or "Taskbar.TaskListLabeledButtonPanel" ||
+            control.Id == "TaskListButton";
+
+        static bool IsTaskListButton(TaskbarControl control) =>
+            IsModernTaskListClass(control) ||
+            control.Id.StartsWith("Appid:", StringComparison.OrdinalIgnoreCase);
 
         bool InsideBar(Bounds rect) => rect.Width > 0 && rect.Height > 0 &&
             rect.Left >= bar.Left - 2 && rect.Right <= bar.Right + 2 &&

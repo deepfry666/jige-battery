@@ -23,7 +23,7 @@ The one thing visitors must remember: **不开厂商驱动也能看电量.** 几
 
 ## Operating Context
 
-- Windows 10 22H2 / Windows 11, x64. Taskbar strip (Windows 11 preferred; automatically falls back to per-device tray icons when taskbar UIA/space is unavailable, e.g. Windows 10) left of the notification area, whose silhouettes fill bottom-up with battery level. Hover card, main panel, settings, low-battery reminder.
+- Windows 10 22H2 / Windows 11, x64. Taskbar strip is the default on both Windows 10 and Windows 11 (automatically avoiding Windows 10 News & Interests / right-side toolbars, and falling back to per-device tray icons whose silhouettes fill bottom-up when the taskbar is not on the bottom edge or space/UIA is unavailable). Hover card, main panel, settings, low-battery reminder.
 - Never disturbs games: no popups while a fullscreen game runs; polling slows to 5 minutes.
 - Auto-checks updates daily by default (can be turned off in Settings; installation is always user-clicked): domestic mirror first, GitHub fallback, size + SHA-256 verified for download integrity and release consistency.
 - Downloads: domestic mirror `download.imfourj.cn` (version metadata at `/latest.json`, proxied same-origin on the site) and GitHub Releases.
