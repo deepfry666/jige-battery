@@ -216,6 +216,28 @@ internal static class Presentation
         _ => "自动切换"
     };
 
+    public static string TaskbarStyleLabel(TaskbarStripStyle style) => style switch
+    {
+        TaskbarStripStyle.Frameless => "极简无框",
+        TaskbarStripStyle.Capsule => "磨砂胶囊",
+        TaskbarStripStyle.Badges => "分块徽章",
+        TaskbarStripStyle.Meter => "底栏格条",
+        _ => "自动融入"
+    };
+
+    public static string TaskbarColorLabel(TaskbarStripColorScheme scheme) => scheme switch
+    {
+        TaskbarStripColorScheme.Light => "暖白亮彩",
+        TaskbarStripColorScheme.Dark => "墨黑深彩",
+        TaskbarStripColorScheme.HighContrast => "高对比",
+        TaskbarStripColorScheme.Monochrome => "极简纯色",
+        TaskbarStripColorScheme.IceBlue => "冰蓝赛博",
+        TaskbarStripColorScheme.Sakura => "樱花粉",
+        TaskbarStripColorScheme.Amber => "复古琥珀",
+        TaskbarStripColorScheme.NeonGreen => "荧光绿",
+        _ => "自动适配"
+    };
+
     /// <summary>单设备独立托盘图标的悬停提示。</summary>
     public static string DeviceTooltip(TrayModel model, DeviceStatus device)
     {

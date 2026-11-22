@@ -169,8 +169,9 @@ internal sealed class DesktopRefreshDebouncer
 
     public static bool IsRelevantSettingChange(nuint wParam, string? area)
     {
-        // SPI_SETNONCLIENTMETRICS(0x2A)、SPI_SETWORKAREA(0x2F)、SPI_SETHIGHCONTRAST(0x43)、SPI_SETCLIENTAREAANIMATION(0x1043)。
-        if (wParam is 0x002A or 0x002F or 0x0043 or 0x1043)
+        // SPI_SETDESKWALLPAPER(0x14)、SPI_SETNONCLIENTMETRICS(0x2A)、SPI_SETWORKAREA(0x2F)、
+        // SPI_SETHIGHCONTRAST(0x43)、SPI_SETCLIENTAREAANIMATION(0x1043)。
+        if (wParam is 0x0014 or 0x002A or 0x002F or 0x0043 or 0x1043)
             return true;
         if (string.IsNullOrEmpty(area))
             return wParam == 0;

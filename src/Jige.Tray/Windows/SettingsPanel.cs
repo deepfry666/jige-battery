@@ -1,28 +1,47 @@
 namespace Jige.Tray.Windows;
 
-/// <summary>设置行按显示顺序排列，每 3 行一组：显示 / 电量 / 通用。</summary>
-internal enum SettingRow { DisplayLocation, TrayMode, Theme, Threshold, RuntimeEstimate, PollInterval, GameSilent, Autostart, AutoUpdate }
+/// <summary>设置行按显示顺序排列，分三组：显示（5 行）/ 电量（3 行）/ 通用（3 行）。</summary>
+internal enum SettingRow
+{
+    DisplayLocation, TaskbarStyle, TaskbarColor, TrayMode, Theme,
+    Threshold, RuntimeEstimate, PollInterval,
+    GameSilent, Autostart, AutoUpdate
+}
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
 internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false)
 {
     public const int CardX = 9, CardWidth = PanelLayout.Width - 18;
-    public const int RowHeight = 44, OptionHeight = PanelLayout.SettingsOptionHeight, Right = CardX + CardWidth - 13;
-    /// <summary>第一组小标题的顶部，以及小标题高度、组间距和每组行数。</summary>
-    public const int StackTop = 47, HeaderHeight = PanelLayout.SettingsHeaderHeight, SectionGap = 6,
-        SectionSize = PanelLayout.SettingsSections;
+    public const int OptionHeight = PanelLayout.SettingsOptionHeight, Right = CardX + CardWidth - 13;
+    /// <summary>第一组小标题的顶部，以及小标题高度、组间距和各组行数。</summary>
+    public const int StackTop = 47, HeaderHeight = PanelLayout.SettingsHeaderHeight, SectionGap = 6;
     public static readonly string[] SectionTitles = ["显示", "电量", "通用"];
+    public static readonly int[] SectionSizes = [5, 3, 3];
+    private static readonly int[] SectionStarts = [0, 5, 8];
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.DisplayLocation, SettingRow.TrayMode, SettingRow.Theme,
+        [SettingRow.DisplayLocation, SettingRow.TaskbarStyle, SettingRow.TaskbarColor, SettingRow.TrayMode, SettingRow.Theme,
             SettingRow.Threshold, SettingRow.RuntimeEstimate, SettingRow.PollInterval,
             SettingRow.GameSilent, SettingRow.Autostart, SettingRow.AutoUpdate];
 
-    public static int SectionOf(SettingRow row) => (int)row / SectionSize;
-    public static bool IsSectionStart(SettingRow row) => (int)row % SectionSize == 0;
-    public static bool IsSectionEnd(SettingRow row) => (int)row % SectionSize == SectionSize - 1;
+    public static int SectionOf(SettingRow row)
+    {
+        int index = (int)row;
+        for (int section = SectionStarts.Length - 1; section >= 0; section--)
+            if (index >= SectionStarts[section])
+                return section;
+        return 0;
+    }
+
+    public static bool IsSectionStart(SettingRow row) => (int)row == SectionStarts[SectionOf(row)];
+
+    public static bool IsSectionEnd(SettingRow row)
+    {
+        int section = SectionOf(row);
+        return (int)row == SectionStarts[section] + SectionSizes[section] - 1;
+    }
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
@@ -34,6 +53,28 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     [
         new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.Taskbar), "任务栏（推荐）"),
         new(new(PopupAction.DisplayLocation, (int)TrayDisplayLocation.TrayIcons), "托盘图标")
+    ];
+
+    public static readonly SettingChoice[] TaskbarStyleChoices =
+    [
+        new(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Auto), "自动融入（推荐）"),
+        new(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Frameless), "极简无框"),
+        new(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Capsule), "磨砂胶囊"),
+        new(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Badges), "分块徽章"),
+        new(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Meter), "底栏格条")
+    ];
+
+    public static readonly SettingChoice[] TaskbarColorChoices =
+    [
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Auto), "自动适配（推荐）"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Light), "暖白亮彩（深底）"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Dark), "墨黑深彩（浅底）"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.HighContrast), "高对比锐利"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Monochrome), "极简纯色"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.IceBlue), "冰蓝赛博"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Sakura), "樱花粉"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.Amber), "复古琥珀"),
+        new(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.NeonGreen), "荧光绿")
     ];
 
     public static readonly SettingChoice[] ThemeChoices =
@@ -85,8 +126,9 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     public SettingRow? Expanded { get; private set; }
     public bool Animating { get; private set; }
     public bool HasDiagnosticFooter => hasDiagnosticFooter;
-    /// <summary>屏幕太矮时不画小标题，见 <see cref="PanelLayout.CompactSettings"/>。</summary>
+    /// <summary>屏幕太矮时不画小标题并收紧行高，见 <see cref="PanelLayout.CompactSettings"/>。</summary>
     public bool Compact { get; } = PanelLayout.CompactSettings(availableHeight);
+    public int RowHeight => Compact ? PanelLayout.SettingsCompactRowHeight : PanelLayout.SettingsRowHeight;
     public int Header => Compact ? 0 : HeaderHeight;
     private int BaseHeight => PanelLayout.SettingsHeightFor(availableHeight) +
         (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
@@ -95,6 +137,7 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     public int SurfaceHeight => BaseHeight + Capacity * OptionHeight;
     public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
         VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation) +
+        VisibleHeight(SettingRow.TaskbarStyle) + VisibleHeight(SettingRow.TaskbarColor) +
         VisibleHeight(SettingRow.Theme);
     public float Height => BaseHeight + ExtraHeight;
 
@@ -111,6 +154,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     {
         SettingRow.TrayMode => trayChoices,
         SettingRow.DisplayLocation => DisplayLocationChoices,
+        SettingRow.TaskbarStyle => TaskbarStyleChoices,
+        SettingRow.TaskbarColor => TaskbarColorChoices,
         SettingRow.Theme => ThemeChoices,
         SettingRow.Threshold => [.. ThresholdChoices, .. ReminderToggleChoices],
         SettingRow.PollInterval => PollChoices,
@@ -130,11 +175,12 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         float y = StackTop;
         for (int index = 0; ; index++)
         {
-            if (index % SectionSize == 0)
+            var current = (SettingRow)index;
+            if (IsSectionStart(current))
                 y += (index > 0 ? 1 + SectionGap : 0) + Header + 1;
-            if (index == (int)row)
+            if (current == row)
                 break;
-            y += RowHeight + VisibleHeight((SettingRow)index);
+            y += RowHeight + VisibleHeight(current);
         }
         return new(CardX + 1, y, CardWidth - 2, RowHeight);
     }
@@ -142,8 +188,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     /// <summary>一组设置的卡片外框（含展开的选项）。</summary>
     public PanelRect SectionRect(int section)
     {
-        var first = RowRect((SettingRow)(section * SectionSize));
-        var last = (SettingRow)(section * SectionSize + SectionSize - 1);
+        var first = RowRect((SettingRow)SectionStarts[section]);
+        var last = (SettingRow)(SectionStarts[section] + SectionSizes[section] - 1);
         float bottom = RowRect(last).Y + RowHeight + VisibleHeight(last) + 1;
         return new(CardX, first.Y - 1, CardWidth, bottom - first.Y + 1);
     }
@@ -256,6 +302,10 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
                 settings with { TrayMode = (TrayDisplayMode)target.Value },
             (SettingRow.DisplayLocation, PopupAction.DisplayLocation) when DisplayLocationChoices.Any(choice => choice.Target == target) =>
                 settings with { DisplayLocation = (TrayDisplayLocation)target.Value },
+            (SettingRow.TaskbarStyle, PopupAction.TaskbarStyle) when TaskbarStyleChoices.Any(choice => choice.Target == target) =>
+                settings with { TaskbarStyle = (TaskbarStripStyle)target.Value },
+            (SettingRow.TaskbarColor, PopupAction.TaskbarColor) when TaskbarColorChoices.Any(choice => choice.Target == target) =>
+                settings with { TaskbarColor = (TaskbarStripColorScheme)target.Value },
             (SettingRow.Theme, PopupAction.Theme) when ThemeChoices.Any(choice => choice.Target == target) =>
                 settings with { Theme = (ThemeMode)target.Value },
             (SettingRow.Threshold, PopupAction.Threshold) when ThresholdChoices.Any(choice => choice.Target == target) =>
@@ -270,8 +320,9 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         };
         if (next is null)
             return false;
-        // 勾选类选项（托盘设备、两个提醒开关）保持展开，方便连续调整。
-        if (target.Action is not (PopupAction.TrayMode or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder))
+        // 勾选类选项与任务栏样式/配色保持展开，方便边看任务栏效果边连续切换。
+        if (target.Action is not (PopupAction.TrayMode or PopupAction.TaskbarStyle or PopupAction.TaskbarColor
+            or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder))
             Collapse(time, animate);
         save(next);
         return true;
