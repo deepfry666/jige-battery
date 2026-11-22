@@ -102,3 +102,8 @@ IUIAutomationElementArray
 IUIAutomationCacheRequest
 WTSRegisterSessionNotification
 WTSUnRegisterSessionNotification
+CreateCompatibleDC
+DeleteDC
+SelectObject
+UpdateLayeredWindow
+IDXGIDevice3

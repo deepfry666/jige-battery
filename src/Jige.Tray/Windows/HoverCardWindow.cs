@@ -87,7 +87,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
         return true;
     }
 
-    /// <summary>隐藏但保留图形资源，下次悬停可立即显示。</summary>
+    /// <summary>隐藏但保留图形资源，下次悬停可立即显示；同时提示显卡驱动回收瞬态缓冲。</summary>
     public void Hide()
     {
         Closing = false;
@@ -95,6 +95,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
             return;
         PInvoke.ShowWindow(Handle, SHOW_WINDOW_CMD.SW_HIDE);
         shown = false;
+        composition?.Trim();
     }
 
     private void Render(HoverCardContent content, RECT anchor, bool reset)

@@ -16,10 +16,11 @@ internal sealed partial class TrayApp
     private const uint StripGeometryMessage = 0x8009, StripAppBarMessage = 0x800A;
     private TaskbarStripAutomation? stripAutomation;
     private TaskbarStripWindow? stripWindow;
+    private readonly TaskbarControlsStabilizer stripStabilizer = new();
     private TaskbarStripGeometry stripGeometry;
     private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.HiddenTaskbar, default);
     private HWND stripOwner;
-    private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
+    private bool stripFullscreen, stripZOrderPending, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
         stripGeometryPending, stripFallbackLogged;
     private long stripGeometryPendingSinceMs;
     private int stripAutomationFailures;
@@ -60,6 +61,11 @@ internal sealed partial class TrayApp
         return stripAutomation;
     }
 
+    private bool ShouldRefreshStripOnForeground() =>
+        model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
+        (stripOwner.IsNull || stripWindowUnavailable || stripDisplay.IsFallback ||
+         stripGeometryPending || stripAutomation is not { Alive: true });
+
     private void RefreshStripGeometry()
     {
         if (model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons)
@@ -76,6 +82,7 @@ internal sealed partial class TrayApp
         {
             stripOwner = owner;
             stripGeometry = default;
+            stripStabilizer.Reset();
             DestroyStripWindow();
         }
         if (owner.IsNull)
@@ -99,6 +106,8 @@ internal sealed partial class TrayApp
         stripOwner = default;
         stripGeometry = default;
         stripGeometryPending = false;
+        stripZOrderPending = true;
+        stripStabilizer.Reset();
         DestroyStripWindow();
         EnsureStripAutomation()?.Request(default, reset: true);
     }
@@ -109,13 +118,16 @@ internal sealed partial class TrayApp
             return;
         if (notification == TaskbarStripShell.FullscreenChanged)
         {
+            stripZOrderPending = true;
             ReadGameMode();
+            ArmTimer(GameSettleTimer, 750);
             RefreshStripGeometry();
             return;
         }
         if (notification is not (TaskbarStripShell.StateChanged or TaskbarStripShell.PositionChanged))
             return;
 
+        stripZOrderPending = true;
         // An owned popup is not moved by its owner. Hide it at the first Shell
         // notification that its old screen rectangle no longer fits the live bar.
         if (stripWindow?.VisibleBounds is { } bounds &&
@@ -142,6 +154,12 @@ internal sealed partial class TrayApp
             return;
         }
         stripAutomationFailures = 0;
+        var (stableControls, retry) = stripStabilizer.Apply(
+            geometry.Bar, geometry.Dpi, geometry.Visible, geometry.BottomEdge,
+            geometry.Controls, Environment.TickCount64);
+        geometry = geometry with { Controls = stableControls };
+        if (retry)
+            ArmTimer(StripRetryTimer, 400);
         bool wasPending = stripGeometryPending;
         stripGeometryPending = false;
         var previous = stripWindow?.VisibleBounds;
@@ -184,11 +202,13 @@ internal sealed partial class TrayApp
                 if (stripWindow is null || stripWindow.Owner != stripGeometry.Owner || !PInvoke.IsWindow(stripWindow.Handle))
                 {
                     DestroyStripWindow();
-                    var extra = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP;
+                    var extra = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_LAYERED;
                     var window = MakeWindow(StripClass, extra, WS_POPUP, stripGeometry.Owner);
                     stripWindow = new(window, stripGeometry.Owner);
                 }
-                stripWindow.Update(rendered, layout, next.Bounds, darkTaskbar, TaskbarStripLayout.PixelScale(stripGeometry.Dpi));
+                bool raise = stripZOrderPending && popup is null && menu is null && hoverCard is null;
+                stripWindow.Update(rendered, layout, next.Bounds, darkTaskbar,
+                    TaskbarStripLayout.PixelScale(stripGeometry.Dpi), ensureTopmost: raise);
             }
             catch (Exception error) when (error is ExternalException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -263,6 +283,8 @@ internal sealed partial class TrayApp
         stripGeometry = default;
         stripOwner = default;
         stripGeometryPending = false;
+        stripZOrderPending = false;
+        stripStabilizer.Reset();
         if (appBarSubscribed)
         {
             appBarSubscribed = false;

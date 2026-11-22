@@ -143,6 +143,96 @@ public sealed class AdapterTests
         Assert.Equal(50, third.Percentage);
     }
 
+    [Theory]
+    [InlineData("INZONEHub.exe", true)]
+    [InlineData("INZONE Hub.exe", true)]
+    [InlineData("INZONEHubService.exe", true)]
+    [InlineData("inzonehub", true)]
+    [InlineData("notepad.exe", false)]
+    [InlineData("INZONEHubHelper.exe", false)]
+    public void SonyMatchesInzoneHubProcessNamesCaseInsensitively(string exe, bool expected)
+    {
+        Assert.Equal(expected, SonyInzoneAdapter.MatchesProcessName(exe, ["INZONEHub", "INZONE Hub", "INZONEHubService"]));
+    }
+
+    [Fact]
+    public async Task SonyBacksOffAfterConsecutiveTimeoutsAndResetsOnExplicitResetOrDiagnostics()
+    {
+        var clock = new FakeClock();
+        int hubChecks = 0;
+        var adapter = new SonyInzoneAdapter(115200, () => { hubChecks++; return false; }, clock);
+        var registry = new AdapterRegistry(adapter);
+        var device = Assert.Single(registry.Detect(new([], [Sony], [])));
+        var transport = new TransportStub { Serial = new SilentSerialStub() };
+
+        // 前两次连续超时正常走串口探测。
+        var first = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        var second = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        Assert.Equal(ReadIssue.Timeout, first.Issue);
+        Assert.Equal(ReadIssue.Timeout, second.Issue);
+        Assert.Equal(2, transport.SerialOpens);
+        Assert.Equal(2, hubChecks);
+
+        // 退避窗口内普通轮询直接跳过进程快照和串口打开。
+        clock.Advance(TimeSpan.FromMinutes(1));
+        var skipped = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        Assert.Equal(LinkState.Unknown, skipped.Link);
+        Assert.Equal(ReadIssue.None, skipped.Issue);
+        Assert.Equal(2, transport.SerialOpens);
+        Assert.Equal(2, hubChecks);
+
+        // 诊断导出（trace != null）不受退避限制。
+        var diag = await adapter.ReadAsync(device.Target, transport, (_, _) => { }, CancellationToken.None);
+        Assert.Equal(ReadIssue.Timeout, diag.Issue);
+        Assert.Equal(3, transport.SerialOpens);
+
+        // 超过首次退避（2 分钟）后重新探测，再次超时则拉长到 5 分钟。
+        clock.Advance(TimeSpan.FromMinutes(2));
+        var third = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        Assert.Equal(ReadIssue.Timeout, third.Issue);
+        Assert.Equal(4, transport.SerialOpens);
+
+        clock.Advance(TimeSpan.FromMinutes(3));
+        var stillBackedOff = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        Assert.Equal(ReadIssue.None, stillBackedOff.Issue);
+        Assert.Equal(4, transport.SerialOpens);
+
+        // 手动刷新/拓扑重置后立即恢复探测。
+        registry.ResetPollingCaches();
+        var afterReset = await adapter.ReadAsync(device.Target, transport, null, CancellationToken.None);
+        Assert.Equal(ReadIssue.Timeout, afterReset.Issue);
+        Assert.Equal(5, transport.SerialOpens);
+    }
+
+    private sealed class FakeClock : TimeProvider
+    {
+        private DateTimeOffset utcNow = DateTimeOffset.UnixEpoch.AddHours(1);
+        private long timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override DateTimeOffset GetUtcNow() => utcNow;
+        public override long GetTimestamp() => timestamp;
+
+        public void Advance(TimeSpan delta)
+        {
+            utcNow += delta;
+            timestamp += delta.Ticks;
+        }
+    }
+
+    private sealed class SilentSerialStub : ISerialSession
+    {
+        public ValueTask WriteAsync(byte[] bytes, CancellationToken token) => ValueTask.CompletedTask;
+
+        public async ValueTask<int> ReadAsync(byte[] buffer, CancellationToken token)
+        {
+            await Task.Delay(Timeout.Infinite, token);
+            return 0;
+        }
+
+        public void Dispose() { }
+    }
+
     private sealed class BlockingAdapter : IDeviceAdapter
     {
         public readonly TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);

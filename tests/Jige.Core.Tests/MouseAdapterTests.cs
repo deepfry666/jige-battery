@@ -226,6 +226,62 @@ public sealed class MouseAdapterTests
         Assert.Equal(3, detected.Length);
     }
 
+    [Fact]
+    public async Task CompxPrimaryReplySkipsRedundantSiblingsOnNextPollButKeepsThemForDiagnostics()
+    {
+        var primary = new HidInterface("rx-atk", "p-ff02", 0x373B, 0x11D9, null, 0xFF02, 2, 17, 17, 0, 1);
+        var sibling = new HidInterface("rx-atk", "p-ff05", 0x373B, 0x11D9, null, 0xFF05, 0, 8, 0, 0, 1);
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([primary, sibling], [], [])));
+        Assert.Single(device.Target.SiblingInputHids);
+
+        const string cidMidReq = "081000000000000000000000000000003D";
+        const string cidMidReply = "0810000000030108000000000000000031";
+        ReceiverStep[] primarySteps() =>
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidInput, CapturedCompxReply),
+            new(DiagnosticOperation.HidOutput, CompxRequest),
+            new(DiagnosticOperation.HidInput, cidMidReply),
+            new(DiagnosticOperation.HidOutput, cidMidReq)
+        ];
+        ReceiverStep[] siblingTimeoutSteps() =>
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidInput, Issue: ReadIssue.Timeout)
+        ];
+
+        var transport1 = new FakeReceiverTransport(
+            (primary.Path, primarySteps()),
+            (sibling.Path, siblingTimeoutSteps()));
+        var first = await registry.ReadAsync(device, transport1, null, CancellationToken.None);
+        Assert.Equal(25, first.Percentage);
+        transport1.AssertComplete();
+
+        // 主集合已稳定回复：第二次普通轮询不再打开永远超时的旁路集合。
+        var transport2 = new FakeReceiverTransport((primary.Path, primarySteps()));
+        var second = await registry.ReadAsync(device, transport2, null, CancellationToken.None);
+        Assert.Equal(25, second.Percentage);
+        transport2.AssertComplete();
+
+        // 诊断导出（trace != null）仍照常监听旁路集合。
+        var transport3 = new FakeReceiverTransport(
+            (primary.Path, primarySteps()),
+            (sibling.Path, siblingTimeoutSteps()));
+        var diag = await registry.ReadAsync(device, transport3, (_, _) => { }, CancellationToken.None);
+        Assert.Equal(25, diag.Percentage);
+        transport3.AssertComplete();
+
+        // 重置缓存后再次按完整旁路探测。
+        registry.ResetPollingCaches();
+        var transport4 = new FakeReceiverTransport(
+            (primary.Path, primarySteps()),
+            (sibling.Path, siblingTimeoutSteps()));
+        var afterReset = await registry.ReadAsync(device, transport4, null, CancellationToken.None);
+        Assert.Equal(25, afterReset.Percentage);
+        transport4.AssertComplete();
+    }
+
     internal static string Pad(string prefix, int bytes) => prefix.PadRight(bytes * 2, '0');
 
     internal static async Task<BatteryReading> Read(HidInterface endpoint, FakeReceiverTransport transport)

@@ -17,6 +17,7 @@ internal sealed unsafe class Composition : IDisposable
 {
     private IDCompositionDesktopDevice* device;
     private IDCompositionTarget* target;
+    private IDXGIDevice3* dxgi3;
     private TextFactory? fonts;
 
     public Composition(HWND hwnd, float scale)
@@ -37,6 +38,10 @@ internal sealed unsafe class Composition : IDisposable
 
             var dxgiId = IDXGIDevice.IID_Guid;
             Graphics.Check(d3d->QueryInterface(&dxgiId, (void**)&dxgi), "获取 DXGI 设备");
+            var dxgi3Id = IDXGIDevice3.IID_Guid;
+            IDXGIDevice3* trimDevice = null;
+            if (d3d->QueryInterface(&dxgi3Id, (void**)&trimDevice).Succeeded)
+                dxgi3 = trimDevice;
             Graphics.Check(PInvoke.D2D1CreateDevice(dxgi, null, &d2d), "创建 Direct2D 设备");
             var desktopId = IDCompositionDesktopDevice.IID_Guid;
             IDCompositionDesktopDevice* desktop = null;
@@ -78,6 +83,12 @@ internal sealed unsafe class Composition : IDisposable
         device->Commit();
     }
 
+    public void Trim()
+    {
+        if (dxgi3 != null)
+            dxgi3->Trim();
+    }
+
     public void Dispose()
     {
         Root?.Dispose();
@@ -86,6 +97,12 @@ internal sealed unsafe class Composition : IDisposable
         target = null;
         Graphics.Release(device);
         device = null;
+        if (dxgi3 != null)
+        {
+            dxgi3->Trim();
+            Graphics.Release(dxgi3);
+            dxgi3 = null;
+        }
     }
 
     internal sealed class Layer : IDisposable

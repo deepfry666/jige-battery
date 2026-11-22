@@ -148,4 +148,93 @@ public sealed class PollScheduleTests
         Assert.Equal((ForegroundGame)expected == ForegroundGame.Fullscreen,
             GameMode.Evaluate(2, foreground, gameSilent: false).Game);
     }
+
+    [Fact]
+    public void TargetedRefreshRunsWithoutResettingRegularFullPollSchedule()
+    {
+        var settings = new TraySettings { PollSeconds = 60, GamePollSeconds = 300 };
+        var schedule = new PollSchedule(T0);
+        schedule.Start(T0, game: false);
+        schedule.Complete();
+
+        schedule.RequestTargeted(["mouse:atk"]);
+        Assert.Equal(T0 + 10_000L, schedule.Due(settings, T0 + 10_000L, game: false));
+        // 游戏中不触发后台定向刷新。
+        Assert.Equal(T0 + 300_000L, schedule.Due(settings, T0 + 10_000L, game: true));
+        Assert.False(schedule.TryStartTargeted(settings, T0 + 10_000L, game: true, out _));
+
+        Assert.True(schedule.TryStartTargeted(settings, T0 + 10_000L, game: false, out var ids));
+        Assert.Equal(["mouse:atk"], ids!);
+        Assert.True(schedule.Running);
+        schedule.Complete();
+
+        // 定向刷新不推迟原本 60 秒的全量轮询计划。
+        Assert.Equal(T0 + 60_000L, schedule.Due(settings, T0 + 15_000L, game: false));
+
+        // 到达全量轮询时刻时优先执行全量轮询而非定向刷新。
+        schedule.RequestTargeted(["mouse:atk"]);
+        Assert.False(schedule.TryStartTargeted(settings, T0 + 60_000L, game: false, out _));
+        schedule.Start(T0 + 60_000L, game: false);
+        schedule.Complete();
+        Assert.Equal(T0 + 120_000L, schedule.Due(settings, T0 + 61_000L, game: false));
+    }
+
+    [Fact]
+    public void BluetoothScanThrottleSkipsRepeatedEmptyScansUntilTimeoutOrInvalidation()
+    {
+        var throttle = new BluetoothScanThrottle();
+        Assert.True(throttle.ShouldScan(T0, forceRescan: false));
+
+        // 空结果进入 5 分钟节流窗口。
+        throttle.Record(T0, deviceCount: 0, failed: false);
+        Assert.False(throttle.ShouldScan(T0 + 30_000L, forceRescan: false));
+        Assert.True(throttle.ShouldScan(T0 + 30_000L, forceRescan: true));
+        Assert.True(throttle.ShouldScan(T0 + BluetoothScanThrottle.EmptyRescanIntervalMs, forceRescan: false));
+
+        // 存在蓝牙设备或上次扫描失败时不节流。
+        throttle.Record(T0 + 10_000L, deviceCount: 1, failed: false);
+        Assert.True(throttle.ShouldScan(T0 + 20_000L, forceRescan: false));
+        throttle.Record(T0 + 20_000L, deviceCount: 0, failed: true);
+        Assert.True(throttle.ShouldScan(T0 + 25_000L, forceRescan: false));
+
+        // Invalidate 立即解除节流。
+        throttle.Record(T0 + 30_000L, deviceCount: 0, failed: false);
+        Assert.False(throttle.ShouldScan(T0 + 40_000L, forceRescan: false));
+        throttle.Invalidate();
+        Assert.True(throttle.ShouldScan(T0 + 40_000L, forceRescan: false));
+    }
+
+    [Fact]
+    public void ApplyPresenceDetailedSeparatesKnownWakeFromUnknownNewDeviceAndTargetedPollKeepsPeers()
+    {
+        var now = DateTimeOffset.UnixEpoch.AddHours(1);
+        var mouse = new Jige.Core.DeviceIdentity("mouse:atk", "ATK 鼠标", Jige.Core.DeviceKind.Mouse);
+        var headset = new Jige.Core.DeviceIdentity("inzone-h9:r1", "Sony INZONE H9", Jige.Core.DeviceKind.Headset);
+        var model = new TrayModel(new(), new());
+        model.ApplyPoll([
+            new(mouse, 40, false, Jige.Core.ChargingState.NotCharging, Jige.Core.LinkState.Online, now),
+            new(headset, 60, false, Jige.Core.ChargingState.NotCharging, Jige.Core.LinkState.Online, now)
+        ], false, now);
+
+        model.ApplyPresence([new("r-atk", null, mouse.Id, Jige.Core.LinkState.Asleep)], now.AddSeconds(10));
+        var (uiChanged, needsFull, refreshIds) = model.ApplyPresenceDetailed(
+            [new("r-atk", null, mouse.Id, Jige.Core.LinkState.Online)], now.AddSeconds(20));
+        Assert.True(uiChanged);
+        Assert.False(needsFull);
+        Assert.Equal([mouse.Id], refreshIds);
+
+        // 定向刷新仅更新鼠标，不会把未参与本次查询的耳机误清扫成离线。
+        model.ApplyTargetedPoll([
+            new(mouse, 35, false, Jige.Core.ChargingState.NotCharging, Jige.Core.LinkState.Online, now.AddSeconds(21))
+        ], now.AddSeconds(21));
+        var devices = model.OrderedDevices().ToDictionary(item => item.Device.Id);
+        Assert.Equal(35, devices[mouse.Id].Percentage);
+        Assert.Equal(Jige.Core.LinkState.Online, devices[headset.Id].Link);
+
+        // 未登记的新设备上线时仍请求全量刷新。
+        var (_, unknownFull, unknownIds) = model.ApplyPresenceDetailed(
+            [new("r-new", 2, null, Jige.Core.LinkState.Online)], now.AddSeconds(30));
+        Assert.True(unknownFull);
+        Assert.Empty(unknownIds);
+    }
 }

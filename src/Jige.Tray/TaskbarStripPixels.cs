@@ -4,6 +4,18 @@ namespace Jige.Tray;
 
 internal static class TaskbarStripPixels
 {
+    // UpdateLayeredWindow 对 alpha == 0 的像素默认点击穿透；用 alpha=1（视觉完全透明）保持整条区域的悬停与点击命中。
+    public const uint LayeredHitPixel = 0x01000000u;
+
+    public static void FillLayeredHitAlpha(Span<uint> pixels)
+    {
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            if (pixels[i] == 0)
+                pixels[i] = LayeredHitPixel;
+        }
+    }
+
     // design/mockups/tray-v4-antigravity.html · 方案一的原始像素稿。
     private static readonly string[] Keyboard =
     [

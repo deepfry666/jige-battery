@@ -4,21 +4,25 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Windows.Win32;
 using Windows.Win32.Foundation;
+using Windows.Win32.Graphics.Gdi;
 using Windows.Win32.UI.Input.KeyboardAndMouse;
-
 using Windows.Win32.UI.WindowsAndMessaging;
 using static Windows.Win32.UI.WindowsAndMessaging.SET_WINDOW_POS_FLAGS;
 
 namespace Jige.Tray.Windows;
 
+/// <summary>
+/// 任务栏电量直读条窗口：使用轻量 GDI 分层窗口（UpdateLayeredWindow）直接上传 CPU 渲染好的预乘 BGRA 像素，
+/// 不常驻硬件 D3D11/D2D/DirectWrite 设备；显示或从全屏恢复时通过 HWND_TOPMOST 明确置于任务栏上方，绝不抢焦点。
+/// </summary>
 [SupportedOSPlatform("windows10.0.17763")]
-internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
+internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
 {
-    private Composition? composition;
-    private Composition.Layer? layer;
+    private static readonly HWND HwndTopmost = new(-1);
+
     private TaskbarStripDevice[] previous = [];
-    private bool previousDark;
-    private int previousScale, layerWidth;
+    private bool previousDark, hasSurface;
+    private int previousScale, surfaceWidth, surfaceHeight;
     private Bounds? visible;
     private bool tracking, leftDown, rightDown;
 
@@ -31,60 +35,113 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
 
     public void DisposeGraphics()
     {
-        layer?.Dispose();
-        layer = null;
-        composition?.Dispose();
-        composition = null;
+        hasSurface = false;
         previous = [];
         previousScale = 0;
         previousDark = false;
-        layerWidth = 0;
+        surfaceWidth = 0;
+        surfaceHeight = 0;
     }
 
-    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
+    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale,
+        bool ensureTopmost = false)
     {
-        if (layer is null || previousScale != scale || previousDark != dark ||
-            !previous.AsSpan().SequenceEqual(devices))
+        bool wasHidden = visible is null;
+        bool needsPaint = !hasSurface || surfaceWidth != bounds.Width || surfaceHeight != bounds.Height ||
+            previousScale != scale || previousDark != dark || !previous.AsSpan().SequenceEqual(devices);
+
+        if (needsPaint)
         {
-            RenderWithRecovery(devices, layout, bounds, dark, scale);
+            uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
+            TaskbarStripPixels.FillLayeredHitAlpha(pixels);
+            UploadLayeredSurface(pixels, bounds);
+            hasSurface = true;
+            surfaceWidth = bounds.Width;
+            surfaceHeight = bounds.Height;
+            previous = devices;
+            previousDark = dark;
+            previousScale = scale;
         }
 
-        if (visible != bounds)
+        if (wasHidden || ensureTopmost || visible != bounds)
         {
-            // Owner keeps the window above Shell_TrayWnd. Keep its z-order relative to
-            // other top-level windows and never activate it when showing or moving it.
-            if (!PInvoke.SetWindowPos(handle, default, bounds.Left, bounds.Top, bounds.Width, bounds.Height,
-                SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_SHOWWINDOW))
+            bool raise = wasHidden || ensureTopmost;
+            var insertAfter = raise ? HwndTopmost : default;
+            var flags = SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW | (raise ? 0 : SWP_NOZORDER);
+            if (!PInvoke.SetWindowPos(handle, insertAfter, bounds.Left, bounds.Top, bounds.Width, bounds.Height, flags))
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
             visible = bounds;
         }
     }
 
-    private void RenderWithRecovery(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
+    /// <summary>在不抢焦点、不改变尺寸位置的前提下，确保直读条位于任务栏之上。</summary>
+    public void EnsureTopmost()
     {
-        for (int attempt = 0; attempt < 2; attempt++)
+        if (visible is null || !PInvoke.IsWindow(handle))
+            return;
+        PInvoke.SetWindowPos(handle, HwndTopmost, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+    }
+
+    private void UploadLayeredSurface(ReadOnlySpan<uint> pixels, Bounds bounds)
+    {
+        int width = bounds.Width;
+        int height = bounds.Height;
+        if (width <= 0 || height <= 0)
+            return;
+
+        var memoryDc = PInvoke.CreateCompatibleDC(default);
+        if (memoryDc.IsNull)
+            throw new Win32Exception(Marshal.GetLastPInvokeError());
+
+        HBITMAP bitmap = default;
+        HGDIOBJ previousObject = default;
+        try
         {
-            try
+            var bitmapInfo = new BITMAPINFO
             {
-                composition ??= new(handle, 1);
-                if (layer is null || layerWidth != bounds.Width || previousScale != scale)
+                bmiHeader = new BITMAPINFOHEADER
                 {
-                    layer?.Dispose();
-                    layer = new(composition, composition.Root, 0, 0, bounds.Width, bounds.Height);
-                    layerWidth = bounds.Width;
+                    biSize = (uint)sizeof(BITMAPINFOHEADER),
+                    biWidth = width,
+                    biHeight = -height,
+                    biPlanes = 1,
+                    biBitCount = 32
                 }
-                uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
-                layer.Draw(canvas => canvas.PixelBitmap(pixels, bounds.Width, bounds.Height));
-                composition.Commit();
-                previous = devices;
-                previousDark = dark;
-                previousScale = scale;
-                return;
-            }
-            catch (Exception error) when (attempt == 0 && Graphics.IsDeviceLost(error) && PInvoke.IsWindow(handle))
+            };
+            void* bits = null;
+            bitmap = PInvoke.CreateDIBSection(memoryDc, &bitmapInfo, DIB_USAGE.DIB_RGB_COLORS, &bits, default, 0);
+            if (bitmap.IsNull || bits == null)
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+
+            var destination = new Span<uint>(bits, width * height);
+            int count = Math.Min(pixels.Length, destination.Length);
+            pixels[..count].CopyTo(destination);
+            if (count < destination.Length)
+                destination[count..].Fill(TaskbarStripPixels.LayeredHitPixel);
+
+            previousObject = PInvoke.SelectObject(memoryDc, bitmap);
+            var destinationPoint = new Point(bounds.Left, bounds.Top);
+            var surfaceSize = new SIZE(width, height);
+            var sourcePoint = new Point(0, 0);
+            var blend = new BLENDFUNCTION
             {
-                DisposeGraphics();
-            }
+                BlendOp = 0, // AC_SRC_OVER
+                BlendFlags = 0,
+                SourceConstantAlpha = 255,
+                AlphaFormat = 1 // AC_SRC_ALPHA
+            };
+            if (!PInvoke.UpdateLayeredWindow(handle, default, destinationPoint, surfaceSize,
+                memoryDc, sourcePoint, default, blend, UPDATE_LAYERED_WINDOW_FLAGS.ULW_ALPHA))
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+        }
+        finally
+        {
+            if (!previousObject.IsNull)
+                PInvoke.SelectObject(memoryDc, previousObject);
+            if (!bitmap.IsNull)
+                PInvoke.DeleteObject(bitmap);
+            PInvoke.DeleteDC(memoryDc);
         }
     }
 
@@ -124,8 +181,6 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
     public void Dispose()
     {
         Hide();
-        layer?.Dispose();
-        composition?.Dispose();
         if (PInvoke.IsWindow(handle))
             PInvoke.DestroyWindow(handle);
     }

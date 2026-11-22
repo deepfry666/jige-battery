@@ -470,6 +470,55 @@ public sealed class TaskbarStripTests
                 Example, dark, dpi);
     }
 
+    [Fact]
+    public void LayeredHitAlphaConvertsOnlyTransparentPixelsAndPreservesOpaqueInk()
+    {
+        var layout = TaskbarStripLayout.Build(Example);
+        uint[] original = TaskbarStripPixels.Render(layout, dark: true, scale: 1);
+        uint[] layered = [.. original];
+        TaskbarStripPixels.FillLayeredHitAlpha(layered);
+
+        Assert.Contains(0u, original);
+        Assert.DoesNotContain(0u, layered);
+        for (int i = 0; i < original.Length; i++)
+        {
+            Assert.Equal(original[i] == 0u ? TaskbarStripPixels.LayeredHitPixel : original[i], layered[i]);
+        }
+    }
+
+    [Fact]
+    public void TaskbarControlsStabilizerHoldsTransientUnknownBoundsThenFallsBack()
+    {
+        var stabilizer = new TaskbarControlsStabilizer();
+        var valid = new TaskbarControls(Tray, 1300);
+        var missingButtons = new TaskbarControls(Tray, null);
+
+        var (first, retry1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 1_000);
+        Assert.Equal(valid, first);
+        Assert.False(retry1);
+
+        // 连续两次瞬态丢失应用按钮边界时，宽限保留上次位置并要求快速重试，避免直读条↔托盘闪烁。
+        var (miss1, retryMiss1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_200);
+        Assert.Equal(1300, miss1.OccupiedRight);
+        Assert.True(retryMiss1);
+
+        var (miss2, retryMiss2) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_600);
+        Assert.Equal(1300, miss2.OccupiedRight);
+        Assert.True(retryMiss2);
+
+        // 超过宽限次数后正常回退。
+        var (miss3, retryMiss3) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 2_000);
+        Assert.Null(miss3.OccupiedRight);
+        Assert.False(retryMiss3);
+
+        // 任务栏几何变化后不沿用旧缓存。
+        stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 3_000);
+        var movedBar = new Bounds(0, 1000, 1920, 1080);
+        var (afterMove, retryMove) = stabilizer.Apply(movedBar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 3_100);
+        Assert.Null(afterMove.OccupiedRight);
+        Assert.False(retryMove);
+    }
+
     private static TaskbarStripPlacement Place(int occupiedRight = 1300, bool visible = true, bool bottom = true) =>
         TaskbarStripPlacement.Compute(Screen, Bar, Tray, occupiedRight, 96, 141, visible, bottom);
 
