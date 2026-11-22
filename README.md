@@ -46,7 +46,7 @@ Windows 10 和 Windows 11 默认都使用任务栏直读条，也可以在「设
 
 | 渠道 | 链接 |
 | --- | --- |
-| **国内镜像**（不用代理） | [Jige-Setup-0.2.18-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.18/Jige-Setup-0.2.18-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.18/SHA256SUMS.txt) |
+| **国内镜像**（不用代理） | [Jige-Setup-0.2.19-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.19/Jige-Setup-0.2.19-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.19/SHA256SUMS.txt) |
 | GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) |
 
 两个渠道的安装包完全相同。运行安装器即可，默认装到 `%LOCALAPPDATA%\Programs\Jige`，可以勾选开机启动。安装包暂时没有代码签名，Windows 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」就行，详细步骤见 [下载与安装指南](https://jige.imfourj.cn/download.html)。
@@ -54,7 +54,7 @@ Windows 10 和 Windows 11 默认都使用任务栏直读条，也可以在「设
 想核对文件，可以在 PowerShell 里运行下面的命令，结果应和 `SHA256SUMS.txt` 一致：
 
 ```powershell
-Get-FileHash .\Jige-Setup-0.2.18-x64.exe -Algorithm SHA256
+Get-FileHash .\Jige-Setup-0.2.19-x64.exe -Algorithm SHA256
 ```
 
 卸载：在 Windows「已安装的应用」里卸载，卸载时可以选择是否一起清除设置和记录。
