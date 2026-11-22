@@ -41,7 +41,7 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12, StripBackdropTimer = 13;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -144,7 +144,7 @@ internal sealed partial class TrayApp : IDisposable
         lastSavedGateVersion = gates.Version;
         gates.Rejected += events.LogSafetyGateRejection;
         poll = new(gates, model.SavedLogitechSlots());
-        darkTaskbar = Desktop.DarkTaskbar;
+        InitializeTaskbarBackdrop();
         updateState = CreateInitialUpdateState();
 
         Register(HostClass, &HostCallback);
@@ -514,6 +514,7 @@ internal sealed partial class TrayApp : IDisposable
                 SetForegroundTracking();
                 if (ShouldRefreshStripOnForeground())
                     RefreshStripGeometry();
+                NotifyStripBackdropTransition();
                 // 再验证一次，给 Explorer 和 DWM 留出更新全屏状态的时间。
                 ArmTimer(GameSettleTimer, 750);
                 ProcessWork();
@@ -522,6 +523,7 @@ internal sealed partial class TrayApp : IDisposable
                 locationPosted = false;
                 if (popup?.IsNotice == true || model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar)
                     ReadGameMode();
+                NotifyStripBackdropTransition();
                 ArmTimer(GameSettleTimer, 350);
                 return true;
             case 0x0219: // WM_DEVICECHANGE（C1：设备插拔通知）
@@ -535,6 +537,7 @@ internal sealed partial class TrayApp : IDisposable
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
                     stripWindow?.DisposeGraphics();
+                    InvalidateStripBackdropSample();
                     RefreshStripGeometry();
                     RefreshIcon();
                     ProcessWork();
@@ -549,6 +552,7 @@ internal sealed partial class TrayApp : IDisposable
                     poll.InvalidateTopology();
                     schedule.NotifyPowerResume();
                     stripWindow?.DisposeGraphics();
+                    InvalidateStripBackdropSample();
                     RefreshStripGeometry();
                     RefreshIcon();
                     ScheduleDesktopRefresh(resetPopup: true);
@@ -585,6 +589,11 @@ internal sealed partial class TrayApp : IDisposable
                     RefreshIcon();
                     return true;
                 }
+                if (wParam.Value == StripBackdropTimer)
+                {
+                    HandleStripBackdropTimer();
+                    return true;
+                }
                 if (wParam.Value == IconRetryTimer)
                 {
                     iconRetryArmed = false;
@@ -619,6 +628,7 @@ internal sealed partial class TrayApp : IDisposable
                 }
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
+                InvalidateStripBackdropSample();
                 RefreshStripGeometry();
                 ScheduleDesktopRefresh(resetPopup: false);
                 return true;
@@ -630,8 +640,8 @@ internal sealed partial class TrayApp : IDisposable
                     ScheduleDesktopRefresh(resetPopup: true);
                 }
                 return true;
-            case 0x031A or 0x031E or 0x0320:
-                // 主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
+            case 0x0015 or 0x031A or 0x031E or 0x0320:
+                // 系统配色、主题、DWM 合成和强调色变化（D3：连续变化防抖合并为一次重建）。
                 RefreshTaskbarTheme();
                 ScheduleDesktopRefresh(resetPopup: true);
                 return true;
@@ -672,7 +682,7 @@ internal sealed partial class TrayApp : IDisposable
     private void RefreshDesktop(bool resetPopup = false)
     {
         ReadGameMode();
-        darkTaskbar = Desktop.DarkTaskbar;
+        RefreshTaskbarTheme(redraw: false);
         RefreshStripGeometry();
         RefreshIcon();
         if (popup is { } active)
@@ -1285,6 +1295,8 @@ internal sealed partial class TrayApp : IDisposable
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
+        bool stripAppearanceChanged = settings.TaskbarStyle != model.Settings.TaskbarStyle ||
+            settings.TaskbarColor != model.Settings.TaskbarColor;
         bool themeChanged = settings.Theme != model.Settings.Theme;
         bool autoUpdateChanged = settings.AutoUpdateEnabled != model.Settings.AutoUpdateEnabled;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
@@ -1294,6 +1306,8 @@ internal sealed partial class TrayApp : IDisposable
             SetForegroundTracking();
         if (displayLocationChanged)
             RefreshStripGeometry();
+        if (stripAppearanceChanged)
+            ApplyStripAppearanceSettings();
         if (autoUpdateChanged)
         {
             if (settings.AutoUpdateEnabled)
@@ -1772,7 +1786,8 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation
+                or PopupAction.TaskbarStyle or PopupAction.TaskbarColor or PopupAction.Theme
                 or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder:
                 active.SelectSetting(target, ChangeSettings);
                 break;

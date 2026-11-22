@@ -9,7 +9,7 @@ internal enum PopupAction
     None, Refresh, Settings, Manage, Later, Dismiss, Close, Back, ExpandSetting, TrayMode, Threshold, PollInterval,
     GameSilent, Autostart, AutoUpdate, ShowBluetooth, RuntimeEstimate, Diagnostics, Updates, Rename, TrayToggle, Visibility, Remove, TaskbarSettings,
     OpenDiagnostics, CopyAndFeedback, ToggleOffline, Redetect,
-    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, Theme,
+    CheckUpdatesAgain, InstallUpdate, OpenReleasePage, CancelUpdate, DisplayLocation, TaskbarStyle, TaskbarColor, Theme,
     GameEntryReminder, FullChargeReminder, DeviceThreshold
 }
 

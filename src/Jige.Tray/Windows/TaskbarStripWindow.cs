@@ -21,7 +21,8 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
     private static readonly HWND HwndTopmost = new(-1);
 
     private TaskbarStripDevice[] previous = [];
-    private bool previousDark, hasSurface;
+    private bool hasSurface;
+    private TaskbarStripPalette? previousPalette;
     private int previousScale, surfaceWidth, surfaceHeight;
     private Bounds? visible;
     private bool tracking, leftDown, rightDown;
@@ -38,28 +39,28 @@ internal sealed unsafe class TaskbarStripWindow(HWND handle, HWND owner) : IDisp
         hasSurface = false;
         previous = [];
         previousScale = 0;
-        previousDark = false;
+        previousPalette = null;
         surfaceWidth = 0;
         surfaceHeight = 0;
     }
 
-    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale,
-        bool ensureTopmost = false)
+    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds,
+        TaskbarStripPalette palette, int scale, bool ensureTopmost = false)
     {
         bool wasHidden = visible is null;
         bool needsPaint = !hasSurface || surfaceWidth != bounds.Width || surfaceHeight != bounds.Height ||
-            previousScale != scale || previousDark != dark || !previous.AsSpan().SequenceEqual(devices);
+            previousScale != scale || previousPalette != palette || !previous.AsSpan().SequenceEqual(devices);
 
         if (needsPaint)
         {
-            uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
+            uint[] pixels = TaskbarStripPixels.Render(layout, palette, scale);
             TaskbarStripPixels.FillLayeredHitAlpha(pixels);
             UploadLayeredSurface(pixels, bounds);
             hasSurface = true;
             surfaceWidth = bounds.Width;
             surfaceHeight = bounds.Height;
             previous = devices;
-            previousDark = dark;
+            previousPalette = palette;
             previousScale = scale;
         }
 

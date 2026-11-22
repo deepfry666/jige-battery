@@ -71,18 +71,32 @@ public sealed class AuditHardeningTrayTests
     [Fact]
     public async Task UpdateClientReturnsNullWhenMirrorIsCurrentAndGitHubHangs()
     {
+        var clock = new ManualTimeProvider();
+        bool mirrorRequested = false;
+        bool gitHubRequested = false;
         var handler = new AsyncStubHandler(async (req, token) =>
         {
             if (req.RequestUri == UpdateClient.MirrorLatest)
+            {
+                mirrorRequested = true;
                 return JsonResponse(ReleaseJson("v0.2.17", "https://download.imfourj.cn/jige-battery/releases"));
-            await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            }
+            if (req.RequestUri == UpdateClient.Latest)
+            {
+                gitHubRequested = true;
+                var pending = Task.Delay(Timeout.InfiniteTimeSpan, token);
+                clock.Advance(UpdateClient.DefaultMirrorCheckTimeout + TimeSpan.FromMilliseconds(1));
+                await pending;
+            }
             return new HttpResponseMessage(HttpStatusCode.InternalServerError);
         });
 
-        using var http = new HttpClient(handler);
-        var client = new UpdateClient(http, mirrorCheckTimeout: TimeSpan.FromMilliseconds(40));
+        using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(5) };
+        var client = new UpdateClient(http, timeProvider: clock);
         var found = await client.CheckAsync(new Version(0, 2, 17), CancellationToken.None);
 
+        Assert.True(mirrorRequested);
+        Assert.True(gitHubRequested);
         Assert.Null(found);
     }
 
@@ -406,5 +420,95 @@ public sealed class AuditHardeningTrayTests
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             respond(request, cancellationToken);
+    }
+
+    private sealed class ManualTimeProvider : TimeProvider
+    {
+        private readonly Lock gate = new();
+        private readonly List<ManualTimer> timers = [];
+        private long nowTicks;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            var timer = new ManualTimer(this, callback, state);
+            lock (gate)
+            {
+                timers.Add(timer);
+                timer.ScheduleLocked(dueTime, nowTicks);
+            }
+            return timer;
+        }
+
+        public void Advance(TimeSpan delta)
+        {
+            List<ManualTimer>? due = null;
+            lock (gate)
+            {
+                nowTicks += delta.Ticks;
+                foreach (var timer in timers)
+                {
+                    if (timer.TakeIfDueLocked(nowTicks))
+                        (due ??= []).Add(timer);
+                }
+            }
+            if (due is null)
+                return;
+            foreach (var timer in due)
+                timer.Fire();
+        }
+
+        private sealed class ManualTimer(ManualTimeProvider owner, TimerCallback callback, object? state) : ITimer
+        {
+            private long? dueAtTicks;
+            private bool disposed;
+
+            public void ScheduleLocked(TimeSpan dueTime, long currentTicks)
+            {
+                if (disposed)
+                    return;
+                dueAtTicks = dueTime == Timeout.InfiniteTimeSpan
+                    ? null
+                    : currentTicks + Math.Max(0, dueTime.Ticks);
+            }
+
+            public bool TakeIfDueLocked(long currentTicks)
+            {
+                if (disposed || dueAtTicks is not { } due || due > currentTicks)
+                    return false;
+                dueAtTicks = null;
+                return true;
+            }
+
+            public void Fire() => callback(state);
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (owner.gate)
+                {
+                    if (disposed)
+                        return false;
+                    ScheduleLocked(dueTime, owner.nowTicks);
+                    return true;
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (owner.gate)
+                {
+                    if (disposed)
+                        return;
+                    disposed = true;
+                    dueAtTicks = null;
+                    owner.timers.Remove(this);
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+        }
     }
 }
