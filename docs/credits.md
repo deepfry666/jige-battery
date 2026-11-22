@@ -19,3 +19,13 @@
 | [atkctl](https://github.com/cobanov/atkctl)、[openinzone](https://github.com/penguinwokrs/openinzone) | 核对 ATK 和 INZONE 的报文格式。 |
 
 协议命令与具体来源见[设备读取协议](protocols.md)。感谢提供设备报告、抓包和实机反馈的用户。
+
+## 其他参考
+
+- Finalmouse [XPanel](https://xpanel.finalmouse.com/)、官方 [USB 权限清单](https://github.com/teamfinalmouse/xpanel-linux-permissions) 以及 HaloBattery 提供 ULX 报文与实机记录。
+- [InZoneH9Tray](https://github.com/janit88/InZoneH9Tray)、[openinzone](https://github.com/penguinwokrs/openinzone) 与 [inzone-h9-mac](https://github.com/jpcarranza94/inzone-h9-mac) 提供 H9 串口查询、帧格式及实机记录。
+- Solaar（GPL-2.0，部分文件 GPL-2.0-or-later）、[OpenLogi](https://github.com/AprilNEA/OpenLogi)（MIT 或 Apache-2.0）、OpenMouse mouse-protocol（AGPL-3.0）提供 HID++ 的槽、身份和电量协议资料。
+- HeadsetControl（GPL-3.0）提供 Centurion、G325 和 ASTRO Gen 5 的报文与实机记录。
+- OpenRazer（GPL-2.0）、[Razer Battery Report](https://github.com/xzeldon/razer-battery-report)（MIT）、HaloBattery（MIT）、[BlackShark V2 HyperSpeed WebHID](https://github.com/justik13/razer-blackshark-v2-hyperspeed-webhid)（MIT）与 [Synapse-for-Linux](https://github.com/bbesli/Synapse-for-Linux)（MIT）提供雷蛇 PID、接口、读电量与充电的报文和实机证据。
+
+几格依据公开协议字段和实机报文独立实现，不复制 GPL 代码，保留 MIT 许可。许可出处见 [设备清单](../research/device-catalog.md#6-参考实现许可证)。

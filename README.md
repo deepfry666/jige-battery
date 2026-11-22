@@ -1,107 +1,85 @@
-<p align="center"><img src="design/brand/fourj-mark.svg" width="96" alt="几格 FourJ 家族标志"></p>
+<p align="center"><img src="design/brand/fourj-mark.svg" width="88" alt="几格标志"></p>
 
-# 几格 / Jige Battery
+<h1 align="center">几格 · Jige Battery</h1>
 
-几格在 Windows 任务栏上显示无线鼠标、键盘和耳机的电量：不用打开厂商驱动，看一眼就知道「还剩几格电」。电量低时提醒你充电，打游戏时不打扰。
+<p align="center"><b>不开厂商驱动，也能在 Windows 任务栏上看到无线鼠标、键盘和耳机的电量。</b></p>
 
-- 官网：**https://jige.imfourj.cn**（国内直接访问，下载按钮自动指向最新版）
-- 最新正式版：**v0.2.17**（[更新记录](CHANGELOG.md)）
-- 系统要求：Windows 10 22H2 或 Windows 11，64 位
-- 只读：只查询电量和状态，不改任何设备设置
-- 开源：[MIT 许可证](LICENSE)
+<p align="center">
+  <a href="https://jige.imfourj.cn">官网</a> ·
+  <a href="https://jige.imfourj.cn/download.html">下载</a> ·
+  <a href="CHANGELOG.md">更新记录</a> ·
+  <a href="docs/devices.md">支持的设备</a>
+</p>
 
-## 下载
+<p align="center">免费 · MIT 开源 · 约 5 MB · Windows 10 / 11（64 位）</p>
 
-| 渠道 | 安装包 | 校验文件 |
-| --- | --- | --- |
-| **国内镜像**（无需代理） | [Jige-Setup-0.2.17-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.17/Jige-Setup-0.2.17-x64.exe) | [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt) |
-| GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) | 同页附带 |
+<p align="center"><img src="docs/images/win11-panel.png" width="560" alt="Windows 11 上的几格：任务栏时钟左边显示鼠标 12%、耳机充电中 45%、键盘 80%，上方是展开的几格面板"></p>
 
-国内镜像与 GitHub Release 的安装包完全相同。镜像上最新正式版的信息见 [`latest.json`](https://download.imfourj.cn/jige-battery/latest.json)。装好以后，几格默认每天自动检查更新并在后台预下载，点一下提示即可升级，不用再来这里下载。
+## 它解决什么问题
 
-下载后可以在 PowerShell 核对散列，结果应与 `SHA256SUMS.txt` 里的一致：
+在雷蛇、罗技或者各家鼠标驱动里调好灵敏度和回报率以后，很多人会把驱动关掉，免得占后台、影响游戏。可这样一来就看不到电量了，经常是打到一半鼠标突然没电。同时用几个牌子的话，为了看个电量还得开一堆软件。
+
+几格直接和 USB 接收器通信，只发查电量的指令，所以厂商驱动可以一直关着。一个小工具就能同时看多个品牌的设备。
+
+## 在 Windows 11 和 Windows 10 上的样子
+
+| Windows 11 · 任务栏直读条 | Windows 10 · 托盘图标 |
+| --- | --- |
+| <img src="docs/images/win11-taskbar.png" width="400" alt="Windows 11 任务栏：时钟左边显示鼠标 12% 红色、耳机充电中 45% 绿色、键盘 80%"> | <img src="docs/images/win10-tray.png" width="400" alt="Windows 10 托盘：鼠标、耳机、键盘三个图标，按电量从底部往上填色"> |
+| 时钟左边横排显示每台设备的图标和电量，字和时钟一样大。 | 每台设备一个图标，设备剪影就是电量计，电量越多填得越高。 |
+
+两边的颜色规则一样：低于提醒阈值变红，略高于阈值变黄，充电中变绿并带一个闪电。
+
+## 功能
+
+- **一眼看电量**：任务栏常驻显示，鼠标移上去看所有设备的名称、状态、上次充电时间和读取时间。
+- **主面板与管理**：单击打开，电量最低的设备排在最上面，断开的设备收进「离线设备」；可改名、选择显示哪些设备、给单台设备设独立提醒阈值。
+- **预计可用与充满时间**（可选，默认关闭）：按本机在线耗电与分段充电记录估算「还能用多久 / 够用约几天 / 约多久充满」，仅用已有读数，不向设备多发查询。
+- **电量提醒**：低电量时在桌面提醒（支持「1 小时后提醒」）；刚进游戏时有低电量设备可在右下角弹一条可点穿、不抢焦点的小横幅（独占全屏不弹）；也支持「撑不过今天」预测提醒和充满提醒拔线。
+- **不打扰游戏**：全屏游戏时不弹窗、不抢焦点，查询放慢到 5 分钟一次，常规提醒推迟到回到桌面。
+- **自动更新**：每天检查一次新版本，后台下载并核对 SHA-256，面板底部提示「新版已就绪」，点一下才升级。可以在设置里关掉。
+- **轻量**：原生编译，单个进程，不需要安装 .NET 运行库，也不需要管理员权限。
+
+## 下载安装
+
+| 渠道 | 链接 |
+| --- | --- |
+| **国内镜像**（不用代理） | [Jige-Setup-0.2.17-x64.exe](https://download.imfourj.cn/jige-battery/releases/v0.2.17/Jige-Setup-0.2.17-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/releases/v0.2.17/SHA256SUMS.txt) |
+| GitHub Release | [最新正式版](https://github.com/deepfry666/jige-battery/releases/latest) |
+
+两个渠道的安装包完全相同。运行安装器即可，默认装到 `%LOCALAPPDATA%\Programs\Jige`，可以勾选开机启动。安装包暂时没有代码签名，Windows 可能提示「已保护你的电脑」，点「更多信息 → 仍要运行」就行，详细步骤见 [下载与安装指南](https://jige.imfourj.cn/download.html)。
+
+想核对文件，可以在 PowerShell 里运行下面的命令，结果应和 `SHA256SUMS.txt` 一致：
 
 ```powershell
 Get-FileHash .\Jige-Setup-0.2.17-x64.exe -Algorithm SHA256
 ```
 
-## 界面预览
-
-任务栏直读条（程序按实际绘制代码导出，200% 缩放）：
-
-<p><img src="design/previews/0.2.10/taskbar-strip-200-dark.png" width="370" alt="深色任务栏上的直读条：键盘 80%、鼠标 12% 红色、耳机 45% 充电中"><br>
-<img src="design/previews/0.2.10/taskbar-strip-200-light.png" width="370" alt="浅色任务栏上的直读条"></p>
-
-Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
-
-## 功能
-
-### 任务栏直读条（Windows 11）
-
-在通知区（托盘上箭头）左边，横排显示每台设备的图标和电量百分比，字高与时钟一致：
-
-- 电量低于提醒阈值：图标和数字变红；略高于阈值：琥珀色；
-- 充电中或已充满：数字变绿，前面带一个闪电；
-- 设备休眠：保留上次的读数和颜色；暂无读数：显示 `--`；
-- 前台全屏或任务栏自动隐藏时，直读条跟着隐藏；
-- 左键打开面板，右键打开菜单，悬停查看所有设备的详细列表。
-
-任务栏直读条与托盘图标为二选一形态：直读条显示时不再在托盘额外保留图标；暂无活跃设备时会在任务栏保留一个紧凑的占位入口，点击即可打开面板。
-
-### 托盘图标
-
-以下情况几格改用托盘图标，每台设备一个：
-
-- 在「设置 → 显示位置」里选了「托盘图标」；
-- 任务栏上空间不够，或暂时无法定位任务栏。条件恢复后会自动回到直读条；
-- Windows 10。它的任务栏结构不同，几格目前只在托盘里显示。
-
-托盘图标把设备剪影当作电量计：电量越多，颜色从底部填得越高，没填到的部分显示为灰色。鼠标移到图标上会弹出悬停卡片，显示设备名称、连接方式、百分比、上次充电时间和读取时间。
-
-### 面板与设置
-
-- **主面板**：单击直读条或托盘图标打开。电量最低的设备排在最上面，其余按电量从低到高排列，已断开的设备收进「离线设备」。`≈` 表示估算读数。
-- **设置**（面板右上角齿轮），分三组：
-  - **显示**：显示位置（「任务栏（推荐）」或「托盘图标」）；显示哪些设备（「自定义」勾选要显示的设备，或「只显示电量最低的一台」，任务栏直读条和托盘图标都按这项显示）；外观模式（「自动切换（跟随系统）」「明亮模式」或「深色模式」）。
-  - **电量**：电量提醒（低电量阈值 10%、15%、20%、30%，以及「进游戏时也提醒一次」「充满时提醒拔线」两个勾选项）；「预计可用时间」（默认关闭，见下文）；查询间隔（30 秒、1 分钟、2 分钟）。
-  - **通用**：「游戏中不打扰」「开机自启」「自动检查更新」。
-- **管理设备**：改名、选择是否在任务栏/托盘和面板显示、移除离线设备；点设备下方的「提醒」标签可以给这台设备单独设低电量阈值（默认 → 5% → 10% → 15% → 20% → 30% 循环），比如键盘设 5%、耳机设 10%；顶部的「显示蓝牙设备」开关决定是否列出 Windows 蓝牙设备；「重新检测」会重新扫描接收器。
-
-### 预计可用时间（估算）
-
-在「设置 → 预计可用时间」打开后，面板和悬停卡片会显示每台设备「预计还能用多久」，例如「预计可用约 18 小时」。用够几天后，单台设备的悬停卡片还会按你的日均用量换算成「够用约 N 天」。插线充电时改为显示「预计多久充满」，例如「充电中 · 约 40 分钟充满」。
-
-- **仅为估算，不代表实际续航**：根据本机记录的电量变化推算，只计算设备在线的时间，休眠、离线和电脑关机期间不计时。
-- 刚开始或刚充完电、数据还不够时显示「估算中」；只报几档电量的设备（如 100/80/50/30/10）需要多掉一两档才会出数，结果也更粗略。
-- 换了回报率、灯效或降噪等用法后，连续两段掉电都明显变快或变慢，估算会转向新的耗电速度。
-- **充满时间**：第一次充电时充几个百分点就会出数；锂电池到 80% 以后会明显变慢，几格按 0–50%、50–80%、80–90%、90–100% 分段学习各自的充电速度，充满过一次后后段会更准。换了充电头或线，几次充电后会跟上新速度。电压估算的设备（如 Finalmouse）充电时读数不准，不估算充满时间。
-- 只用已有的电量读数，不向设备多发任何查询。关闭开关时后台照常记录，再打开就能直接看到估算。
-
-### 低电量提醒
-
-设备在线、没在充电，并且读数不高于阈值（全局或这台设备单独设的）时，几格会提醒你充电（同一轮低电不会反复打扰）。可以选「知道了」或「1 小时后提醒」。提醒只在桌面上弹出，打游戏时会推迟。
-
-- **进游戏时提醒**（默认开启）：刚进入游戏的那一刻，如果有在用的设备电量不高于阈值（打开预计可用时间后，剩余不到 1 小时也算），屏幕右下角会出现一条小横幅，例如「鼠标 只剩 10% · 预计可用约 40 分钟，建议先插线」。横幅不抢焦点、鼠标可以点穿，约 4 秒后自动消失；同一台设备每轮放电只提醒一次。独占全屏的游戏不显示横幅，退出游戏后再由常规提醒补上。
-- **撑不过今天提醒**：打开「预计可用时间」并攒够 3 天数据后，如果某台设备按你的用法剩余时间不够一天，会提前在桌面提醒一次，例如「鼠标按你的用法撑不过今天」，不用等到低电量。
-- **充满提醒**（默认关闭）：在「电量提醒」里勾选「充满时提醒拔线」后，设备充到 100% 或报告已充满时提醒一次，拔线后自动清除。
-
-### 不打扰游戏
-
-- Windows 报告独占全屏或演示模式时，查询间隔延长到 5 分钟，提醒推迟；
-- 打开「游戏中不打扰」后，普通全屏、无边框铺满屏幕的窗口，以及你配置的游戏进程，也按游戏处理；
-- 你主动点托盘、菜单、「立即刷新」或「下载并安装」，任何时候都照常执行。
-
-平时每分钟查询一次电量，另有很轻的在线心跳（平时 8 秒、游戏中 30 秒），用来尽快发现设备开关机。罗技接收器靠设备主动推送，不发心跳。动一下键鼠，会马上补查一次休眠中的设备，最多每 2 秒一次。
-
-### 检查更新
-
-「自动检查更新」默认开启：几格启动 3 分钟后查一次新版本，之后每天一次，优先访问国内镜像，失败时自动改用 GitHub。发现新版本后，几格在后台下载安装包并核对大小和 SHA-256，然后在主面板底部显示「新版已就绪 · 点此重启升级」。不会弹窗，也不会自己安装：你点了才静默升级并自动重启，设置和设备记录都会保留。游戏中不会开始检查，检查失败时 3 小时后再试。
-
-在「设置 → 自动检查更新」可以关掉。关掉后，只有你点「检查更新」时几格才联网，选「下载并安装」后再下载、校验并升级。
+卸载：在 Windows「已安装的应用」里卸载，卸载时可以选择是否一起清除设置和记录。
 
 ## 支持的设备
 
-下表设备都经 2.4 GHz USB 接收器查询。「已实机验证」表示作者在自己的设备上确认过；「仅按资料」表示依据公开协议实现，欢迎反馈。
+通过 2.4 GHz USB 接收器读取，也支持 Windows 能读到电量的蓝牙设备。
+
+| 品牌 | 覆盖范围 | 实机验证 |
+| --- | --- | --- |
+| Sony INZONE | INZONE H9 一代 | ✅ |
+| 游狼 G-Wolves | HTX Ultra 8K，以及同协议的 Fenrir Pro 8K、HTM Plus、HSK Pro 2.0 8K 和 21 款旧协议型号 | ✅ HTX Ultra 8K |
+| 雷蛇 Razer | 72 款鼠标、15 款键盘，BlackShark V3 Pro / V3 / V2 HyperSpeed / V2 Pro (2020) 耳机 | ✅ BlackShark V3 Pro |
+| ASUS ROG | Falchion、Azoth、Claymore II、Strix Scope II 96 等无线键盘 | ✅ |
+| 罗技 Logitech | Bolt、Unifying、LIGHTSPEED 等接收器，G533 / G535 / G733 / G PRO X 等耳机 | MX Keys S、MX Anywhere 3S 日常在用 |
+| ATK | F1 Ultimate、ATK ZERO，以及同家族接收器 | 按协议资料 |
+| VXE · VGN · Scyrox | VXE R1 系列、MAD，VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master，Scyrox V8 等 | 按协议资料 |
+| Lamzu · WLmouse | Lamzu Maya X，WLmouse Beast X 系列 | 按协议资料 |
+| 迈从 MCHOSE | A5 Pro Max 初代、M7 Ultra、L7 Pro、A7 V2 Ultra 鼠标，K87 键盘 | 按协议资料 |
+| ATTACK SHARK · Delux · 英菲克 | ATTACK SHARK 鼠标、Delux 鼠标、Inphic IN9 Pro | 按协议资料 |
+| 雷柏 Rapoo · Incott | VT7、VT9 Pro、VT9 Pro V2，Incott 8K 鼠标 | 按协议资料 |
+| Finalmouse | UltralightX（ULX） | 按协议资料 |
+
+「按协议资料」表示依据公开的协议资料实现，还没有在实机上确认。
+
+<details>
+<summary><b>展开：完整型号、接收器 ID 和验证状态</b></summary>
 
 | 支持的设备 | 接收器与识别方式 | 证据等级 | 验证状态 |
 | --- | --- | --- | --- |
@@ -128,7 +106,7 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | Rapoo VT9 Pro V2 | `24AE:14A9`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
 | Rapoo VT9 Pro | `24AE:1205`，Rapoo Feature 2A | OpenMouse | 仅按资料 |
 | [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
-| [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
+| [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在「管理设备」里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |
 | [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |
@@ -138,91 +116,27 @@ Windows 实机截图待补，见 [截图目录](docs/images/README.md)。
 | MCHOSE 迈从键盘 | MCHOSE K87 2.4G 接收器 `41E4:2001`（`FF02:0002` 20B 只读命令 `13 4A`） | HaloBattery（MIT） | 仅按资料 |
 | 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
 
-罗技 MX Keys S、MX Anywhere 3S 已通过 Bolt 接收器在 Windows 10 上日常使用。完整设备表、三级验证状态和暂未启用的原因见 [设备支持清单](docs/devices.md)，其余候选型号见 [设备清单](research/device-catalog.md)。
+更多说明（三级验证状态、暂未启用的原因）见 [设备支持清单](docs/devices.md)。
 
-你的设备不在表里，或读数不对？在几格里导出诊断报告，再按 [CONTRIBUTING.md](CONTRIBUTING.md) 提交设备反馈。
+</details>
 
-## 安装
+**你的设备不在表里，或者读数不对？** 在几格里导出诊断报告，按 [反馈指南](CONTRIBUTING.md) 提交，就能帮它加上适配。
 
-1. 从上面的「下载」获取安装包，按需核对散列。
-2. 运行安装器。可以选择安装位置（默认 `%LOCALAPPDATA%\Programs\Jige`，不需要管理员权限），按需勾选「创建桌面快捷方式」；首次安装还可以勾选「开机时启动几格」。
-3. 从桌面或开始菜单打开「几格」。首次运行时，可以按提示把托盘溢出区里的「几格」图标拖到时钟旁。
+## 只读与隐私
 
-卸载：在 Windows 的「已安装的应用」（或「应用和功能」）里卸载。卸载时会询问是否同时清除设置、电量记录、日志和诊断。
+- **只读**：只查询电量、充电和连接状态，不改任何设备设置，查询结束就释放设备。厂商软件正在占用接收器时，几格会主动退让，保留上次的读数。
+- **不上传数据**：没有账号，没有遥测。联网只用来检查更新，请求里不带任何设备或个人信息。
+- **诊断报告由你决定**：只在你点「导出诊断信息」时生成，先完整打开给你看，已去掉序列号、电脑名、用户名和路径。
 
-## 使用前提与只读声明
+具体收集了哪些字段，见 [隐私说明](PRIVACY.md)。
 
-几格面向这样的用户：在厂商软件里把设备调好以后，平时不再让官方驱动在后台运行。官方软件正在运行时，可能会占用接收器。INZONE Hub 会独占 H9 的串口，几格检测到它在运行时会主动退让。遇到占用时，几格结束这台设备本轮的读取，保留上次的读数。
+几格与各设备厂商无关，也未获得厂商授权。协议来自公开的社区资料和网页驱动的公开行为，只用于显示电量。
 
-几格只发送白名单内的电量与状态查询（链路、充电、电压、设备身份），使用 Windows 自带的驱动，查询结束就释放设备。协议来自公开的社区逆向资料和网页驱动的公开行为，仅用于显示电量。几格与各厂商无关，也未获厂商授权。
+## 参与和开发
 
-## 配置与缓存
+- 设备反馈与提交代码：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 构建、命令行探针、配置文件和发布流程：[docs/development.md](docs/development.md)
+- 协议细节和出处：[docs/protocols.md](docs/protocols.md)
+- 致谢与参考项目：[docs/credits.md](docs/credits.md)
 
-- `%LOCALAPPDATA%\Jige\config.json`：显示位置、外观模式（`theme`）、托盘模式、各设备的面板/托盘显示选择（`hiddenDeviceIds` / `trayExcludedDeviceIds`）、提醒阈值（含单台设备阈值 `deviceThresholds`、进游戏提醒 `gameEntryReminder`、充满提醒 `fullChargeReminder`）、查询间隔（含游戏间隔）、游戏保护、自动检查更新（`autoCheckUpdates`）、预计可用时间开关（`showRuntimeEstimate`）、开机自启、设备别名。配置损坏时，保留一份 `config.broken-<时间>.json`，再恢复默认值。
-- 游戏以普通窗口运行时，可以先退出几格，再在 `config.json` 里加上 `"gameProcessNames": ["Game.exe"]`（进程名见任务管理器，不区分大小写，可省略 `.exe`）。
-- `%LOCALAPPDATA%\Jige\state.json`：最近一次成功读数、提醒状态、每台设备最近 5 次读数，以及预计可用时间的统计摘要（`runtime`）。电量或状态有变化时才写盘，另外每累计在线半小时顺带保存一次估算进度。
-- `%LOCALAPPDATA%\Jige\jige.log`：脱敏日志，只记录状态变化和原因类别。
-- 开机自启使用当前用户 Run 项里的 `Jige Battery` 值。
-
-## 诊断与隐私
-
-诊断报告只在你主动导出时生成：右键菜单或「管理设备」页 →「诊断信息」。报告保存在本机，先用记事本完整打开给你看，确认后才由你决定是否复制，可点「复制报告并去反馈」打开反馈模板（网址里不带任何报告内容）。报告已脱敏，不含序列号、电脑名、用户名和路径，也不记录键鼠输入。收集的字段和示例见 [PRIVACY.md](PRIVACY.md)，抓包方法见 [抓包教程](docs/capture-guide.md)。
-
-## 命令行探针
-
-探针 `Jige.Probe.exe` 用于排查设备，由 Windows CI 单独构建（产物 `jige-probe-win-x64`）。在 PowerShell 中运行，H9 接收器须拨到 PC 档：
-
-```powershell
-.\Jige.Probe.exe list                          # 列出 HID 接口和 USB 串口
-.\Jige.Probe.exe read                          # 对识别出的设备各查询一次
-.\Jige.Probe.exe read --raw                    # 同时输出原始收发帧（可能含设备标识）
-.\Jige.Probe.exe read --raw --sony-baud both   # H9 分别尝试 115200 和 460800
-.\Jige.Probe.exe diag                          # 输出脱敏诊断报告
-```
-
-需要分享时，请用脱敏的 `diag` 报告，不要用 `--raw` 的输出。
-
-## 构建与测试
-
-在仓库根目录用 .NET 10 运行。macOS 上可以编译托管项目，运行协议、模拟传输、托盘逻辑和配置测试；设备访问、窗口和原生发布需要在 Windows 上运行。
-
-```sh
-dotnet build Jige.slnx -p:EnableWindowsTargeting=true
-dotnet test Jige.slnx
-```
-
-Windows 本地发布 NativeAOT 需要 Visual Studio 的 C++ 桌面开发工具：
-
-```powershell
-dotnet publish src/Jige.Probe/Jige.Probe.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/win-x64
-dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAot=true -o artifacts/tray-win-x64
-```
-
-### 发布流程
-
-- 每次推送到 `main`，CI 都会运行测试、发布两个 NativeAOT 程序、做托盘启动自检，并更新滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build)（国内镜像：[安装包](https://download.imfourj.cn/jige-battery/prerelease/Jige-Setup-prerelease-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/prerelease/SHA256SUMS.txt)）。几格内置的检查更新只看正式版。
-- 发布正式版：确认 `Directory.Build.props` 和 `installer/jige.iss` 的版本号，在 [CHANGELOG.md](CHANGELOG.md) 写好 `## [x.y.z]`，然后打标签推送：
-
-  ```sh
-  git tag vX.Y.Z
-  git push origin vX.Y.Z
-  ```
-
-  发布工作流会运行测试和托盘自检，用 `installer/jige.iss` 编译安装器，上传安装包和 `SHA256SUMS.txt`，创建 GitHub Release，并同步到国内镜像。发布后把 `main` 的版本号升到下一个。
-- 安装器也可以在 Windows 本地复现：先发布托盘，再运行 `ISCC.exe /DAppVersion=x.y.z installer\jige.iss`。重新生成品牌资源：`python3 scripts/generate-icons.py`（需要 Node.js、npx 和 Pillow）。
-
-## 待实机确认
-
-- 任务栏直读条在 Windows 11 上的位置和层级：点开开始菜单、通知中心以后是否还在；自动隐藏任务栏、Explorer 重启、全屏游戏进出时的表现；100%、150%、200% 缩放下与时钟的大小是否协调。
-- 托盘水位图标在深浅色任务栏、不同缩放下的清晰度。
-- 标为「仅按资料」的设备的实际读数。
-
-## 致谢与参考
-
-- Finalmouse XPanel、官方 USB 权限清单以及 HaloBattery 的 ULX 报文与实机记录。[XPanel](https://xpanel.finalmouse.com/) · [USB 权限清单](https://github.com/teamfinalmouse/xpanel-linux-permissions) · [HaloBattery](https://github.com/HeyOkay/HaloBattery)
-- InZoneH9Tray、openinzone 与 inzone-h9-mac 提供 H9 串口查询、帧格式及实机记录。[InZoneH9Tray](https://github.com/janit88/InZoneH9Tray) · [openinzone](https://github.com/penguinwokrs/openinzone) · [inzone-h9-mac](https://github.com/jpcarranza94/inzone-h9-mac)
-- Solaar（GPL-2.0，部分文件 GPL-2.0-or-later）、OpenLogi（MIT 或 Apache-2.0）、OpenMouse mouse-protocol（AGPL-3.0）提供 HID++ 的槽、身份和电量协议资料。[Solaar](https://github.com/pwr-Solaar/Solaar) · [OpenLogi](https://github.com/AprilNEA/OpenLogi) · [OpenMouse](https://github.com/OpenMouse-Project/mouse-protocol)
-- HeadsetControl（GPL-3.0）提供 Centurion、G325 和 ASTRO Gen 5 的报文与实机记录。[HeadsetControl](https://github.com/Sapd/HeadsetControl)
-- OpenRazer（GPL-2.0）、Razer Battery Report（MIT）、HaloBattery（MIT）、BlackShark V2 HyperSpeed WebHID（MIT）与 Synapse-for-Linux（MIT）提供雷蛇 PID、接口、读电量与充电的报文和实机证据。[OpenRazer](https://github.com/openrazer/openrazer) · [Razer Battery Report](https://github.com/xzeldon/razer-battery-report) · [HaloBattery](https://github.com/HeyOkay/HaloBattery) · [V2 HyperSpeed WebHID](https://github.com/justik13/razer-blackshark-v2-hyperspeed-webhid) · [Synapse-for-Linux](https://github.com/bbesli/Synapse-for-Linux)
-
-几格依据公开协议字段和实机报文独立实现，不复制 GPL 代码，保留 MIT 许可。许可出处见 [设备清单](research/device-catalog.md#6-参考实现许可证)，协议字段、出处和验证状态见 [协议记录](docs/protocols.md)。
+几格依据公开协议字段和实机报文独立实现，不复制 GPL 代码，以 [MIT 许可证](LICENSE) 发布。
