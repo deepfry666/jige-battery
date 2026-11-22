@@ -68,12 +68,18 @@ Get-FileHash .\Jige-Setup-0.2.19-x64.exe -Algorithm SHA256
 | Sony INZONE | INZONE H9 一代 | ✅ |
 | 游狼 G-Wolves | HTX Ultra 8K，以及同协议的 Fenrir Pro 8K、HTM Plus、HSK Pro 2.0 8K 和 21 款旧协议型号 | ✅ HTX Ultra 8K |
 | 雷蛇 Razer | 72 款鼠标、15 款键盘，BlackShark V3 Pro / V3 / V2 HyperSpeed / V2 Pro (2020) 耳机 | ✅ BlackShark V3 Pro |
-| ASUS ROG | Falchion、Azoth、Claymore II、Strix Scope II 96 等无线键盘 | ✅ |
+| ASUS ROG / TUF | Falchion / Azoth / Scope II 96 键盘，Gladius III / Harpe Ace / Keris / Chakram 等 33 个鼠标 PID，OMNI 接收器，Strix Go 2.4 耳机 | ✅ 无线键盘 |
 | 罗技 Logitech | Bolt、Unifying、LIGHTSPEED 等接收器，G533 / G535 / G733 / G PRO X 等耳机 | MX Keys S、MX Anywhere 3S 日常在用 |
+| 赛睿 SteelSeries | Arctis Nova 7 / 5 / 3P / 3X / Pro、Arctis 1 / 7 / 7+ / 9 / Pro、GameBuds 耳机，Aerox 3/5/9、Rival 3 鼠标 | 按协议资料 |
+| HyperX 极度未知 | Cloud II / II Core / Flight / Alpha / III / III S Wireless 无线耳机 | 按协议资料 |
+| 海盗船 Corsair | Void Elite / Void v2 / HS80 / Virtuoso SE / XT / Max 耳机，Dark Core / M75 / Sabre v2 Pro 鼠标，K65 PLUS 键盘 | 按协议资料 |
+| Pulsar · Hitscan · Glorious · Endgame Gear | Pulsar X2 V2 / V3 / CrazyLight，Hitscan Hyperlight，Glorious Model O Wireless，Endgame Gear XM2we | 按协议资料 |
+| Cougar · Redragon · Audeze · Keychron | Cougar Revenger Pro，Redragon M991，Audeze Maxwell 耳机，Keychron Ultra-Link 8K / M5 / Nape Pro | 按协议资料 |
 | ATK | F1 Ultimate、ATK ZERO，以及同家族接收器 | 按协议资料 |
 | VXE · VGN · Scyrox | VXE R1 系列、MAD，VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master，Scyrox V8 等 | 按协议资料 |
 | Lamzu · WLmouse | Lamzu Maya X，WLmouse Beast X 系列 | 按协议资料 |
-| 迈从 MCHOSE | A5 Pro Max 初代、M7 Ultra、L7 Pro、A7 V2 Ultra 鼠标，K87 键盘 | 按协议资料 |
+| 迈从 MCHOSE | A5 Pro Max 初代、M7 Ultra、L7 Pro、A7 V2 Ultra、V3 鼠标，K87 键盘 | 按协议资料 |
+| 达尔优 · 黑爵 · 前行者 · 狼蛛 | DAREU A950，AJAZZ AJ179 V2 MAX / Pro，EWEADN S9 / H2，AULA F87 Pro V2C 键盘 | 按协议资料 |
 | ATTACK SHARK · Delux · 英菲克 | ATTACK SHARK 鼠标、Delux 鼠标、Inphic IN9 Pro | 按协议资料 |
 | 雷柏 Rapoo · Incott | VT7、VT9 Pro、VT9 Pro V2，Incott 8K 鼠标 | 按协议资料 |
 | Finalmouse | UltralightX（ULX） | 按协议资料 |
@@ -114,9 +120,14 @@ Get-FileHash .\Jige-Setup-0.2.19-x64.exe -Algorithm SHA256
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |
 | [Razer 90B](docs/protocols.md#razer-90b-feature) | 72 个鼠标 PID、15 个键盘 PID（对齐 OpenRazer，含无线接收器、HyperPolling 接收器与 USB-C 有线充电模式；协议忙或被其他软件临时占用时自动重试最多 3 次） | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [Razer BlackShark 纯只读耳机](docs/protocols.md#razer-pa-与-blackshark-64b) | BlackShark V2 Pro (2020) `1532:0528`（`FF00:0001` 64B Feature）、BlackShark V2 HyperSpeed `1532:0565`（MI_03）、BlackShark V3 `1532:057A`（MI_05） | 多方开源实现一致 / 单一来源 | 仅按资料 |
-| ASUS ROG 无线键盘（其他型号） | Falchion、Claymore II、Azoth 系列、Strix Scope II 96 等（`MI_01 / FF00:0001` 65B 只读命令 `12 01`） | G-Helper / HaloBattery（MIT） | 仅按资料 |
-| MCHOSE 迈从键盘 | MCHOSE K87 2.4G 接收器 `41E4:2001`（`FF02:0002` 20B 只读命令 `13 4A`） | HaloBattery（MIT） | 仅按资料 |
-| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
+| ASUS ROG / TUF 无线外设（其他型号） | Falchion / Azoth / Scope II 96 键盘（`12 01`），Gladius III / Harpe Ace / II Ace / Keris / Chakram 等 33 个鼠标 PID（`12 07`），OMNI 接收器 `0B05:1ACE`，ROG Strix Go 2.4 `0B05:18D6/18D7` | G-Helper / HaloBattery（MIT） | 仅按资料 |
+| MCHOSE 迈从键盘与 V3 鼠标 | MCHOSE K87 2.4G 接收器 `41E4:2001`（20B `13 4A`）；MCHOSE V3 共享接收器 `3837:1014/1016/1018`（64B `4D`） | HaloBattery（MIT）/ OpenMouse | 仅按资料 |
+| SteelSeries 赛睿 | Arctis Nova 7 / 5 / 3P / 3X / Pro、Arctis 1 / 7 / 7+ / 9 / Pro、GameBuds（36 个耳机 PID），Aerox 3/5/9、Rival 3（9 个鼠标 PID） | HeadsetControl / rivalcfg / alloyctl / HaloBattery（MIT） | 仅按资料 |
+| HyperX 极度未知耳机 | Cloud II（HP / Kingston）、Cloud Flight、Cloud Alpha、Cloud III / II Core、Cloud III S Wireless（12 个 PID） | HeadsetControl / HyperHeadset / HaloBattery（MIT） | 仅按资料 |
+| Corsair 海盗船 | Void Elite / Void v2 / HS80 / Virtuoso SE / XT / Max 耳机，Dark Core / M75 / Sabre v2 Pro 鼠标，K65 PLUS 键盘（14 个 PID，严禁切软件模式） | HeadsetControl / ckb-next / OpenLinkHub / HaloBattery（MIT） | 仅按资料 |
+| Pulsar · Hitscan · Glorious · Endgame Gear · Cougar · Redragon | Pulsar X2 V2 / V3 / CrazyLight、Hitscan Hyperlight、Glorious Model O Wireless、Endgame Gear XM2we、Cougar Revenger Pro、Redragon M991 | HaloBattery（MIT）/ python-pulsar-mouse-tool / hitscan-battery / xm2we-linux | 仅按资料 |
+| DAREU · EWEADN · AJAZZ · AULA · Keychron · Audeze | DAREU A950、EWEADN S9 / H2、AJAZZ AJ179 V2 MAX / Pro、AULA F87 Pro V2C、Keychron Ultra-Link 8K / M5 / Nape Pro、Audeze Maxwell（单帧只读 `0CD6`） | MousePower（MIT）/ aj179-linux（MIT）/ HaloBattery（MIT）/ OpenMouse | 仅按资料 |
+| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`）、Endgame Gear 4K 接收器（`3367:1970`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
 
 更多说明（三级验证状态、暂未启用的原因）见 [设备支持清单](docs/devices.md)。
 

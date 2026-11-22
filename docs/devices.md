@@ -218,12 +218,64 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | Razer BlackShark V2 HyperSpeed | `1532:0565` | Razer BlackShark 64B | 仅按资料 | OpenRazer #2316 / Synapse-for-Linux（MIT）/ V2 HyperSpeed WebHID（MIT） |
 | Razer BlackShark V3 | `1532:057A` | Razer BlackShark V3 64B（纯只读 `21/2A`，无高频心跳） | 仅按资料 | HaloBattery #292（MIT）/ OpenRazer PR 2794 |
 
-### ASUS ROG 无线键盘与 MCHOSE 迈从键盘
+### ASUS ROG / TUF 无线外设与 MCHOSE 迈从键盘
+
+| 设备 | 接收器 / 有线 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| ASUS ROG 无线键盘（含 Falchion、Claymore II、Azoth / Extreme / X、Strix Scope II 96 等） | `0B05:193C/193E`、`1B04`、`196B`、`1A83/1A85`、`1B3F`、`1C24/1C25`、`1AAE/1B78` | ASUS ROG 65B（`MI_01 / FF00:0001` 命令 `12 01`） | 仅按资料 | G-Helper / HaloBattery（MIT） |
+| ASUS ROG / TUF 无线鼠标（Gladius III、Chakram / X、Harpe Ace / II Ace、Keris / Aimpoint、Spatha X、Pugio II、Strix Impact II、TUF M4 / Mini、TX 系列，共 33 个 PID） | `0B05:1A72/1A70`、`1B0C/1B0A`、`197F/197D`、`1A1A/1A18`、`1A94/1A92`、`1A68/1A66`、`1979/1977`、`19F4`、`1A8D`、`1AF5/1AF3`、`1C5A`、`1C57/1C56`、`1AD0/1C69`、`18E5/18E3`、`1960/195E`、`1A59/1A57`、`1908/1906`、`1949/1947` | ASUS ROG 65B（`12 07`）/ SPEEDNOVA 64B（RID `03`） | 仅按资料 | G-Helper / HaloBattery（MIT） |
+| ASUS ROG OMNI 接收器（支持已配对的 Harpe Ace / Keris II / Impact III 鼠标与 Azoth / Scope II 96 / Falchion RX 键盘） | `0B05:1ACE` | ASUS ROG OMNI（`MI_02` `FF02`/`FF01`/`FF00`） | 仅按资料 | G-Helper / HaloBattery（MIT） |
+| ASUS ROG Strix Go 2.4 无线耳机 | `0B05:18D6`（无线）、`0B05:18D7`（有线） | ASUS Strix Go Feature `FF` | 仅按资料 | G-Helper / HaloBattery（MIT） |
+| MCHOSE K87（2.4G 接收器） | `41E4:2001` | MCHOSE 20B（`FF02:0002` 命令 `13 4A`） | 仅按资料 | HaloBattery `mchose_kb.py`（MIT） |
+
+### SteelSeries 赛睿（耳机与鼠标）
 
 | 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
 | --- | --- | --- | --- | --- |
-| ASUS ROG 无线键盘（含 Falchion、Claymore II、Azoth / Extreme / X、Strix Scope II 96 等） | `0B05:193C/193E`、`1B04`、`196B`、`1A83/1A85`、`1B3F`、`1C24/1C25`、`1AAE/1B78` | ASUS ROG 65B（`MI_01 / FF00:0001` 命令 `12 01`） | 仅按资料 | G-Helper / HaloBattery（MIT） |
-| MCHOSE K87（2.4G 接收器） | `41E4:2001` | MCHOSE 20B（`FF02:0002` 命令 `13 4A`） | 仅按资料 | HaloBattery `mchose_kb.py`（MIT） |
+| Arctis Nova 7 / 7 Gen 2 / 7X / 7P / Diablo IV / WoW、Nova 5 / 5X、Nova 3P / 3X、Arctis 7+ 全系、GameBuds / X（25 个 PID） | `1038:22A1/2202/227E/2206/2258/229E/22AD/22A4/22A5/223A/22A9/227A/2232/2253/220A/22A7/2298/2269/226D/220E/2212/2216/2236/230A/2317` | SteelSeries B0（`FFC0:0001`） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
+| Arctis 1 Wireless / Xbox、Arctis 7 / 7X / 7P / 7 (2018)、Arctis 9、Arctis Pro Wireless / 2019、Nova Pro Wireless / X（11 个 PID） | `1038:12B3/12B6/12D7/12D5/12AD/1260/1252/12C2/1290/12E0/12E5` | SteelSeries Arctis / Nova Pro | 仅按资料 | HeadsetControl / Linux / HaloBattery（MIT） |
+| Aerox 3 / 5 / 9 Wireless（含特别版）、Rival 3 Wireless / Gen 2（9 个 PID） | `1038:1838/1878/1852/185C/1860/1858/1874/1830/1872` | SteelSeries Aerox `D2` / Rival `AA` | 仅按资料 | rivalcfg / alloyctl / HaloBattery（MIT） |
+
+### HyperX 极度未知无线耳机
+
+| 设备 | 接收器 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| HyperX Cloud II Wireless（HP / Kingston 两代） | `03F0:0696/018B`、`0951:1718` | HyperX Cloud II（HP `FF90:0303` / Kingston `FF13:0001`） | 仅按资料 | HeadsetControl / HyperHeadset / HaloBattery（MIT） |
+| HyperX Cloud Flight Wireless | `0951:16C4/1723` | HyperX Cloud Flight（`21 FF 05` 电压估算） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
+| HyperX Cloud Alpha Wireless | `03F0:098D` | HyperX Cloud Alpha（`FF43:0202` `21 BB`） | 仅按资料 | HeadsetControl / HyperXBatteryMonitor / HaloBattery（MIT） |
+| HyperX Cloud III Wireless / Cloud II Core Wireless | `03F0:05B7/0C9D/0995/0795` | HyperX Cloud III（`FF13:0001` `66 89/8A`） | 仅按资料 | HyperHeadset / HaloBattery（MIT） |
+| HyperX Cloud III S Wireless | `03F0:02CC/06BE` | HyperX Cloud III S（`0C 02 03 01` 只读 GET） | 仅按资料 | HyperHeadset / HaloBattery（MIT） |
+
+### Corsair 海盗船（耳机、鼠标与键盘）
+
+| 设备 | 接收器 / 有线 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| Corsair Void Elite Wireless | `1B1C:0A55` | Corsair Void `C9`（`FFC5:0001`） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
+| Corsair HS80 RGB Wireless（USB） | `1B1C:0A69` | Corsair HS80 USB（`FF42` `02 08 02 0F`） | 仅按资料 | HS80_Control / HaloBattery（MIT） |
+| Corsair Dark Core RGB Pro SE、M75 Wireless、K65 PLUS Wireless | `1B1C:1B7F`、`1B1C:1BDC`、`1B1C:2B07` | Corsair Bragi（`FF42:0001` 65B 只读 GET） | 仅按资料 | ckb-next / OpenLinkHub / HaloBattery（MIT） |
+| Corsair Virtuoso RGB Wireless SE / XT（接收器与有线） | `1B1C:0A40/0A3E/0A3D/0A64/0A62` | Corsair Bragi（`FF42:0001` 64B 只读 GET） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
+| Corsair Void v2 Wireless、Virtuoso Max Wireless、HS80 Max Wireless | `1B1C:2A08`、`1B1C:2A02`、`1B1C:0A97` | Corsair Void v2（`MI_04` 纯只读握手与 `0F`） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
+| Corsair Sabre v2 Pro Ultralight | `1B1C:2B2A` | Compx-OUT（`FF02:0002`） | 仅按资料 | HaloBattery（MIT） |
+
+### 更多国际与国产外设品牌（Pulsar · Hitscan · Glorious · Endgame Gear · Cougar · Redragon · Audeze · Keychron · DAREU · EWEADN · AJAZZ · AULA · MCHOSE V3）
+
+| 设备 | 接收器 / 有线 VID:PID | 协议家族 | 验证状态 | 来源 |
+| --- | --- | --- | --- | --- |
+| Pulsar X2 V2 Mini、X2 CrazyLight Mini（无线/有线） | `3554:F508/F507`、`3710:5406/3414` | Compx-OUT（`FF02:0002`） | 仅按资料 | python-pulsar-mouse-tool / HaloBattery（MIT） |
+| Pulsar X2 V3 Mini（8K 无线/有线） | `3710:5403/3402` | Pulsar Sonix Feature（`MI_03` 65B） | 仅按资料 | pulsar-x3-python / HaloBattery（MIT） |
+| Hitscan Hyperlight（8K / 2.4G / 有线） | `3770:0300/0200/0100` | Compx-OUT（`FF02:0002`） | 仅按资料 | hitscan-battery / HaloBattery（MIT） |
+| Cougar Revenger Pro / 4K（无线/有线） | `3554:F5DF/F5DE/F5DC` | Compx-OUT（`FF02:0002`） | 仅按资料 | HaloBattery（MIT） |
+| Redragon M991（有线） | `3554:F55E` | Compx-OUT（`FF02:0002`） | 仅按资料 | HaloBattery（MIT） |
+| Glorious Model O Wireless | `258A:2022` | XVI-NEW（`FFFF:0000` 65B Feature） | 仅按资料 | GloriousBatteryMonitor / HaloBattery（MIT） |
+| Endgame Gear XM2we | `3367:1961` | Compx 分集合（`FF02` Feature `08` → `FF01` Input `09`） | 仅按资料 | okms/xm2we-linux / HaloBattery（MIT） |
+| DAREU 达尔优 A950 / 鼠标 | `260D:1074`、`260D:1084` | Compx 分集合（`FF02` Feature `08` → `FF01` Input `09`） | 仅按资料 | MousePower（MIT）/ HaloBattery（MIT） |
+| EWEADN 前行者 S9 / H2（无线/有线） | `089D:062F`、`088D:062E` | EWEADN `30`（`FF01:0010` 33B） | 仅按资料 | EWEADN E HUB / HaloBattery（MIT） |
+| AJAZZ 黑爵 AJ179 V2 MAX（无线/有线） | `249A:5C2F`、`248A:5D2E` | AJAZZ `10/C0`（`MI_02` 33B） | 仅按资料 | aj179-linux（MIT）/ HaloBattery（MIT） |
+| AJAZZ 黑爵 AJ179 Pro | `3151:402D` | GearHub V5 Feature（`FFFF:0002` 65B `F7`） | 仅按资料 | OpenMouse 实机记录（`research/domestic-mice-webdriver.md`） |
+| MCHOSE 迈从 V3 鼠标（共享接收器） | `3837:1014/1016/1018` | MCHOSE V3 `4D`（`FF01:0001` 64B） | 仅按资料 | OpenMouse（`research/domestic-mice-webdriver.md`） |
+| AULA 狼蛛 F87 Pro V2C 键盘 | `0C45:FEFC` | AULA `AA 10` 键盘（`FF80:0001` 33B） | 仅按资料 | AULA HUB / HaloBattery（MIT） |
+| Keychron Ultra-Link 8K / M5 / Nape Pro | `3434:D028/D048/D026` | Keychron `B3/B4`（64B Feature → Input） | 仅按资料 | keychron-battery-dkms / HaloBattery（MIT） |
+| Audeze Maxwell / Maxwell 2（无线/有线） | `3329:4B19/4B18/4B1A/4B1E/4B29/4B28` | Audeze `0CD6`（`FF13:0001` 单帧只读查询） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
 
 ---
 
@@ -244,3 +296,4 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | G-Wolves Fenrir Asym 8K | `33E4:3517` | XVI-OLD / XVI-NEW 冲突 | 社区存在 XVI-OLD 与 XVI-NEW 两代协议冲突记录，待实机抓包确认 | `mouse.xyz` / OpenMouse |
 | Logitech G PRO X 3 LIGHTSPEED | `046D:0B45` | Logitech Centurion | 当前版本保持关闭，待单独复核 | 0.2.4 验收标准 |
 | ASTRO A50 X | `046D:0B0B` | Logitech 耳机候选 | HID 集合与只读电量查询尚未核实 | `docs/protocols.md` / HeadsetControl |
+| Endgame Gear 4K 接收器 | `3367:1970` | Endgame Gear 4K 候选 | 当前 4K 接收器电量报文实机未跑通，暂保持禁用等待抓包确认 | HaloBattery `providers/endgame_4k.py`（MIT，#321/#324） |

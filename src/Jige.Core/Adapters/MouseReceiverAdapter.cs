@@ -135,13 +135,15 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             var tier = source == AdaptationSource.Generic
                 ? VerificationTier.DocsOnly
                 : DeviceCatalog.VerificationFor(selectedEndpoint.VendorId, selectedEndpoint.ProductId);
-            string sourceLabel = selectedEndpoint.VendorId switch
-            {
-                0x33E4 => "游狼无线接收器",
-                0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
-                _ => "无线接收器"
-            };
-            targets.Add(new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
+            string sourceLabel = selectedRow.Connection == DeviceConnection.UsbCable
+                ? "USB 充电线"
+                : selectedEndpoint.VendorId switch
+                {
+                    0x33E4 => "游狼无线接收器",
+                    0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
+                    _ => "无线接收器"
+                };
+            targets.Add(new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier, selectedRow.Connection)
             {
                 SourceLabel = sourceLabel
             },

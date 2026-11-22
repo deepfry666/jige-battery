@@ -200,8 +200,12 @@ internal static class MouseBatteryProtocol
     }
 
     public static bool IsXviAsleep(ReadOnlySpan<byte> frame, MouseFamily family) =>
-        family == MouseFamily.XviOld && frame.Length == 65 &&
-        frame[..4].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0x8F]);
+        (family == MouseFamily.XviOld && frame.Length == 65 &&
+         frame[..4].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0x8F])) ||
+        // Glorious / Sinowealth 65B Feature 休眠状态字节为 0xA4。
+        (family == MouseFamily.XviNew && frame.Length == 65 &&
+         frame[0] == 0 && frame[1] == 0xA4 &&
+         frame[2..7].SequenceEqual((ReadOnlySpan<byte>)[0, 2, 2, 0, 0x83]));
 
     /// <summary>识别 Feature 通道休眠/未就绪时的空缓冲、请求回显或未应答占位帧。</summary>
     public static bool IsFeatureIdle(ReadOnlySpan<byte> frame, ReadOnlySpan<byte> request, MouseFamily family)

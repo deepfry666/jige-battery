@@ -26,7 +26,11 @@ public static partial class DiagnosticPrivacy
         "ATK X1 Pro", "ATK X1 Pro Max", "ATK X1 Ultra", "ATK X1 Ultimate",
         "ATK Z1 Pro Max", "ATK Z1 Ultra", "ATK U2 Pro Max", "ATK U2 Ultra", "ATK A9 Pro", "ATK A9 Ultra",
         "ATTACK SHARK X11", "ATTACK SHARK X3 Max", "ATTACK SHARK R1 / X6", "ATTACK SHARK X6",
-        "ATTACK SHARK X3", "ATTACK SHARK X11 Pro", "ATTACK SHARK X11 SE", "Delux M600 Pro"
+        "ATTACK SHARK X3", "ATTACK SHARK X11 Pro", "ATTACK SHARK X11 SE", "Delux M600 Pro",
+        "EWEADN S9", "EWEADN H2",
+        "ROG Harpe Ace Mini", "ROG Keris II Origin", "ROG Keris II Origin KJP",
+        "ROG Strix Impact III Wireless", "ROG Keris II Ace", "ROG Harpe Ace Extreme",
+        "ROG Azoth Extreme SE", "ROG Falchion RX Low Profile", "ROG Strix Morph 96 Wireless"
     };
 
     private static readonly UlxQuery[] UlxQueries = [UlxQuery.Link, UlxQuery.Percentage, UlxQuery.Voltage, UlxQuery.Charging];
@@ -94,7 +98,25 @@ public static partial class DiagnosticPrivacy
                 CopyRazerHeadset(hid.ProductId, raw, request, result);
                 return result;
             case AsusHidAdapter:
-                CopyAsusKeyboard(hid.ProductId, raw, result);
+                CopyAsus(hid.ProductId, raw, result);
+                return result;
+            case AsusOmniAdapter:
+                CopyAsusOmni(hid.UsagePage, raw, result);
+                return result;
+            case SteelSeriesAdapter:
+                CopySteelSeries(hid.ProductId, raw, request, result);
+                return result;
+            case HyperXHeadsetAdapter:
+                CopyHyperX(hid.VendorId, hid.ProductId, raw, result);
+                return result;
+            case CorsairAdapter:
+                CopyCorsair(hid.ProductId, raw, result);
+                return result;
+            case SplitCompxAdapter:
+                CopySplitCompx(raw, result);
+                return result;
+            case ExtendedPeripheralsAdapter:
+                CopyExtendedPeripheral(hid.VendorId, hid.ProductId, raw, result);
                 return result;
             case MchoseMouseAdapter:
                 if (MchoseMouseProtocol.Allows(request))
@@ -345,18 +367,239 @@ public static partial class DiagnosticPrivacy
         result[62] = RazerHeadsetProtocol.Checksum(result, crcStart);
     }
 
-    private static void CopyAsusKeyboard(ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
+    private static void CopyAsus(ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
     {
-        if (AsusHidProtocol.FindKeyboard(pid) is not { } model ||
-            !AsusHidProtocol.TryDecodeKeyboardBattery(raw, model, out bool asleep, out _, out _))
-            return;
-        int header = raw[0] == 0x00 ? 1 : 0;
-        raw[..(header + 2)].CopyTo(result);
-        if (!asleep)
+        if (AsusHidProtocol.FindKeyboard(pid) is { } kb &&
+            AsusHidProtocol.TryDecodeKeyboardBattery(raw, kb, out bool kbAsleep, out _, out _))
         {
-            result[header + 5] = raw[header + 5];
-            result[header + 8] = raw[header + 8];
-            result[header + 10] = raw[header + 10];
+            int header = raw[0] == 0x00 ? 1 : 0;
+            raw[..(header + 2)].CopyTo(result);
+            if (!kbAsleep)
+            {
+                result[header + 5] = raw[header + 5];
+                result[header + 8] = raw[header + 8];
+                result[header + 10] = raw[header + 10];
+            }
+            return;
+        }
+        if (AsusHidProtocol.FindMouse(pid) is { } mouse &&
+            AsusHidProtocol.TryDecodeMouseBattery(raw, mouse.Scale, mouse.ReportId, out bool mAsleep, out _, out _, out _))
+        {
+            int header = mouse.ReportId != 0x00 || raw[0] == 0x00 ? 1 : 0;
+            raw[..(header + 2)].CopyTo(result);
+            if (!mAsleep)
+            {
+                result[header + 4] = raw[header + 4];
+                result[header + 9] = raw[header + 9];
+            }
+            return;
+        }
+        if (AsusHidProtocol.FindHeadset(pid) is { } hs &&
+            AsusHidProtocol.TryDecodeHeadsetBattery(raw, hs.Connection == DeviceConnection.UsbCable, out bool offline, out _, out _))
+        {
+            int skip = raw[0] == AsusHidProtocol.HeadsetReportId ? 0 : 1;
+            raw[..Math.Min(raw.Length, 4 - skip)].CopyTo(result);
+            if (!offline && 12 - skip < raw.Length)
+            {
+                result[9 - skip] = raw[9 - skip];
+                result[11 - skip] = raw[11 - skip];
+                result[12 - skip] = raw[12 - skip];
+            }
+        }
+    }
+
+    private static void CopyAsusOmni(ushort? usagePage, ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (usagePage == 0xFF02)
+        {
+            var pids = AsusHidProtocol.DecodeOmniPairList(raw);
+            if (pids.Count > 0)
+            {
+                raw[..2].CopyTo(result);
+                for (int i = 0; i < pids.Count && 5 + i * 4 + 1 < result.Length; i++)
+                {
+                    result[5 + i * 4] = (byte)(pids[i] & 0xFF);
+                    result[5 + i * 4 + 1] = (byte)(pids[i] >> 8);
+                }
+            }
+            return;
+        }
+        if (usagePage == 0xFF01 &&
+            AsusHidProtocol.TryDecodeMouseBattery(raw, AsusMouseScale.Percent, 0x03, out bool mAsleep, out _, out _, out _))
+        {
+            raw[..3].CopyTo(result);
+            if (!mAsleep && raw.Length > 10)
+            {
+                result[5] = raw[5];
+                result[10] = raw[10];
+            }
+            return;
+        }
+        if (usagePage == 0xFF00 &&
+            AsusHidProtocol.TryDecodeKeyboardBattery(raw, AsusBatteryLayout.Auto, 0x02, out bool kAsleep, out _, out _))
+        {
+            raw[..3].CopyTo(result);
+            if (!kAsleep && raw.Length > 11)
+            {
+                result[6] = raw[6];
+                result[9] = raw[9];
+                result[11] = raw[11];
+            }
+        }
+    }
+
+    private static void CopySteelSeries(ushort? pid, ReadOnlySpan<byte> raw, ReadOnlySpan<byte> request, Span<byte> result)
+    {
+        if (SteelSeriesProtocol.Find(pid) is not { } model || raw.IsEmpty)
+            return;
+        if (model.Protocol == SteelSeriesProtocolKind.NovaProWireless &&
+            SteelSeriesProtocol.DecodeNovaPro(raw).Matched && raw.Length >= 16)
+        {
+            result[0] = raw[0];
+            result[6] = raw[6];
+            result[15] = raw[15];
+            return;
+        }
+        if (model.Protocol == SteelSeriesProtocolKind.Arctis7_2018 &&
+            (SteelSeriesProtocol.TryDecodeArctis7Link(raw, out _) || SteelSeriesProtocol.DecodeArctis7Level(raw, false).Matched))
+        {
+            raw[..Math.Min(4, raw.Length)].CopyTo(result);
+            return;
+        }
+        if (model.Protocol == SteelSeriesProtocolKind.ArctisProWireless &&
+            (SteelSeriesProtocol.TryDecodeProWirelessState(raw, out _) || SteelSeriesProtocol.TryDecodeProWirelessLevel(raw, out _)))
+        {
+            raw[..Math.Min(2, raw.Length)].CopyTo(result);
+            return;
+        }
+        if (SteelSeriesAdapter.Decode(raw, model.Protocol).Matched)
+            raw[..Math.Min(8, raw.Length)].CopyTo(result);
+    }
+
+    private static void CopyHyperX(ushort? vid, ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (HyperXHeadsetProtocol.Find(vid, pid) is not { } model || raw.IsEmpty)
+            return;
+        int copyLen = model.Protocol switch
+        {
+            HyperXProtocolKind.Cloud2Hp when HyperXHeadsetProtocol.TryDecodeCloud2HpLevel(raw, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloud2HpCharging(raw, out _) => 8,
+            HyperXProtocolKind.Cloud2Kingston when HyperXHeadsetProtocol.TryDecodeCloud2KingstonLevel(raw, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloud2KingstonCharging(raw, out _) => 8,
+            HyperXProtocolKind.CloudFlight when HyperXHeadsetProtocol.TryDecodeCloudFlight(raw, out _, out _, out _) => 5,
+            HyperXProtocolKind.CloudAlpha when HyperXHeadsetProtocol.TryDecodeCloudAlphaConnected(raw, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloudAlphaLevel(raw, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloudAlphaCharging(raw, out _) => 4,
+            HyperXProtocolKind.Cloud3 when HyperXHeadsetProtocol.TryDecodeCloud3Level(raw, out _, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloud3Charging(raw, out _) => 5,
+            HyperXProtocolKind.Cloud3S when HyperXHeadsetProtocol.TryDecodeCloud3SLevel(raw, out _) ||
+                HyperXHeadsetProtocol.TryDecodeCloud3SCharging(raw, out _) => 7,
+            _ => 0
+        };
+        if (copyLen > 0)
+            raw[..Math.Min(copyLen, raw.Length)].CopyTo(result);
+    }
+
+    private static void CopyCorsair(ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (CorsairProtocol.Find(pid) is not { } model || raw.IsEmpty)
+            return;
+        if (model.Protocol == CorsairProtocolKind.VoidElite &&
+            CorsairProtocol.TryDecodeVoidElite(raw, out _, out _, out _))
+        {
+            raw[..Math.Min(5, raw.Length)].CopyTo(result);
+            return;
+        }
+        byte source = model.Connection == DeviceConnection.UsbCable ? (byte)0x00 : (byte)0x01;
+        if (CorsairProtocol.TryDecodeBragiValue(raw, source, out _))
+            raw[..Math.Min(7, raw.Length)].CopyTo(result);
+    }
+
+    private static void CopySplitCompx(ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (SplitCompxProtocol.TryDecodeBattery(raw, out _, out _) || SplitCompxProtocol.TryDecodeLink(raw, out _))
+        {
+            raw[..Math.Min(8, raw.Length)].CopyTo(result);
+            if (result.Length >= 17)
+                result[16] = MouseBatteryProtocol.CompxChecksum(result[..16]);
+        }
+    }
+
+    private static void CopyExtendedPeripheral(ushort? vid, ushort? pid, ReadOnlySpan<byte> raw, Span<byte> result)
+    {
+        if (ExtendedPeripheralProtocol.Find(vid, pid) is not { } model || raw.IsEmpty)
+            return;
+        switch (model.Protocol)
+        {
+            case ExtendedProtocolKind.PulsarSonix when ExtendedPeripheralProtocol.TryDecodePulsarSonix(raw, out _):
+                raw[..Math.Min(8, raw.Length)].CopyTo(result);
+                break;
+            case ExtendedProtocolKind.Eweadn30 when ExtendedPeripheralProtocol.TryDecodeEweadn(raw, out bool asleep, out _, out _, out _):
+            {
+                int lead = raw.Length == 33 && raw[0] == 0x00 ? 1 : 0;
+                raw[..Math.Min(lead + 2, raw.Length)].CopyTo(result);
+                if (!asleep && lead + 14 <= raw.Length)
+                {
+                    raw[..(lead + 8)].CopyTo(result);
+                    result[lead + 12] = raw[lead + 12];
+                    result[lead + 13] = raw[lead + 13];
+                }
+                break;
+            }
+            case ExtendedProtocolKind.AjazzV2Max when ExtendedPeripheralProtocol.TryDecodeAjazzV2Max(raw, model.Connection == DeviceConnection.UsbCable, out _, out _):
+            {
+                int lead = raw.Length == 33 && raw[0] == 0x00 ? 1 : 0;
+                if (raw[lead] == 0xC0)
+                {
+                    raw[..Math.Min(lead + 3, raw.Length)].CopyTo(result);
+                }
+                else if (lead + 32 <= raw.Length)
+                {
+                    raw[..Math.Min(lead + 4, raw.Length)].CopyTo(result);
+                    result[lead + 13] = raw[lead + 13];
+                    result[lead + 14] = raw[lead + 14];
+                    int sum = 0;
+                    for (int i = 4; i < 31; i++)
+                        sum += result[lead + i];
+                    result[lead + 31] = (byte)sum;
+                }
+                break;
+            }
+            case ExtendedProtocolKind.AjazzGearHubV5 when ExtendedPeripheralProtocol.TryDecodeAjazzGearHubV5(raw, out _, out _):
+                raw[..Math.Min(6, raw.Length)].CopyTo(result);
+                break;
+            case ExtendedProtocolKind.MchoseV3_4D when ExtendedPeripheralProtocol.TryDecodeMchoseV3(raw, out _, out _, out _):
+            {
+                int dataLen = raw[7];
+                raw[..8].CopyTo(result);
+                result[18] = raw[18];
+                result[19] = raw[19];
+                result[20] = raw[20];
+                byte xor = 0;
+                for (int i = 2; i < 8 + dataLen; i++)
+                    xor ^= result[i];
+                result[8 + dataLen] = xor;
+                break;
+            }
+            case ExtendedProtocolKind.AulaF87Kb when ExtendedPeripheralProtocol.TryDecodeAulaF87(raw, out _):
+            {
+                int lead = raw[0] == 0x00 ? 1 : 0;
+                raw[..Math.Min(lead + 2, raw.Length)].CopyTo(result);
+                result[lead + 25] = raw[lead + 25];
+                break;
+            }
+            case ExtendedProtocolKind.KeychronB3 when ExtendedPeripheralProtocol.TryDecodeKeychron(raw, out _):
+                raw[..2].CopyTo(result);
+                result[20] = raw[20];
+                break;
+            case ExtendedProtocolKind.AudezeMaxwell when ExtendedPeripheralProtocol.TryDecodeAudeze(raw, out int level):
+                result[0] = 0x07;
+                result[1] = 0xD6;
+                result[2] = 0x0C;
+                result[3] = 0x00;
+                result[4] = 0x00;
+                result[5] = (byte)level;
+                break;
         }
     }
 
@@ -384,7 +627,15 @@ public static partial class DiagnosticPrivacy
         0x0B05 => "ASUS",
         0x41E4 or 0x2023 or 0x5253 or 0x3837 => "MCHOSE",
         0x3554 => "Compx（VXE / VGN / Scyrox / Lamzu 等）",
-        0x36A7 or 0x3710 => "WLmouse",
+        0x36A7 => "WLmouse",
+        0x3710 => "Pulsar",
+        0x3770 => "Hitscan",
+        0x3367 => "Endgame Gear",
+        0x258A => "Glorious / AULA",
+        0x3329 => "Audeze",
+        0x089D or 0x088D => "EWEADN",
+        0x249A or 0x248A or 0x3151 => "AJAZZ",
+        0x0C45 => "AULA / Microdia",
         0x373E => "Lamzu",
         0x093A => "PixArt",
         0x1038 => "SteelSeries",
@@ -393,7 +644,7 @@ public static partial class DiagnosticPrivacy
         0x3434 => "Keychron",
         0x31E3 => "Wooting",
         0x24AE => "Rapoo",
-        0x260D => "Darmoshark",
+        0x260D => "DAREU / Darmoshark",
         0x320F => "Evision",
         0x25A7 => "Areson/Compx",
         0x3537 => "VGN/ATK",

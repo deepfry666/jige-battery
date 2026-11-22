@@ -18,7 +18,8 @@ internal sealed record MouseReceiver(
     string Model, ushort VendorId, ushort? ProductId, MouseFamily Family, MouseEvidence Evidence,
     bool Enabled = false, BitMouseReply BitReply = BitMouseReply.WithoutChecksum,
     bool ResolveModelByCidMid = false, bool IsGeneric = false,
-    byte? InterfaceNumber = null, bool ExactCollectionOnly = false)
+    byte? InterfaceNumber = null, bool ExactCollectionOnly = false,
+    DeviceConnection Connection = DeviceConnection.Receiver)
 {
     public MouseProtocolShape? Shape => MouseReceiverCatalog.Shape(Family, VendorId);
     // 游狼的既有 XVI 路径要求 MI_02，新厂商可按型号单独指定。
@@ -81,8 +82,38 @@ internal static class MouseReceiverCatalog
         (Xvi("MCHOSE A5 Pro Max 4K", 0x2023, 0xF015, MouseEvidence.MultipleSources), "HaloBattery / mchose-macos")
     ];
 
-    private static MouseReceiver Compx(string model, ushort vid, ushort pid, MouseEvidence evidence = MouseEvidence.SingleSource) =>
-        new(model, vid, pid, MouseFamily.CompxOut, evidence, Enabled: true, ExactCollectionOnly: true);
+    /// <summary>复用 Compx-OUT 或 XVI-NEW 协议家族的跨品牌已取证型号（来源：HaloBattery MIT / python-pulsar-mouse-tool / hitscan-battery / GloriousBatteryMonitor）。</summary>
+    internal static IReadOnlyList<(MouseReceiver Receiver, string Source)> BrandModels { get; } =
+    [
+        // Pulsar（Compx-OUT：3554 / 3710）
+        (Compx("Pulsar X2 V2 Mini", 0x3554, 0xF508, MouseEvidence.MultipleSources), "python-pulsar-mouse-tool / HaloBattery（MIT）"),
+        (Compx("Pulsar X2 V2 Mini", 0x3554, 0xF507, MouseEvidence.MultipleSources, DeviceConnection.UsbCable), "python-pulsar-mouse-tool / HaloBattery（MIT）"),
+        (Compx("Pulsar X2 CrazyLight Mini", 0x3710, 0x5406, MouseEvidence.MultipleSources), "python-pulsar-mouse-tool / HaloBattery（MIT）"),
+        (Compx("Pulsar X2 CrazyLight Mini", 0x3710, 0x3414, MouseEvidence.MultipleSources, DeviceConnection.UsbCable), "python-pulsar-mouse-tool / HaloBattery（MIT）"),
+
+        // Hitscan Hyperlight（Compx-OUT：3770）
+        (Compx("Hitscan Hyperlight 8K", 0x3770, 0x0300, MouseEvidence.MultipleSources), "hitscan-battery / HaloBattery（MIT）"),
+        (Compx("Hitscan Hyperlight", 0x3770, 0x0200, MouseEvidence.MultipleSources), "hitscan-battery / HaloBattery（MIT）"),
+        (Compx("Hitscan Hyperlight", 0x3770, 0x0100, MouseEvidence.MultipleSources, DeviceConnection.UsbCable), "hitscan-battery / HaloBattery（MIT）"),
+
+        // Cougar 骨伽（Compx-OUT：3554）
+        (Compx("Cougar Revenger Pro 4K", 0x3554, 0xF5DF, MouseEvidence.SingleSource), "HaloBattery（MIT）"),
+        (Compx("Cougar Revenger Pro 4K", 0x3554, 0xF5DE, MouseEvidence.SingleSource, DeviceConnection.UsbCable), "HaloBattery（MIT）"),
+        (Compx("Cougar Revenger Pro", 0x3554, 0xF5DC, MouseEvidence.SingleSource), "HaloBattery（MIT）"),
+
+        // Redragon 红龙（有线 3554:F55E；接收器 3554:F5D5 与 Zaopin 共享且分支未核实，继续保持在 DisabledPaths）
+        (Compx("Redragon M991", 0x3554, 0xF55E, MouseEvidence.SingleSource, DeviceConnection.UsbCable), "HaloBattery（MIT）"),
+
+        // Corsair Sabre v2 Pro Ultralight（Compx-OUT：1B1C:2B2A）
+        (Compx("Corsair Sabre v2 Pro Ultralight", 0x1B1C, 0x2B2A, MouseEvidence.SingleSource), "HaloBattery（MIT）"),
+
+        // Glorious Model O Wireless（Sinowealth / XVI-NEW 65B Feature：258A:2022）
+        (Xvi("Glorious Model O Wireless", 0x258A, 0x2022, MouseEvidence.MultipleSources), "GloriousBatteryMonitor / HaloBattery（MIT）")
+    ];
+
+    private static MouseReceiver Compx(string model, ushort vid, ushort pid,
+        MouseEvidence evidence = MouseEvidence.SingleSource, DeviceConnection connection = DeviceConnection.Receiver) =>
+        new(model, vid, pid, MouseFamily.CompxOut, evidence, Enabled: true, ExactCollectionOnly: true, Connection: connection);
 
     private static MouseReceiver Xvi(string model, ushort vid, ushort pid, MouseEvidence evidence, byte? mi = null) =>
         new(model, vid, pid, MouseFamily.XviNew, evidence, Enabled: true, InterfaceNumber: mi, ExactCollectionOnly: true);
@@ -161,7 +192,8 @@ internal static class MouseReceiverCatalog
         new("G-Wolves HTX ACE", GWolves, 0x5703, MouseFamily.XviOld, MouseEvidence.SingleSource, true),
         new("G-Wolves HSK Plus ACE", GWolves, 0x5903, MouseFamily.XviOld, MouseEvidence.SingleSource, true),
         new("G-Wolves HSK Plus ACE-2", GWolves, null, MouseFamily.XviOld, MouseEvidence.Unverified),
-        .. DomesticModels.Select(model => model.Receiver)
+        .. DomesticModels.Select(model => model.Receiver),
+        .. BrandModels.Select(model => model.Receiver)
     ];
 
     public static bool IsVendor(ushort? vid, ushort? pid) => vid is Atk or GWolves || IsListed(vid, pid);

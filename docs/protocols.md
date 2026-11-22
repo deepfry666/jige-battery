@@ -181,6 +181,19 @@ BlackShark V2 HyperSpeed 使用 64 字节 Input/Output、Report ID `02`。白名
 
 V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实机直接抓到的放电、低电、充电中、充满与关机过期帧；V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机的非电量回复以确认过滤，并按公开字段构造可接受回复验证 CRC 与事务。PA 测试回放 053A 的实机 34% 回复，并按公开字段构造 0555 应答。[V2 Pro 2020 实机记录](https://github.com/HeyOkay/HaloBattery/blob/main/providers/blackshark2020.py) · [BlackShark V3 抓包 #292](https://github.com/HeyOkay/HaloBattery/issues/292) · [V3 Pro 实机记录 #2838](https://github.com/openrazer/openrazer/issues/2838) · [V2 HyperSpeed 实机抓包 #2316](https://github.com/openrazer/openrazer/issues/2316) · [V2 HyperSpeed 协议与实测](https://github.com/bbesli/Synapse-for-Linux/blob/main/docs/PROTOCOL.md) · [Barracuda Pro 实机抓包 #10](https://github.com/HeyOkay/HaloBattery/issues/10) · [PA 查询字段](https://github.com/HeyOkay/HaloBattery/blob/main/providers/blackshark.py)
 
+## 拓展品牌纯只读协议（ASUS ROG/TUF · SteelSeries · HyperX · Corsair · 分集合 Compx · 扩展外设）
+
+本节新增路径全部标为「仅按资料」，遵守严格只读白名单（不发任何配置、DPI、EQ、灯效、配对或模式切换命令），并在 `tests/Jige.Core.Tests/BrandExpansionTests.cs` 中附带完整离线模拟帧与诊断回放单测：
+
+| 品牌 / 家族 | 集合与传输 | 严格只读查询白名单 | 来源 |
+| --- | --- | --- | --- |
+| ASUS ROG / TUF 鼠标与 OMNI / Strix Go 2.4 | 鼠标：`0B05` `MI_00` 厂商集合 64/65B（Harpe II Ace 接收器 `1AD0` 走 `MI_02 / FF01` RID `03`）；OMNI `1ACE` 走 `MI_02`（`FF02` 配对表、`FF01` 鼠标、`FF00` 键盘）；Strix Go 2.4 `18D6/18D7` 走 `>=64B` Feature `FF` | 鼠标 `00/03 12 07`；OMNI 配对表 `01 A0`、键盘 `02 12 01`；Strix Go `FF 08 00 FD 04 12 F1 03 52 01`（电压四档映射并扣除充电抬升） | G-Helper / HaloBattery（MIT） |
+| SteelSeries 赛睿 | 现代耳机与鼠标走 `1038` `FFC0:0001`（优先 `MI_03`）；经典 Arctis 与 Nova Pro 底座按型号匹配指定接口与厂商页 | 现代耳机 `00 B0`；Nova Pro `06 B0`（9 档估算）；Arctis 1/7X/7P `06 12`；Arctis 7 `06 14` / `06 18`；Arctis 9 `00 20`；Arctis Pro `41 AA` / `40 AA`；Aerox `00 D2`；Rival 3 `00 AA 01` | HeadsetControl / Linux / rivalcfg / alloyctl / HaloBattery（MIT） |
+| HyperX 极度未知 | Cloud II HP（`FF90:0303`）、Kingston（`FF13:0001`）、Cloud Flight（`FF53/FF90:0303`）、Cloud Alpha（`FF43:0202`）、Cloud III / II Core（`FF13:0001` Output 或 Feature 回退）、Cloud III S（`MI_03` 跨集合监听） | `06 FF BB 02/03`；Kingston 62B `... BB 02/03`；Flight `21 FF 05`；Alpha `21 BB 03/0B/0C`；Cloud III `66 89/8A`；Cloud III S `0C 02 03 01 00 06/48`（严格 GET `01`，拒绝 SET `00`） | HeadsetControl / HyperHeadset / HyperXBatteryMonitor / HaloBattery（MIT） |
+| Corsair 海盗船 | Void Elite `0A55`（`FFC5:0001`）；Bragi `FF42:0001`（65B RID `00` 或 64B RID `02`）；Void v2 / Virtuoso Max / HS80 Max（`MI_04`） | Void Elite `C9 64`；Bragi / Void v2 仅允许 `CMD_GET (02)` 查询电量 `0F`、充电 `10`、只读心跳 `12` 与固件 `13`；**严禁发送软件模式切换 `01 03 00 02`** | HeadsetControl / ckb-next / OpenLinkHub / HS80_Control / HaloBattery（MIT） |
+| 分集合 Compx（Endgame Gear XM2we / DAREU A950） | 同接收器 `FF02:0002`（17B Feature `08`）发请求、`FF01:0000`（17B Input `09`）收回复；Endgame Gear 4K `3367:1970` 置入 `DisabledPaths` | 仅 `08 04 … 49` 查电量与 `08 03 … 4A` 查链路（XM2we） | okms/xm2we-linux / MousePower（MIT）/ HaloBattery（MIT） |
+| Pulsar Sonix / EWEADN / AJAZZ / MCHOSE V3 / AULA / Keychron / Audeze | 均按精确 `VID:PID + 接口/使用页/报告长度` 路由，不做公版 VID 泛化 | Pulsar Sonix `00 00 08 81 01 … 8A 00`；EWEADN `00 30`；AJAZZ V2 MAX `00 10`；GearHub V5 `00 F7`；MCHOSE V3 `4D 01 01 00 00 09 00 00 08`；AULA `00 AA 10`；Keychron `B3 06` → `B4 06`；Audeze 仅单帧只读 `06 07 80 05 5A 03 00 D6 0C`（不发未核实初始化序列） | HaloBattery（MIT）/ aj179-linux（MIT）/ OpenMouse |
+
 ## 在线状态、休眠与离线判定规则
 
 ### 依据
