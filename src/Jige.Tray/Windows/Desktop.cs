@@ -24,7 +24,7 @@ internal static unsafe class Desktop
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string RunName = "Jige Battery";
 
-    public static bool DarkTaskbar => GetRegistry(ThemeKey, "SystemUsesLightTheme") is 0;
+    public static bool DarkTaskbar => GetRegistry(ThemeKey, "SystemUsesLightTheme") is not 1;
     public static bool DarkApps => GetRegistry(ThemeKey, "AppsUseLightTheme") is 0;
     private static bool Transparency => GetRegistry(ThemeKey, "EnableTransparency") is not 0;
 

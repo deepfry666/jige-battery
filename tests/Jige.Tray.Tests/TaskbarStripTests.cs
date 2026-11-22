@@ -217,6 +217,127 @@ public sealed class TaskbarStripTests
     }
 
     [Fact]
+    public void FindsWindows10ClassicTaskbarButtonsWithoutCountingFullWidthTaskListContainer()
+    {
+        var bar = new Bounds(0, 1040, 1920, 1080);
+        var tray = new Bounds(1740, 1040, 1920, 1080);
+        TaskbarControl[] controls =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(48, 1040, 392, 1080), "", "TrayDummySearchControl", false),
+            new(new(48, 1040, 392, 1080), "4101", "Button", true),
+            new(new(392, 1040, 440, 1080), "", "TrayButton", true),
+            new(new(440, 1040, 1740, 1080), "", "ReBarWindow32", false),
+            new(new(440, 1040, 1740, 1080), "", "MSTaskSwWClass", false),
+            new(new(440, 1040, 1740, 1080), "", "MSTaskListWClass", false),
+            new(new(440, 1040, 488, 1080), "Appid: Microsoft.Windows.Explorer", "", true),
+            new(new(488, 1040, 536, 1080), "", "", true),
+            new(new(1740, 1040, 1764, 1080), "1502", "Button", true)
+        ];
+
+        var located = TaskbarControls.Locate(bar, tray, controls);
+        Assert.Equal(new TaskbarControls(tray, 536), located);
+
+        var placed = TaskbarStripPlacement.Compute(Screen, bar, located.NotificationArea, located.OccupiedRight, 96, 141, true, true);
+        Assert.Equal(TaskbarStripReason.Ready, placed.Reason);
+        Assert.Equal(new Bounds(1595, 1049, 1736, 1071), placed.Bounds);
+    }
+
+    [Fact]
+    public void Windows10AvoidsNewsAndInterestsAndRightSideDeskBands()
+    {
+        var bar = new Bounds(0, 1040, 1920, 1080);
+        var tray = new Bounds(1740, 1040, 1920, 1080);
+        // 资讯和兴趣（DynamicContent2）位于 [1580, 1740]，且右侧还有一个自定义工具栏 [1460, 1580]；
+        // MSTaskListWClass 只占 [440, 1460]，直读条应紧贴在 1460 左侧且不被右侧工具栏按钮挤掉。
+        TaskbarControl[] controls =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(440, 1040, 1460, 1080), "", "MSTaskListWClass", false),
+            new(new(440, 1040, 536, 1080), "Appid: Chrome", "", true),
+            new(new(1459, 1040, 1580, 1080), "", "Button", true), // 含 1px 舍入误差的右侧工具栏按钮
+            new(new(1580, 1040, 1740, 1080), "", "DynamicContent2", false),
+            new(new(1580, 1040, 1740, 1080), "", "Button", true)
+        ];
+
+        var located = TaskbarControls.Locate(bar, tray, controls);
+        Assert.Equal(1460, located.NotificationArea?.Left);
+        Assert.Equal(536, located.OccupiedRight);
+
+        var placed = TaskbarStripPlacement.Compute(Screen, bar, located.NotificationArea, located.OccupiedRight, 96, 141, true, true);
+        Assert.Equal(TaskbarStripReason.Ready, placed.Reason);
+        Assert.Equal(new Bounds(1315, 1049, 1456, 1071), placed.Bounds);
+
+        // 即使 MSTaskListWClass 宽度覆盖到 TrayNotifyWnd，DynamicContent2 仍会被识别为右侧边界。
+        TaskbarControl[] overlapNews =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(440, 1040, 1740, 1080), "", "MSTaskListWClass", false),
+            new(new(440, 1040, 536, 1080), "", "", true),
+            new(new(1580, 1040, 1740, 1080), "", "DynamicContent2", false),
+            new(new(1580, 1040, 1740, 1080), "", "Button", true)
+        ];
+        var newsLocated = TaskbarControls.Locate(bar, tray, overlapNews);
+        Assert.Equal(1580, newsLocated.NotificationArea?.Left);
+        Assert.Equal(536, newsLocated.OccupiedRight);
+    }
+
+    [Fact]
+    public void Windows10EmptyTaskListPreservesLeftControlsAndCrowdedTaskbarFallsBack()
+    {
+        var bar = new Bounds(0, 1040, 1920, 1080);
+        var tray = new Bounds(1740, 1040, 1920, 1080);
+
+        // 没有任何固定或打开的应用时，仍至少从 MSTaskListWClass 左边缘开始，不遮挡搜索框与快速启动栏。
+        TaskbarControl[] emptyApps =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(440, 1040, 1740, 1080), "", "MSTaskListWClass", false)
+        ];
+        Assert.Equal(new TaskbarControls(tray, 440), TaskbarControls.Locate(bar, tray, emptyApps));
+
+        // 应用按钮挤满到右侧时自动返回 NoRoom 并回退托盘图标。
+        TaskbarControl[] crowded =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(440, 1040, 1700, 1080), "", "MSTaskListWClass", false),
+            new(new(1620, 1040, 1696, 1080), "", "", true)
+        ];
+        var crowdedLocated = TaskbarControls.Locate(bar, tray, crowded);
+        Assert.Equal(1700, crowdedLocated.NotificationArea?.Left);
+        Assert.Equal(1696, crowdedLocated.OccupiedRight);
+        Assert.Equal(TaskbarStripReason.NoRoom, TaskbarStripPlacement.Compute(
+            Screen, bar, crowdedLocated.NotificationArea, crowdedLocated.OccupiedRight, 96, 141, true, true).Reason);
+    }
+
+    [Theory]
+    [InlineData(96u, 30, 1050, 1054, 1076)]
+    [InlineData(144u, 45, 1035, 1035, 1079)]
+    public void Windows10SmallTaskbarFitsAt100And150PercentDpi(uint dpi, int barHeight, int barTop, int expectedTop, int expectedBottom)
+    {
+        var bar = new Bounds(0, barTop, 1920, barTop + barHeight);
+        var tray = new Bounds(1740, barTop, 1920, barTop + barHeight);
+        var placed = TaskbarStripPlacement.Compute(Screen, bar, tray, 600, dpi, 141, true, true);
+        Assert.Equal(TaskbarStripReason.Ready, placed.Reason);
+        Assert.Equal(expectedTop, placed.Bounds.Top);
+        Assert.Equal(expectedBottom, placed.Bounds.Bottom);
+    }
+
+    [Fact]
+    public void Windows11ModernTaskbarIgnoresStrayLegacyTaskList()
+    {
+        TaskbarControl[] controls =
+        [
+            new(Bar, "", "Taskbar.TaskbarFrameAutomationPeer", false),
+            new(new(613, 1036, 659, 1076), "StartButton", "ToggleButton", true),
+            new(new(864, 1036, 912, 1076), "Appid: Chrome", "Taskbar.TaskListButtonAutomationPeer", true),
+            new(new(440, 1036, 1720, 1076), "", "MSTaskListWClass", false),
+            new(Tray, "", "SystemTray.SystemTrayFrame", false)
+        ];
+        Assert.Equal(new TaskbarControls(Tray, 912), TaskbarControls.Locate(Bar, Tray, controls));
+    }
+
+    [Fact]
     public void SettingsShowsFallbackStatusWhenTaskbarStripFallsBack()
     {
         var noRoom = TaskbarStripDisplay.Resolve(TrayDisplayLocation.Taskbar, Place(occupiedRight: 1700), true, false);
