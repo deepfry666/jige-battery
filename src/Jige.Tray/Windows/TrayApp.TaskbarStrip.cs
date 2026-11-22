@@ -14,14 +14,17 @@ internal sealed partial class TrayApp
 {
     private const string StripClass = "Jige.Tray.TaskbarStrip";
     private const uint StripGeometryMessage = 0x8009, StripAppBarMessage = 0x800A;
+    private const uint StripBackdropSettleMs = 450, StripBackdropPollMs = 3_000;
     private TaskbarStripAutomation? stripAutomation;
     private TaskbarStripWindow? stripWindow;
     private TaskbarStripGeometry stripGeometry;
     private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.HiddenTaskbar, default);
+    private TaskbarBackdrop lastFallbackBackdrop = TaskbarBackdrop.FromDark(true);
+    private TaskbarStripPalette stripPalette = TaskbarStripPalette.Create(true);
     private HWND stripOwner;
     private bool stripFullscreen, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
-        stripGeometryPending, stripFallbackLogged;
-    private long stripGeometryPendingSinceMs;
+        stripGeometryPending, stripFallbackLogged, stripBackdropSampled, stripBackdropDeferSample;
+    private long stripGeometryPendingSinceMs, stripBackdropDueMs;
     private int stripAutomationFailures;
     private long stripAutomationNextRetryMs;
     private bool StripGeometryPending => model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
@@ -76,6 +79,7 @@ internal sealed partial class TrayApp
         {
             stripOwner = owner;
             stripGeometry = default;
+            stripBackdropSampled = false;
             DestroyStripWindow();
         }
         if (owner.IsNull)
@@ -99,6 +103,9 @@ internal sealed partial class TrayApp
         stripOwner = default;
         stripGeometry = default;
         stripGeometryPending = false;
+        stripBackdropSampled = false;
+        stripBackdropDeferSample = false;
+        StopStripBackdropTimer();
         DestroyStripWindow();
         EnsureStripAutomation()?.Request(default, reset: true);
     }
@@ -188,7 +195,16 @@ internal sealed partial class TrayApp
                     var window = MakeWindow(StripClass, extra, WS_POPUP, stripGeometry.Owner);
                     stripWindow = new(window, stripGeometry.Owner);
                 }
-                stripWindow.Update(rendered, layout, next.Bounds, darkTaskbar, TaskbarStripLayout.PixelScale(stripGeometry.Dpi));
+                int scale = TaskbarStripLayout.PixelScale(stripGeometry.Dpi);
+                if (!stripBackdropSampled && !stripBackdropDeferSample && !game.Game && !stripFullscreen &&
+                    Desktop.TrySampleTaskbarBackdrop(stripGeometry.Owner, stripWindow.Handle, stripGeometry.Bar,
+                        next.Bounds, scale, out var sampled))
+                {
+                    stripBackdropSampled = true;
+                    stripPalette = TaskbarStripPalette.Create(sampled);
+                    darkTaskbar = stripPalette.UsesLightInk;
+                }
+                stripWindow.Update(rendered, layout, next.Bounds, stripPalette, scale);
             }
             catch (Exception error) when (error is ExternalException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -220,16 +236,25 @@ internal sealed partial class TrayApp
 
     private void ApplyStripDisplay(TaskbarStripDisplay next)
     {
+        var previous = stripDisplay;
+        stripDisplay = next;
         if (!next.ShowStrip)
         {
+            StopStripBackdropTimer();
             stripWindow?.Hide();
             if (hoverCard is not null && hoverIconId is null)
                 DestroyHoverCard();
         }
+        else if (!game.Game && !stripFullscreen)
+        {
+            bool movedOrResized = !previous.ShowStrip || previous.Bounds != next.Bounds;
+            ScheduleStripBackdropSample(movedOrResized || !stripBackdropSampled
+                ? StripBackdropSettleMs : StripBackdropPollMs);
+        }
 
         if (next.IsFallback && !StripGeometryPending)
         {
-            if (!stripFallbackLogged || next.Reason != stripDisplay.Reason)
+            if (!stripFallbackLogged || next.Reason != previous.Reason)
             {
                 stripFallbackLogged = true;
                 Desktop.Log($"任务栏直读条临时回退：{next.Description}");
@@ -244,7 +269,6 @@ internal sealed partial class TrayApp
         {
             stripFallbackLogged = false;
         }
-        stripDisplay = next;
     }
 
     private void DestroyStripWindow()
@@ -258,6 +282,9 @@ internal sealed partial class TrayApp
     {
         if (!host.IsNull)
             PInvoke.KillTimer(host, StripRetryTimer);
+        StopStripBackdropTimer();
+        stripBackdropSampled = false;
+        stripBackdropDeferSample = false;
         DestroyStripWindow();
         stripAutomation?.Request(default);
         stripGeometry = default;
@@ -277,14 +304,89 @@ internal sealed partial class TrayApp
         stripAutomation = null;
     }
 
-    private void RefreshTaskbarTheme()
+    private void InitializeTaskbarBackdrop()
     {
-        bool dark = Desktop.DarkTaskbar;
-        if (dark != darkTaskbar)
+        var fallback = Desktop.ReadTaskbarBackdropFallback();
+        lastFallbackBackdrop = fallback;
+        stripPalette = TaskbarStripPalette.Create(fallback);
+        darkTaskbar = stripPalette.UsesLightInk;
+    }
+
+    private void RefreshTaskbarTheme(bool redraw = true)
+    {
+        var fallback = Desktop.ReadTaskbarBackdropFallback();
+        bool fallbackChanged = fallback != lastFallbackBackdrop;
+        lastFallbackBackdrop = fallback;
+        if (fallbackChanged)
         {
-            darkTaskbar = dark;
-            RefreshIcon();
+            stripBackdropSampled = false;
+            // 系统切换深浅色或强调色时先用注册表回退值立即重绘，等 Explorer/DWM 过渡动画稳定后再采样像素。
+            stripBackdropDeferSample = true;
+            var nextPalette = TaskbarStripPalette.Create(fallback);
+            bool paletteChanged = nextPalette != stripPalette;
+            bool darkChanged = nextPalette.UsesLightInk != darkTaskbar;
+            stripPalette = nextPalette;
+            darkTaskbar = nextPalette.UsesLightInk;
+            if (redraw && (paletteChanged || darkChanged))
+                RefreshIcon();
         }
+        if (stripDisplay.ShowStrip && !game.Game && !stripFullscreen)
+            ScheduleStripBackdropSample(StripBackdropSettleMs);
+    }
+
+    private void NotifyStripBackdropTransition()
+    {
+        if (stripDisplay.ShowStrip && !game.Game && !stripFullscreen)
+            ScheduleStripBackdropSample(StripBackdropSettleMs);
+    }
+
+    private void InvalidateStripBackdropSample()
+    {
+        stripBackdropSampled = false;
+        stripBackdropDeferSample = false;
+    }
+
+    private void ScheduleStripBackdropSample(uint delayMs)
+    {
+        if (host.IsNull || !stripDisplay.ShowStrip || game.Game || stripFullscreen)
+            return;
+        long due = Environment.TickCount64 + delayMs;
+        if (stripBackdropDueMs == 0 || due < stripBackdropDueMs)
+        {
+            stripBackdropDueMs = due;
+            ArmTimer(StripBackdropTimer, delayMs);
+        }
+    }
+
+    private void StopStripBackdropTimer()
+    {
+        stripBackdropDueMs = 0;
+        if (!host.IsNull)
+            PInvoke.KillTimer(host, StripBackdropTimer);
+    }
+
+    private void HandleStripBackdropTimer()
+    {
+        stripBackdropDueMs = 0;
+        stripBackdropDeferSample = false;
+        if (!stripDisplay.ShowStrip || game.Game || stripFullscreen ||
+            stripWindow is not { VisibleBounds: { } bounds } window)
+            return;
+
+        int scale = TaskbarStripLayout.PixelScale(stripGeometry.Dpi);
+        if (Desktop.TrySampleTaskbarBackdrop(stripGeometry.Owner, window.Handle, stripGeometry.Bar,
+            bounds, scale, out var sampled))
+        {
+            var nextPalette = TaskbarStripPalette.Create(sampled, stripBackdropSampled ? stripPalette : null);
+            stripBackdropSampled = true;
+            if (nextPalette != stripPalette)
+            {
+                stripPalette = nextPalette;
+                darkTaskbar = nextPalette.UsesLightInk;
+                RefreshStrip();
+            }
+        }
+        ScheduleStripBackdropSample(StripBackdropPollMs);
     }
 
     private static RECT ToRect(Bounds bounds) =>

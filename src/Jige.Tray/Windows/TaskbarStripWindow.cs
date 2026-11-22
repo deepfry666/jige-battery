@@ -17,7 +17,7 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
     private Composition? composition;
     private Composition.Layer? layer;
     private TaskbarStripDevice[] previous = [];
-    private bool previousDark;
+    private TaskbarStripPalette? previousPalette;
     private int previousScale, layerWidth;
     private Bounds? visible;
     private bool tracking, leftDown, rightDown;
@@ -37,16 +37,17 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
         composition = null;
         previous = [];
         previousScale = 0;
-        previousDark = false;
+        previousPalette = null;
         layerWidth = 0;
     }
 
-    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
+    public void Update(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds,
+        TaskbarStripPalette palette, int scale)
     {
-        if (layer is null || previousScale != scale || previousDark != dark ||
+        if (layer is null || previousScale != scale || previousPalette != palette ||
             !previous.AsSpan().SequenceEqual(devices))
         {
-            RenderWithRecovery(devices, layout, bounds, dark, scale);
+            RenderWithRecovery(devices, layout, bounds, palette, scale);
         }
 
         if (visible != bounds)
@@ -60,7 +61,8 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
         }
     }
 
-    private void RenderWithRecovery(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds, bool dark, int scale)
+    private void RenderWithRecovery(TaskbarStripDevice[] devices, TaskbarStripLayout layout, Bounds bounds,
+        TaskbarStripPalette palette, int scale)
     {
         for (int attempt = 0; attempt < 2; attempt++)
         {
@@ -73,11 +75,11 @@ internal sealed class TaskbarStripWindow(HWND handle, HWND owner) : IDisposable
                     layer = new(composition, composition.Root, 0, 0, bounds.Width, bounds.Height);
                     layerWidth = bounds.Width;
                 }
-                uint[] pixels = TaskbarStripPixels.Render(layout, dark, scale);
+                uint[] pixels = TaskbarStripPixels.Render(layout, palette, scale);
                 layer.Draw(canvas => canvas.PixelBitmap(pixels, bounds.Width, bounds.Height));
                 composition.Commit();
                 previous = devices;
-                previousDark = dark;
+                previousPalette = palette;
                 previousScale = scale;
                 return;
             }

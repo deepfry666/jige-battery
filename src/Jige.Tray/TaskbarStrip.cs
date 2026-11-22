@@ -73,11 +73,302 @@ internal sealed record TaskbarStripLayout(int Width, TaskbarStripSegment[] Segme
     }
 }
 
-internal readonly record struct TaskbarStripPalette(Color Foreground, Color Warning, Color Low, Color Charging, Color Separator)
+internal static class TaskbarColorMath
 {
-    public static TaskbarStripPalette Create(bool dark) => dark
-        ? new(new(0xf0ece4), Palette.Create(true).Warning, new(0xff8080), new(0x4ce07a), new(0x393e4c))
-        : new(new(0x211d19), Palette.Create(false).Warning, new(0xb42318), new(0x0f7b38), new(0xd2d2d2));
+    public static double RelativeLuminance(uint rgb)
+    {
+        double r = Linearize((rgb >> 16) & 255);
+        double g = Linearize((rgb >> 8) & 255);
+        double b = Linearize(rgb & 255);
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    public static double Contrast(double firstLuminance, double secondLuminance)
+    {
+        double high = Math.Max(firstLuminance, secondLuminance);
+        double low = Math.Min(firstLuminance, secondLuminance);
+        return (high + 0.05) / (low + 0.05);
+    }
+
+    public static double WorstContrast(uint inkRgb, double minLuminance, double maxLuminance)
+    {
+        double ink = RelativeLuminance(inkRgb);
+        if (ink >= minLuminance && ink <= maxLuminance)
+            return 1.0;
+        return Math.Min(Contrast(ink, minLuminance), Contrast(ink, maxLuminance));
+    }
+
+    public static double PerceivedLightness(uint rgb)
+    {
+        uint r = (rgb >> 16) & 255;
+        uint g = (rgb >> 8) & 255;
+        uint b = rgb & 255;
+        // 对齐 WinUI 的 IsColorLight 权重（2R + 5G + B），让深浅切换与系统时钟保持一致。
+        return (2 * r + 5 * g + b) / (8.0 * 255.0);
+    }
+
+    public static double OkLabDistance(uint firstRgb, uint secondRgb)
+    {
+        var (l1, a1, b1) = ToOkLab(firstRgb);
+        var (l2, a2, b2) = ToOkLab(secondRgb);
+        double dl = l1 - l2, da = a1 - a2, db = b1 - b2;
+        return Math.Sqrt(dl * dl + da * da + db * db);
+    }
+
+    public static uint BlendOver(uint foregroundRgb, byte alpha, uint backgroundRgb)
+    {
+        if (alpha == 255)
+            return foregroundRgb & 0x00ffffffu;
+        if (alpha == 0)
+            return backgroundRgb & 0x00ffffffu;
+        uint inverse = 255u - alpha;
+        uint r = (((foregroundRgb >> 16) & 255) * alpha + ((backgroundRgb >> 16) & 255) * inverse + 127) / 255;
+        uint g = (((foregroundRgb >> 8) & 255) * alpha + ((backgroundRgb >> 8) & 255) * inverse + 127) / 255;
+        uint b = ((foregroundRgb & 255) * alpha + (backgroundRgb & 255) * inverse + 127) / 255;
+        return (r << 16) | (g << 8) | b;
+    }
+
+    public static uint GrayFromLuminance(double luminance)
+    {
+        double clamped = Math.Clamp(luminance, 0.0, 1.0);
+        double srgb = clamped <= 0.0031308
+            ? clamped * 12.92
+            : 1.055 * Math.Pow(clamped, 1.0 / 2.4) - 0.055;
+        uint channel = (uint)Math.Clamp((int)Math.Round(srgb * 255.0, MidpointRounding.AwayFromZero), 0, 255);
+        return (channel << 16) | (channel << 8) | channel;
+    }
+
+    public static uint AbgrToRgb(uint abgr) =>
+        ((abgr & 255) << 16) | (abgr & 0xff00u) | ((abgr >> 16) & 255);
+
+    private static double Linearize(uint channel)
+    {
+        double value = channel / 255.0;
+        return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+    }
+
+    private static (double L, double A, double B) ToOkLab(uint rgb)
+    {
+        double r = Linearize((rgb >> 16) & 255);
+        double g = Linearize((rgb >> 8) & 255);
+        double b = Linearize(rgb & 255);
+        double l = Math.Cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+        double m = Math.Cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+        double s = Math.Cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+        return (
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+    }
+}
+
+internal readonly record struct TaskbarBackdrop(uint Rgb, double MinLuminance, double MaxLuminance, bool Sampled)
+{
+    public const uint DefaultDarkRgb = 0x1c1f28u;
+    public const uint DefaultLightRgb = 0xeeeeeeu;
+
+    public static TaskbarBackdrop FromDark(bool dark) =>
+        Uniform(dark ? DefaultDarkRgb : DefaultLightRgb, sampled: false);
+
+    public static TaskbarBackdrop Uniform(uint rgb, bool sampled = false)
+    {
+        uint clean = rgb & 0x00ffffffu;
+        double lum = TaskbarColorMath.RelativeLuminance(clean);
+        return new(clean, lum, lum, sampled);
+    }
+
+    public static TaskbarBackdrop FromSystemTheme(bool systemUsesLightTheme, bool colorPrevalence,
+        uint? taskbarAccentRgb, bool highContrast, uint? highContrastBackgroundRgb)
+    {
+        if (highContrast && highContrastBackgroundRgb is uint hcBg)
+            return Uniform(hcBg, sampled: false);
+        if (systemUsesLightTheme)
+            return Uniform(DefaultLightRgb, sampled: false);
+        if (colorPrevalence && taskbarAccentRgb is uint accentBg)
+            return Uniform(accentBg, sampled: false);
+        return Uniform(DefaultDarkRgb, sampled: false);
+    }
+
+    public static TaskbarBackdrop FromBgraSamples(ReadOnlySpan<uint> bgraPixels)
+    {
+        if (bgraPixels.IsEmpty)
+            return FromDark(true);
+
+        const int maxSamples = 128;
+        int sampleCount = Math.Min(bgraPixels.Length, maxSamples);
+        Span<double> luminances = stackalloc double[sampleCount];
+        long sumR = 0, sumG = 0, sumB = 0;
+        for (int i = 0; i < sampleCount; i++)
+        {
+            int sourceIndex = sampleCount == bgraPixels.Length
+                ? i
+                : (int)((long)i * bgraPixels.Length / sampleCount);
+            uint rgb = bgraPixels[sourceIndex] & 0x00ffffffu;
+            sumR += (rgb >> 16) & 255;
+            sumG += (rgb >> 8) & 255;
+            sumB += rgb & 255;
+            luminances[i] = TaskbarColorMath.RelativeLuminance(rgb);
+        }
+
+        uint meanRgb = ((uint)((sumR + sampleCount / 2) / sampleCount) << 16) |
+                       ((uint)((sumG + sampleCount / 2) / sampleCount) << 8) |
+                       (uint)((sumB + sampleCount / 2) / sampleCount);
+        luminances.Sort();
+        // 使用 P10 / P90 过滤单像素噪点，同时捕获透明任务栏后的明暗拼接壁纸。
+        int trim = sampleCount / 10;
+        double meanLum = TaskbarColorMath.RelativeLuminance(meanRgb);
+        double minLum = Math.Min(meanLum, luminances[trim]);
+        double maxLum = Math.Max(meanLum, luminances[sampleCount - 1 - trim]);
+        return new(meanRgb, minLum, maxLum, Sampled: true);
+    }
+
+    public bool PrefersDarkPalette(bool? previousDark = null)
+    {
+        double lightness = TaskbarColorMath.PerceivedLightness(Rgb);
+        return previousDark switch
+        {
+            true => lightness <= 0.54,
+            false => lightness < 0.46,
+            null => (2 * ((Rgb >> 16) & 255) + 5 * ((Rgb >> 8) & 255) + (Rgb & 255)) <= 8 * 128
+        };
+    }
+}
+
+internal readonly record struct TaskbarBackdropSamplePlan(Bounds? Above, Bounds? Below, Bounds? Left, Bounds? Right)
+{
+    public bool HasRegions => Above is not null || Below is not null || Left is not null || Right is not null;
+
+    public static TaskbarBackdropSamplePlan Compute(Bounds bar, Bounds strip, int scale)
+    {
+        int s = Math.Max(1, scale);
+        if (bar.Width <= 0 || bar.Height <= 0 || strip.Width <= 0 || strip.Height <= 0)
+            return default;
+
+        int leftX = Math.Max(bar.Left + s, strip.Left);
+        int rightX = Math.Min(bar.Right - s, strip.Right);
+        int topMargin = Math.Max(2, s * 2);
+        int bottomMargin = s;
+        int clearance = s;
+
+        Bounds? above = null;
+        Bounds? below = null;
+        if (rightX > leftX)
+        {
+            int aboveTop = bar.Top + topMargin;
+            int aboveBottom = strip.Top - clearance;
+            if (aboveBottom > aboveTop)
+            {
+                int y = aboveTop + (aboveBottom - aboveTop - 1) / 2;
+                above = new(leftX, y, rightX, y + 1);
+            }
+
+            int belowTop = strip.Bottom + clearance;
+            int belowBottom = bar.Bottom - bottomMargin;
+            if (belowBottom > belowTop)
+            {
+                int y = belowTop + (belowBottom - belowTop - 1) / 2;
+                below = new(leftX, y, rightX, y + 1);
+            }
+        }
+
+        if (above is not null || below is not null)
+            return new(above, below, null, null);
+
+        // 极窄任务栏上下没有余量时，退而采样直读条左右两侧的间隙列。
+        int topY = Math.Max(bar.Top + topMargin, strip.Top);
+        int bottomY = Math.Min(bar.Bottom - bottomMargin, strip.Bottom);
+        if (bottomY <= topY)
+            return default;
+
+        Bounds? left = null;
+        int lx = strip.Left - clearance - 1;
+        if (lx >= bar.Left + s)
+            left = new(lx, topY, lx + 1, bottomY);
+
+        Bounds? right = null;
+        int rx = strip.Right + clearance;
+        if (rx + 1 <= bar.Right - s)
+            right = new(rx, topY, rx + 1, bottomY);
+
+        return new(null, null, left, right);
+    }
+}
+
+internal readonly record struct TaskbarStripPalette(
+    Color Foreground,
+    Color Warning,
+    Color Low,
+    Color Charging,
+    Color Separator,
+    Color? Plate = null,
+    Color? PlateBorder = null)
+{
+    private const double MinContrast = 4.5;
+    private const double MinStatusDistance = 0.36;
+    private const double FramelessReturnContrast = 4.7;
+    private const double FramelessReturnDistance = 0.37;
+    private const byte MinPlateAlpha = 112;
+    private const byte MaxPlateAlpha = 224;
+    private const byte PlateAlphaStep = 16;
+
+    private static readonly TaskbarStripPalette DarkBase =
+        new(new(0xf0ece4), Palette.Create(true).Warning, new(0xff8080), new(0x4ce07a), new(0xffffff, 48));
+    private static readonly TaskbarStripPalette DarkBoost =
+        new(new(0xffffff), new(0xffe838), new(0xff9494), new(0x62ed8d), new(0xffffff, 64));
+    private static readonly TaskbarStripPalette LightBase =
+        new(new(0x211d19), Palette.Create(false).Warning, new(0xb42318), new(0x0f7b38), new(0x000000, 40));
+    private static readonly TaskbarStripPalette LightBoost =
+        new(new(0x141210), new(0x763e00), new(0x9e160d), new(0x075925), new(0x000000, 52));
+
+    public bool UsesLightInk => TaskbarColorMath.RelativeLuminance(Foreground.Rgb) > 0.5;
+    public bool HasPlate => Plate is not null;
+
+    public static TaskbarStripPalette Create(bool dark) => Create(TaskbarBackdrop.FromDark(dark));
+
+    public static TaskbarStripPalette Create(TaskbarBackdrop backdrop, TaskbarStripPalette? previous = null)
+    {
+        bool dark = backdrop.PrefersDarkPalette(previous?.UsesLightInk);
+        bool hadSamePolarityPlate = previous is { HasPlate: true } prev && prev.UsesLightInk == dark;
+        double framelessContrast = hadSamePolarityPlate ? FramelessReturnContrast : MinContrast;
+        double framelessDistance = hadSamePolarityPlate ? FramelessReturnDistance : MinStatusDistance;
+
+        var basePalette = dark ? DarkBase : LightBase;
+        if (Passes(basePalette, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
+            framelessContrast, framelessDistance))
+            return basePalette;
+
+        var boostPalette = dark ? DarkBoost : LightBoost;
+        if (Passes(boostPalette, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
+            framelessContrast, framelessDistance))
+            return boostPalette;
+
+        uint scrimRgb = dark ? 0x12151cu : 0xf6f7fau;
+        var inks = dark ? DarkBase : LightBoost;
+        var border = dark ? new Color(0xffffff, 30) : new Color(0x000000, 28);
+        uint minGray = TaskbarColorMath.GrayFromLuminance(backdrop.MinLuminance);
+        uint maxGray = TaskbarColorMath.GrayFromLuminance(backdrop.MaxLuminance);
+
+        byte chosen = MaxPlateAlpha;
+        for (int alpha = MinPlateAlpha; alpha <= MaxPlateAlpha; alpha += PlateAlphaStep)
+        {
+            if (PassesWithPlate(inks, scrimRgb, (byte)alpha, backdrop.Rgb, minGray, maxGray,
+                MinContrast, MinStatusDistance))
+            {
+                chosen = (byte)alpha;
+                break;
+            }
+        }
+
+        // 动态壁纸轻微波纹时保持上一档透明度，避免细微亮度抖动引发反复重绘。
+        if (previous is { Plate: { } prevPlate } p && p.UsesLightInk == dark &&
+            Math.Abs(prevPlate.Alpha - chosen) <= PlateAlphaStep &&
+            PassesWithPlate(inks, scrimRgb, prevPlate.Alpha, backdrop.Rgb, minGray, maxGray, 4.35, 0.35))
+        {
+            chosen = prevPlate.Alpha;
+        }
+
+        return inks with { Plate = new Color(scrimRgb, chosen), PlateBorder = border };
+    }
 
     public (Color Icon, Color Text) Ink(BatteryTone tone, bool showBolt = true) => tone switch
     {
@@ -87,6 +378,30 @@ internal readonly record struct TaskbarStripPalette(Color Foreground, Color Warn
         BatteryTone.Charging => (Foreground, Charging),
         _ => (Foreground, Foreground)
     };
+
+    private static bool Passes(TaskbarStripPalette palette, uint bgRgb, double minLum, double maxLum,
+        double minContrast, double minDistance)
+    {
+        return TaskbarColorMath.WorstContrast(palette.Foreground.Rgb, minLum, maxLum) >= minContrast &&
+               TaskbarColorMath.WorstContrast(palette.Warning.Rgb, minLum, maxLum) >= minContrast &&
+               TaskbarColorMath.WorstContrast(palette.Low.Rgb, minLum, maxLum) >= minContrast &&
+               TaskbarColorMath.WorstContrast(palette.Charging.Rgb, minLum, maxLum) >= minContrast &&
+               TaskbarColorMath.OkLabDistance(palette.Warning.Rgb, bgRgb) >= minDistance &&
+               TaskbarColorMath.OkLabDistance(palette.Low.Rgb, bgRgb) >= minDistance &&
+               TaskbarColorMath.OkLabDistance(palette.Charging.Rgb, bgRgb) >= minDistance;
+    }
+
+    private static bool PassesWithPlate(TaskbarStripPalette palette, uint scrimRgb, byte alpha, uint bgRgb,
+        uint minGray, uint maxGray, double minContrast, double minDistance)
+    {
+        uint effectiveBg = TaskbarColorMath.BlendOver(scrimRgb, alpha, bgRgb);
+        double bgLum = TaskbarColorMath.RelativeLuminance(effectiveBg);
+        double minLum = TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(scrimRgb, alpha, minGray));
+        double maxLum = TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(scrimRgb, alpha, maxGray));
+        double lo = Math.Min(bgLum, Math.Min(minLum, maxLum));
+        double hi = Math.Max(bgLum, Math.Max(minLum, maxLum));
+        return Passes(palette, effectiveBg, lo, hi, minContrast, minDistance);
+    }
 }
 
 internal enum TaskbarStripReason

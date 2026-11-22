@@ -81,14 +81,20 @@ internal static class TrayIconPreview
         SaveRgb(path, width, height, background, sheet);
     }
 
-    public static void SaveTaskbarStrip(string path, TaskbarStripDevice[] devices, bool dark, uint dpi)
+    public static void SaveTaskbarStrip(string path, TaskbarStripDevice[] devices, bool dark, uint dpi) =>
+        SaveTaskbarStrip(path, devices, dark ? TaskbarBackdrop.DefaultDarkRgb : TaskbarBackdrop.DefaultLightRgb, dpi);
+
+    public static void SaveTaskbarStrip(string path, TaskbarStripDevice[] devices, uint backgroundRgb, uint dpi)
     {
         int scale = TaskbarStripLayout.PixelScale(dpi);
         var layout = TaskbarStripLayout.Build(devices);
+        var backdrop = TaskbarBackdrop.Uniform(backgroundRgb, sampled: true);
+        var palette = TaskbarStripPalette.Create(backdrop);
+        bool dark = palette.UsesLightInk;
         int stripWidth = layout.Width * scale, stripHeight = TaskbarStripLayout.Height * scale;
         int width = (12 + layout.Width + 32) * scale, height = 48 * scale;
         var taskbar = new uint[width * height];
-        var strip = TaskbarStripPixels.Render(layout, dark, scale);
+        var strip = TaskbarStripPixels.Render(layout, palette, scale);
         for (int y = 0; y < stripHeight; y++)
             strip.AsSpan(y * stripWidth, stripWidth).CopyTo(taskbar.AsSpan(
                 ((height - stripHeight) / 2 + y) * width + 12 * scale, stripWidth));
@@ -105,7 +111,7 @@ internal static class TrayIconPreview
             for (int row = 0; row < scale; row++)
                 taskbar.AsSpan((y0 + y * scale + row) * width + x0 + x * scale, scale).Fill(ink);
         }
-        SaveRgb(path, width, height, dark ? 0x1c1f28u : 0xeeeeeeu, taskbar);
+        SaveRgb(path, width, height, backgroundRgb, taskbar);
     }
 
     private static void SaveRgb(string path, int width, int height, uint background, uint[] pixels)
