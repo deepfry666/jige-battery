@@ -378,11 +378,11 @@ internal sealed class UpdateClient(
         {
             var source = sources[i];
             bool hasFallback = i + 1 < sources.Count;
-            // 有备用源或前序源已成功确认“当前已是最新”时，为本次查询设置独立超时预算，避免备用源挂死拖垮整体检查。
-            bool useAttemptTimeout = (hasFallback || anySucceeded) &&
-                primaryCheckTimeout > TimeSpan.Zero && primaryCheckTimeout != Timeout.InfiniteTimeSpan;
+            // 有备用源或前序源已确认无新版时使用短预算（默认 8s）；末源/单源也受停滞预算（默认 30s）保护，避免无限挂死。
+            TimeSpan budget = (hasFallback || anySucceeded) ? primaryCheckTimeout : stallTimeout;
+            bool useAttemptTimeout = budget > TimeSpan.Zero && budget != Timeout.InfiniteTimeSpan;
             using var attemptTimeout = useAttemptTimeout
-                ? new CancellationTokenSource(primaryCheckTimeout, timeProvider)
+                ? new CancellationTokenSource(budget, timeProvider)
                 : null;
             using var attemptCts = attemptTimeout is not null
                 ? CancellationTokenSource.CreateLinkedTokenSource(token, attemptTimeout.Token)
@@ -401,6 +401,10 @@ internal sealed class UpdateClient(
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 throw;
+            }
+            catch (OperationCanceledException) when (attemptTimeout?.IsCancellationRequested == true && !(hasFallback || anySucceeded))
+            {
+                throw new TimeoutException($"检查 {source.Name} 更新超时。");
             }
             catch (Exception error) when ((hasFallback || anySucceeded) && IsFallbackEligible(error, token))
             {
@@ -488,6 +492,7 @@ internal sealed class UpdateClient(
 
     private static bool IsFallbackEligible(Exception error, CancellationToken outerToken) => error switch
     {
+        TimeoutException => true,
         OperationCanceledException => !outerToken.IsCancellationRequested,
         HttpRequestException or HttpIOException or JsonException or InvalidDataException or
             CryptographicException or UriFormatException => true,
@@ -527,12 +532,32 @@ internal sealed class UpdateClient(
             : null;
         var headerToken = headerCts?.Token ?? token;
 
-        using var response = await GetFollowAsync(new Uri(asset.DownloadUrl!), source,
-            HttpCompletionOption.ResponseHeadersRead, headerToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
-        if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
-            throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
-        await using var sourceStream = await response.Content.ReadAsStreamAsync(headerToken).ConfigureAwait(false);
+        HttpResponseMessage response;
+        Stream sourceStream;
+        try
+        {
+            response = await GetFollowAsync(new Uri(asset.DownloadUrl!), source,
+                HttpCompletionOption.ResponseHeadersRead, headerToken).ConfigureAwait(false);
+            try
+            {
+                response.EnsureSuccessStatusCode();
+                if (response.Content.Headers.ContentLength is { } length && length != asset.Size)
+                    throw new InvalidDataException($"{asset.Name} 的下载大小与发行记录不符。");
+                sourceStream = await response.Content.ReadAsStreamAsync(headerToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                response.Dispose();
+                throw;
+            }
+        }
+        catch (OperationCanceledException) when (!token.IsCancellationRequested && headerTimeout?.IsCancellationRequested == true)
+        {
+            throw new TimeoutException($"下载 {asset.Name} 响应超时。");
+        }
+
+        using var ownedResponse = response;
+        await using var ownedStream = sourceStream;
         byte[] buffer = new byte[64 * 1024];
         long total = 0;
         while (true)
@@ -542,11 +567,18 @@ internal sealed class UpdateClient(
             {
                 using var readTimeout = new CancellationTokenSource(stallTimeout, timeProvider);
                 using var readCts = CancellationTokenSource.CreateLinkedTokenSource(token, readTimeout.Token);
-                read = await sourceStream.ReadAsync(buffer, readCts.Token).ConfigureAwait(false);
+                try
+                {
+                    read = await ownedStream.ReadAsync(buffer, readCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && readTimeout.IsCancellationRequested)
+                {
+                    throw new TimeoutException($"下载 {asset.Name} 连接停滞超时。");
+                }
             }
             else
             {
-                read = await sourceStream.ReadAsync(buffer, token).ConfigureAwait(false);
+                read = await ownedStream.ReadAsync(buffer, token).ConfigureAwait(false);
             }
             if (read <= 0)
                 break;

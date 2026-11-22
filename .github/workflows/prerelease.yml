@@ -23,6 +23,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: 安装 .NET 10
         uses: actions/setup-dotnet@v6
         with:
@@ -139,6 +141,8 @@ jobs:
           $installer = 'artifacts/release/Jige-Setup-prerelease-x64.exe'
           $checksums = 'artifacts/release/SHA256SUMS.txt'
           $keep = @('Jige-Setup-prerelease-x64.exe', 'SHA256SUMS.txt')
+          $basicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GH_TOKEN"))
+          $authHeader = "http.https://github.com/.extraheader=AUTHORIZATION: basic $basicAuth"
 
           gh release view $tag --repo $env:GITHUB_REPOSITORY > $null 2>&1
           if ($LASTEXITCODE -eq 0) {
@@ -155,14 +159,14 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             git tag -f $tag $env:GITHUB_SHA
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            git push --force origin "refs/tags/$tag"
+            git -c $authHeader push --force origin "refs/tags/$tag"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             gh release edit $tag --repo $env:GITHUB_REPOSITORY --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             git tag -f $tag $env:GITHUB_SHA
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            git push --force origin "refs/tags/$tag"
+            git -c $authHeader push --force origin "refs/tags/$tag"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             gh release create $tag $installer $checksums --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --prerelease --latest=false --title $env:JIGE_TITLE --notes-file prerelease-notes.md
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

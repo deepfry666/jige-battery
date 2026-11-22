@@ -172,4 +172,20 @@ public sealed class AuditRoundFixesCoreTests
         Assert.False(MchoseMouseProtocol.IsIdleReply(sanitizedMalformed));
         Assert.Equal(0xEE, sanitizedMalformed[1]);
     }
+
+    [Fact]
+    public void DomesticMouseMatchRejectsEmptyDeclaredReportIdsForDisambiguation()
+    {
+        // Rapoo VT7 (24AE:1413) 支持 Usage 0x0002 与 AlternateUsage 0x000E，需按已确认的报告 ID 消歧。
+        var declared = new HidInterface("rx-1", "p-valid", 0x24AE, 0x1413, null, 0xFF00, 0x0002, 64, 64, 64, 1)
+        {
+            InputReportIds = "07"
+        };
+        var missing = new HidInterface("rx-1", "p-other", 0x24AE, 0x1413, null, 0xFF00, 0x000E, 64, 64, 64, 1)
+        {
+            InputReportIds = ""
+        };
+        Assert.NotNull(DomesticMouseStatus.Match(declared));
+        Assert.Null(DomesticMouseStatus.Match(missing));
+    }
 }

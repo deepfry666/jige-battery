@@ -229,6 +229,12 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         }
 
         transition = new(Environment.TickCount64, displayedHeight, size.Height, incomingPose, previousPose, direction);
+        down = default;
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
+        }
         // D2（#14）：若切页高度不变，横向滑入与透明渐显完全由 DirectComposition 合成器在 GPU 执行，
         // 只需一次性定时收尾（额外 +20ms 裕量避免 Windows 定时器提前 1-15ms 触发导致再等一整轮），不再每 15 ms 唤醒重绘。
         uint tickMs = MathF.Abs(displayedHeight - size.Height) < .5f
@@ -359,7 +365,11 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
             return false;
         reclaimed = true;
         reclaimPending = true;
-        PInvoke.PostMessage(Handle, 0x8010, default, default);
+        if (!PInvoke.PostMessage(Handle, 0x8010, default, default))
+        {
+            reclaimPending = false;
+            return false;
+        }
         return true;
     }
 
@@ -499,7 +509,15 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     public PopupTarget PointerButton(LPARAM lParam, bool pressed)
     {
         if (transition is not null)
+        {
+            if (!pressed && captured)
+            {
+                captured = false;
+                down = default;
+                PInvoke.ReleaseCapture();
+            }
             return default;
+        }
         var (x, y) = ClientPoint(lParam);
         var current = scene?.Hit(x, y) ?? default;
         scene?.Pointer(x, y, pressed);

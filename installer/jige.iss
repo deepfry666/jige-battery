@@ -274,6 +274,25 @@ begin
   end;
 end;
 
+function ShouldRestoreAutostartFromConfig(const ConfigText: AnsiString): Boolean;
+var
+  Lower, Compact: String;
+  I: Integer;
+  Ch: Char;
+begin
+  Lower := Lowercase(String(ConfigText));
+  Compact := '';
+  for I := 1 to Length(Lower) do
+  begin
+    Ch := Lower[I];
+    if (Ch <> ' ') and (Ch <> #9) and (Ch <> #10) and (Ch <> #13) then
+      Compact := Compact + Ch;
+  end;
+  // 仅当 config.json 至少是有效 JSON 对象且未显式关闭 startWithWindows 时，才在重装时补回自启项。
+  Result := (Length(Compact) >= 2) and (Compact[1] = '{') and
+    (Pos('"startwithwindows":false', Compact) = 0);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Folder, Config, AutoStart, ExistingRun: String;
@@ -291,8 +310,7 @@ begin
     if RegQueryStringValue(HKCU, '{#RunKey}', '{#RunName}', ExistingRun) and (Trim(ExistingRun) <> '') then
       RegWriteStringValue(HKCU, '{#RunKey}', '{#RunName}', '"' + ExpandConstant('{app}\Jige.exe') + '"')
     else if LoadStringFromFile(ExpandConstant('{#DataDir}\config.json'), ConfigText) and
-      (Pos('"startWithWindows":false', Lowercase(String(ConfigText))) = 0) and
-      (Pos('"startWithWindows": false', Lowercase(String(ConfigText))) = 0) then
+      ShouldRestoreAutostartFromConfig(ConfigText) then
       RegWriteStringValue(HKCU, '{#RunKey}', '{#RunName}', '"' + ExpandConstant('{app}\Jige.exe') + '"');
     Exit;
   end;

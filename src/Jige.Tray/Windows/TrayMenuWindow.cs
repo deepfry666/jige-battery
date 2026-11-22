@@ -72,7 +72,11 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
             return false;
         reclaimed = true;
         reclaimPending = true;
-        PInvoke.PostMessage(Handle, 0x8010, default, default);
+        if (!PInvoke.PostMessage(Handle, 0x8010, default, default))
+        {
+            reclaimPending = false;
+            return false;
+        }
         return true;
     }
 

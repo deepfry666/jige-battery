@@ -354,6 +354,123 @@ public sealed class AuditRoundFixesTrayTests
         Assert.Equal(TrayMenuCommand.Exit, items[^1].Command);
     }
 
+    [Fact]
+    public void RazerCableSwitchSurvivesRestartAndDoesNotSplit()
+    {
+        var wired = new DeviceIdentity("razer-90b:rx-cable", "Razer Viper V3 Pro", DeviceKind.Mouse,
+            Connection: DeviceConnection.UsbCable);
+        var wireless = new DeviceIdentity("razer-90b:rx-dongle", "Razer Viper V3 Pro", DeviceKind.Mouse,
+            Connection: DeviceConnection.Receiver);
+
+        var model = new TrayModel(new(), new());
+        model.ApplyPoll([new(wired, 55, false, ChargingState.Charging, LinkState.Online, Now)], false, Now, 0);
+        // 拔线切到无线并落盘（此时主 ID 仍为 rx-cable，但 Connection 已更新为 Receiver）
+        model.ApplyPoll([new(wireless, 54, false, ChargingState.NotCharging, LinkState.Online, Now.AddMinutes(1))],
+            false, Now.AddMinutes(1), 0);
+        var saved = model.Snapshot();
+
+        // 重启后 mergedRazerIds 为空，仅插着无线接收器上报 rx-dongle -> 必须继续合并到原主 ID rx-cable，不产生重复设备
+        var restarted = new TrayModel(new(), saved);
+        restarted.ApplyPoll([new(wireless, 52, false, ChargingState.NotCharging, LinkState.Online, Now.AddMinutes(10))],
+            false, Now.AddMinutes(10), 0);
+        var single = Assert.Single(restarted.OrderedDevices());
+        Assert.Equal(wired.Id, single.Device.Id);
+        Assert.Equal(52, single.Percentage);
+    }
+
+    [Fact]
+    public void StaleHeldReadingPreservesNewerChargingAndPassiveMouseHonorsExplicitOffline()
+    {
+        var model = new TrayModel(new(), new());
+        var mouse = new DeviceIdentity("mouse-1", "Mouse", DeviceKind.Mouse);
+        model.ApplyPoll([new(mouse, 50, false, ChargingState.Charging, LinkState.Online, Now.AddSeconds(10))],
+            false, Now.AddSeconds(10), 0);
+
+        // 乱序到达的旧读数（T+5s, 49%, NotCharging）不得覆盖 T+10s 的充电态
+        model.ApplyPoll([new(mouse, 49, false, ChargingState.NotCharging, LinkState.Online, Now.AddSeconds(5))],
+            false, Now.AddSeconds(15), 0);
+        var current = Assert.Single(model.OrderedDevices());
+        Assert.Equal(50, current.Percentage);
+        Assert.Equal(ChargingState.Charging, current.Charging);
+
+        // 被动鼠标在有效期内明确收到 Offline 不得被吞掉
+        var passive = new DeviceIdentity("mouse-passive:rx-2", "ATTACK SHARK X11", DeviceKind.Mouse)
+        {
+            UsesPassiveBatteryReports = true
+        };
+        model.ApplyPresence([new("rx-2", null, passive.Id, LinkState.Online)
+        {
+            Battery = new(passive, 80, false, ChargingState.NotCharging, LinkState.Online, Now)
+        }], Now);
+        model.ApplyPoll([new(passive, null, false, ChargingState.Unknown, LinkState.Offline, Now.AddSeconds(30))],
+            false, Now.AddSeconds(30), 0);
+        var passiveStatus = model.OrderedDevices().Single(d => d.Device.Id == passive.Id);
+        Assert.Equal(LinkState.Offline, passiveStatus.Link);
+    }
+
+    [Fact]
+    public void TransientBusyPreservesAsleepSinceAndNormalizeDropsEmptyCleanAlias()
+    {
+        var model = new TrayModel(new(), new());
+        var mouse = new DeviceIdentity("mouse-sleep", "Mouse", DeviceKind.Mouse);
+        model.ApplyPoll([new(mouse, 60, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now, 0);
+        model.ApplyPoll([new(mouse, null, false, ChargingState.Unknown, LinkState.Asleep, Now.AddMinutes(1))],
+            false, Now.AddMinutes(1), 0);
+        // 休眠 5 分钟后发生瞬时 Busy，AdvanceSleepTimeouts 不得抹除原 asleepSince
+        model.ApplyPoll([new(mouse, null, false, ChargingState.Unknown, LinkState.Busy, Now.AddMinutes(6))],
+            false, Now.AddMinutes(6), 0);
+        model.AdvanceSleepTimeouts(Now.AddMinutes(7));
+        // 第 11 分钟回到 Asleep，距离首次休眠（T+1m）已满 10 分钟，应直接超时转离线
+        model.ApplyPoll([new(mouse, null, false, ChargingState.Unknown, LinkState.Asleep, Now.AddMinutes(11))],
+            false, Now.AddMinutes(11), 0);
+        Assert.Equal(LinkState.Offline, Assert.Single(model.OrderedDevices()).Link);
+
+        var normalized = new TraySettings
+        {
+            DeviceAliases = new Dictionary<string, string> { ["dev-1"] = "\u200B\u202E\u007F" }
+        }.Normalize();
+        Assert.Empty(normalized.DeviceAliases);
+    }
+
+    [Fact]
+    public void RuntimeEstimatorClampsCrossDayUsageAndFormats999Boundary()
+    {
+        var dev = new DeviceIdentity("kb-1", "Keyboard", DeviceKind.Keyboard);
+        DeviceStatus Status(int pct, DateTimeOffset at) => new(
+            dev, LinkState.Online, ReadIssue.None, ChargingState.NotCharging,
+            new SavedBattery(dev, pct, false, at), Fresh: true);
+
+        var (state, _) = RuntimeEstimator.Observe(null, Status(80, Now), Now, TimeSpan.FromHours(60), TimeZoneInfo.Utc);
+        (state, _) = RuntimeEstimator.Observe(state, Status(79, Now.AddHours(30)), Now.AddHours(30),
+            TimeSpan.FromHours(60), TimeZoneInfo.Utc);
+        Assert.True(state.UsageTodayHours <= 24);
+        Assert.NotNull(RuntimeEstimator.Restore(state));
+        Assert.Equal("超过 999 小时", RuntimeEstimator.Format(994.99999995));
+    }
+
+    [Fact]
+    public async Task UpdateClientTimesOutSingleSourceAndPopupRespectsKnownEdgeWithTopAppBar()
+    {
+        var clock = new ManualTimeProvider();
+        using var http = new HttpClient(new AsyncStubHandler(async (_, token) =>
+        {
+            var pending = Task.Delay(Timeout.InfiniteTimeSpan, token);
+            clock.Advance(TimeSpan.FromSeconds(31));
+            await pending;
+            return new(HttpStatusCode.OK);
+        }));
+        var client = new UpdateClient(http, [UpdateSource.GitHub], timeProvider: clock,
+            downloadStallTimeout: TimeSpan.FromSeconds(30));
+        var error = await Assert.ThrowsAsync<TimeoutException>(() => client.CheckAsync(new Version(0, 2, 18), CancellationToken.None));
+        Assert.Equal("请求或下载超时，请检查网络后重试。", UpdateViewState.ExplainError(error));
+
+        // 底部自动隐藏任务栏 + 顶部第三方停靠 AppBar（work.Top = 32, work.Bottom = 1080）
+        var screen = new Bounds(0, 0, 1920, 1080);
+        var work = new Bounds(0, 32, 1920, 1080);
+        var bottomIcon = new Bounds(1800, 1060, 1840, 1080);
+        Assert.Equal(TaskbarEdge.Bottom, PopupPlacement.ResolveEdge(bottomIcon, screen, work, TaskbarEdge.Bottom));
+    }
+
     private sealed class AsyncStubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond)
         : HttpMessageHandler
     {

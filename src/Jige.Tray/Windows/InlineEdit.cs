@@ -105,11 +105,14 @@ internal sealed unsafe class InlineEdit : IDisposable
     {
         try
         {
-            if (message == 0x0082) // WM_NCDESTROY：自卸载子类并原子释放 GCHandle，防止外部销毁路径悬空。
+            if (message == 0x0082) // WM_NCDESTROY：自卸载子类、清零句柄并原子释放 GCHandle，防止外部销毁路径悬空。
             {
                 PInvoke.RemoveWindowSubclass(window, &EditProcedure, subclass);
                 if (data != 0 && GCHandle.FromIntPtr((nint)data).Target is InlineEdit dying)
+                {
+                    dying.Handle = default;
                     dying.ReleaseStateHandle();
+                }
                 return PInvoke.DefSubclassProc(window, message, wParam, lParam);
             }
             if (data == 0 || GCHandle.FromIntPtr((nint)data).Target is not InlineEdit editor)

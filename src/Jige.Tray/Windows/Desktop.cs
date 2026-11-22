@@ -263,7 +263,7 @@ internal static unsafe class Desktop
 
     private const string StartupApprovedRunKey = @"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
 
-    public static void SetAutostart(bool enabled)
+    public static void SetAutostart(bool enabled, bool clearTaskManagerDisable = false)
     {
         string installed = InstallPaths.ResolveInstalledExecutable(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -283,8 +283,8 @@ internal static unsafe class Desktop
                 writable.SetValue(RunName, desired);
         }
 
-        // 若用户曾在任务管理器禁用自启，重新开启时同步清除 StartupApproved\Run 禁用记录。
-        if (enabled)
+        // 仅在用户在设置里主动重新开启自启时清除任务管理器的禁用记录，不覆盖日常启动时用户的手动禁用。
+        if (enabled && clearTaskManagerDisable)
         {
             try
             {

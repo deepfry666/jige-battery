@@ -191,49 +191,10 @@ public static partial class WindowsDeviceDiscovery
             vid = attributes.VendorId;
             pid = attributes.ProductId;
             var domesticRoute = DomesticMouseStatus.Find(vid, pid);
-            bool wantFullReportIds = includeReportIds && (domesticRoute is not null || !includeUnknownHid || true);
-            Native.HidCaps caps;
-            string? inputIds = null, outputIds = null, featureIds = null;
-            if (domesticRoute is not null && !includeUnknownHid && !includeReportIds)
-            {
-                caps = WindowsReceiverTransport.ReadCaps(handle);
-                if (!domesticRoute.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
-                    return null;
-                int type = domesticRoute.Feature ? 2 : 0;
-                ushort length = domesticRoute.Feature ? caps.FeatureLength : caps.InputLength;
-                if (!WindowsReceiverTransport.DeclaresReportId(handle, type, domesticRoute.ReportId, length))
-                    return null;
-                if (domesticRoute.Feature)
-                    featureIds = $"{domesticRoute.ReportId:X2}";
-                else
-                    inputIds = $"{domesticRoute.ReportId:X2}";
-            }
-            else
-            {
-                bool scanIds = includeReportIds && wantFullReportIds;
-                (caps, inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadCapsAndReportIds(handle, false);
-                if (!readProduct && !includeUnknownHid && caps.UsagePage < 0xFF00)
-                    return null;
-                if (domesticRoute is not null &&
-                    domesticRoute.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength))
-                {
-                    int type = domesticRoute.Feature ? 2 : 0;
-                    ushort length = domesticRoute.Feature ? caps.FeatureLength : caps.InputLength;
-                    if (WindowsReceiverTransport.DeclaresReportId(handle, type, domesticRoute.ReportId, length))
-                    {
-                        if (domesticRoute.Feature)
-                            featureIds = $"{domesticRoute.ReportId:X2}";
-                        else
-                            inputIds = $"{domesticRoute.ReportId:X2}";
-                    }
-                }
-                else if (scanIds &&
-                    (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
-                     domesticRoute is not null))
-                {
-                    (inputIds, outputIds, featureIds) = WindowsReceiverTransport.ReadDeclaredReportIds(handle, caps);
-                }
-            }
+            var (caps, inputIds, outputIds, featureIds, matchedDomestic) = WindowsReceiverTransport.ReadCapsForDiscovery(
+                handle, domesticRoute, interfaceNumber, vid, includeUnknownHid, includeReportIds);
+            if (domesticRoute is not null && !includeUnknownHid && !includeReportIds && !matchedDomestic)
+                return null;
             if (readProduct && (caps.UsagePage >= 0xFF00 || vid == 0x046D && pid == 0x0AC4))
             {
                 char* chars = stackalloc char[126];

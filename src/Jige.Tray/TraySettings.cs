@@ -176,8 +176,11 @@ internal sealed record TraySettings
         var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (id, name) in DeviceAliases ?? [])
         {
-            if (!string.IsNullOrWhiteSpace(id) && !string.IsNullOrWhiteSpace(name))
-                aliases[id] = CleanAlias(name);
+            if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(name))
+                continue;
+            string cleaned = CleanAlias(name);
+            if (cleaned.Length > 0)
+                aliases[id] = cleaned;
         }
 
         // Equidistant values choose the shorter interval. Use long for older out-of-range values.

@@ -299,18 +299,19 @@ internal static class RuntimeEstimator
 
     private static SavedRuntimeEstimate AddUsage(SavedRuntimeEstimate state, double hours, DateTimeOffset now, TimeZoneInfo zone)
     {
+        double clampedHours = Math.Clamp(hours, 0, 24);
         string day = TimeZoneInfo.ConvertTime(now, zone).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         if (state.UsageDay == day)
-            return hours > 0 ? state with { UsageTodayHours = Math.Min(24, state.UsageTodayHours + hours) } : state;
+            return clampedHours > 0 ? state with { UsageTodayHours = Math.Min(24, state.UsageTodayHours + clampedHours) } : state;
         if (state.UsageDay is null || state.UsageTodayHours <= 0 || string.CompareOrdinal(day, state.UsageDay) < 0)
-            return state with { UsageDay = day, UsageTodayHours = hours };
+            return state with { UsageDay = day, UsageTodayHours = clampedHours };
         double daily = state.UsageDays == 0
-            ? state.UsageTodayHours
-            : state.UsageDailyHours * (1 - UsageSmoothing) + state.UsageTodayHours * UsageSmoothing;
+            ? Math.Min(24, state.UsageTodayHours)
+            : Math.Min(24, state.UsageDailyHours * (1 - UsageSmoothing) + Math.Min(24, state.UsageTodayHours) * UsageSmoothing);
         return state with
         {
             UsageDay = day,
-            UsageTodayHours = hours,
+            UsageTodayHours = clampedHours,
             UsageDailyHours = daily,
             UsageDays = state.UsageDays + 1
         };
@@ -416,7 +417,7 @@ internal static class RuntimeEstimator
             return "不到 10 分钟";
         if (rounded < 1)
             return $"约 {Math.Round(rounded * 60)} 分钟";
-        if (hours >= 995)
+        if (rounded >= 999)
             return "超过 999 小时";
         return $"约 {rounded:0} 小时";
     }

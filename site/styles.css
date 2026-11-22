@@ -94,6 +94,7 @@ h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.012em; text-wrap: b
   font-weight: 600; text-decoration: none; transition: top 0.2s var(--ease-out);
 }
 .skip:focus { top: 12px; }
+.copy-sr { position: fixed; top: 0; left: -9999px; opacity: 0; pointer-events: none; }
 
 .wrap {
   width: 100%;
@@ -1122,7 +1123,7 @@ body.has-pointer .bg-spotlight { opacity: 1; }
 }
 .footer-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px 24px; flex-wrap: wrap; }
 .footer-brand { display: flex; align-items: center; gap: 10px; }
-.footer-brand img { border-radius: 6px; box-shadow: 0 1px 3px rgba(25, 23, 21, 0.12); flex: none; }
+.footer-brand img { flex: none; }
 .footer-links { display: flex; gap: 22px; flex-wrap: wrap; }
 .footer-links a { color: var(--ink-2); text-decoration: none; transition: color 0.2s ease; }
 .footer-links a:hover { color: var(--ink); }

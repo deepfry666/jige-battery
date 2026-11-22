@@ -121,6 +121,7 @@ internal sealed record UpdateViewState(
 
     public static string ExplainError(Exception error) => error switch
     {
+        TimeoutException => "请求或下载超时，请检查网络后重试。",
         HttpRequestException { StatusCode: System.Net.HttpStatusCode.TooManyRequests } =>
             "更新服务器暂时限流，请稍后再试。",
         HttpRequestException { StatusCode: { } status } => $"更新服务器请求失败（HTTP {(int)status}）。",

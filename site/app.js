@@ -240,10 +240,13 @@
     }
   }
 
+  var pointerMoved = false;
+
   if (finePointer) {
     window.addEventListener("pointermove", function (ev) {
       targetX = ev.clientX;
       targetY = ev.clientY;
+      pointerMoved = true;
       if (!pointerActive) {
         pointerActive = true;
         curX = targetX;
@@ -259,15 +262,15 @@
   var lastDrawTs = 0;
   var lastPointerTs = 0;
 
-  if (finePointer) {
-    window.addEventListener("pointermove", function () { lastPointerTs = performance.now(); }, { passive: true });
-  }
-
   function drawKineticDial(ts) {
     if (document.hidden) {
       bgRaf = 0;
       prevTs = 0;
       return;
+    }
+    if (pointerMoved) {
+      lastPointerTs = ts;
+      pointerMoved = false;
     }
     var idle = !pointerActive || (ts - lastPointerTs > 1500);
     if (!reduceMotion && idle && lastDrawTs && (ts - lastDrawTs < 80)) {
@@ -482,10 +485,11 @@
   function animateHeroNumber(el, fromVal, toVal) {
     if (pctAnimRaf) cancelAnimationFrame(pctAnimRaf);
     if (reduceMotion || fromVal === toVal) { el.textContent = String(toVal); return; }
-    var start = performance.now();
+    var start = 0;
     var dur = 320;
     function tickNum(now) {
-      var p = Math.min(1, (now - start) / dur);
+      if (!start) start = now;
+      var p = Math.max(0, Math.min(1, (now - start) / dur));
       var eased = 1 - Math.pow(1 - p, 3);
       el.textContent = String(Math.round(fromVal + (toVal - fromVal) * eased));
       if (p < 1) pctAnimRaf = requestAnimationFrame(tickNum);
@@ -780,8 +784,13 @@
         var area = document.createElement("textarea");
         area.value = text;
         area.setAttribute("readonly", "");
-        area.className = "skip";
+        area.className = "copy-sr";
         document.body.appendChild(area);
+        try {
+          area.focus({ preventScroll: true });
+        } catch (_) {
+          area.focus();
+        }
         area.select();
         try {
           if (document.execCommand("copy")) done();

@@ -71,14 +71,15 @@ internal static unsafe class NativeCheck
             if (JsonSerializer.Deserialize(releaseJson, ReleaseJsonContext.Default.ReleaseResponse)?.Tag != "v0.2.19")
                 return Fail("ReleaseResponse JSON 往返失败");
 
-            // 验证 UI Automation COM 对象可实例化（用于任务栏直读条几何发现）。
-            var clsid = AutomationClass;
-            var iid = IUIAutomation.IID_Guid;
-            IUIAutomation* uia = null;
-            var hr = PInvoke.CoCreateInstance(&clsid, null, CLSCTX.CLSCTX_INPROC_SERVER, &iid, (void**)&uia);
-            if (hr.Failed || uia == null)
-                return Fail($"CoCreateInstance(CUIAutomation8) 失败 0x{hr.Value:X8}");
-            uia->Release();
+            // 与运行时 TaskbarStripAutomation 一致，在独立 MTA 线程验证 CUIAutomation8 / IUIAutomation2 COM 实例化。
+            // 非交互式无桌面 Runner（Session 0）上 UIA 允许优雅降级，不阻断自检。
+            string? uiaError = VerifyUiAutomationOnMta();
+            if (uiaError is not null)
+            {
+                if (Environment.UserInteractive)
+                    return Fail(uiaError);
+                Desktop.Log($"非交互环境下跳过 UIA 强校验：{uiaError}");
+            }
 
             return 0;
         }
@@ -92,6 +93,42 @@ internal static unsafe class NativeCheck
             TrayIcon.DisposeSharedRenderer();
             PInvoke.CoUninitialize();
         }
+    }
+
+    private static string? VerifyUiAutomationOnMta()
+    {
+        string? failure = null;
+        var thread = new Thread(() =>
+        {
+            var mta = PInvoke.CoInitializeEx(COINIT.COINIT_MULTITHREADED);
+            if (mta.Failed)
+            {
+                failure = $"MTA CoInitializeEx 失败 0x{mta.Value:X8}";
+                return;
+            }
+            try
+            {
+                var clsid = AutomationClass;
+                var iid = IUIAutomation2.IID_Guid;
+                IUIAutomation2* uia = null;
+                var hr = PInvoke.CoCreateInstance(&clsid, null, CLSCTX.CLSCTX_INPROC_SERVER, &iid, (void**)&uia);
+                if (hr.Failed || uia == null)
+                {
+                    failure = $"CoCreateInstance(CUIAutomation8/IUIAutomation2) 失败 0x{hr.Value:X8}";
+                    return;
+                }
+                uia->Release();
+            }
+            finally
+            {
+                PInvoke.CoUninitialize();
+            }
+        })
+        { IsBackground = true, Name = "Jige NativeCheck UIA" };
+        thread.Start();
+        if (!thread.Join(TimeSpan.FromSeconds(5)))
+            return "UIA MTA 自检线程超时";
+        return failure;
     }
 
     private static int Fail(string message)

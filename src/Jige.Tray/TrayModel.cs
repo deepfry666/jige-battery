@@ -233,11 +233,14 @@ internal sealed class TrayModel
         foreach (var id in devices.Keys.ToArray())
         {
             var device = devices[id];
-            if (device.Link != LinkState.Asleep || device.Device.UsesPassiveBatteryReports)
+            if (device.Device.UsesPassiveBatteryReports ||
+                device.Link is not (LinkState.Asleep or LinkState.Busy or LinkState.Unknown))
             {
                 asleepSince.Remove(id);
                 continue;
             }
+            if (device.Link != LinkState.Asleep)
+                continue;
             if (!asleepSince.TryGetValue(id, out var since) || now < since)
             {
                 asleepSince[id] = now;
@@ -489,9 +492,10 @@ internal sealed class TrayModel
                     continue;
             }
             var previous = devices.GetValueOrDefault(device.Id);
-            if (device.UsesPassiveBatteryReports && previous is not null && reading.Link != LinkState.Online)
+            if (device.UsesPassiveBatteryReports && previous is not null && reading.Link == LinkState.Asleep)
             {
-                // 被动推送鼠标在 60s 常规全量轮询期间若 350ms 窗口未收到帧，不得覆盖刚推送到达且仍在有效期内的在线读数。
+                // 被动推送鼠标在 60s 常规全量轮询期间若 350ms 窗口未收到帧，不得覆盖刚推送到达且仍在有效期内的在线读数；
+                // 但明确上报 Offline 时不得吞掉，确保拔出或离线及时生效。
                 if (previous is { Fresh: true, Link: LinkState.Online, Last: { } prevPassive } &&
                     !IsExpired(prevPassive, now, inGameMode))
                 {
@@ -528,6 +532,8 @@ internal sealed class TrayModel
                 prevLast.ReadAt <= now + FutureClockSkew &&
                 reading.ReadAt < prevLast.ReadAt;
             bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null && !staleHeld;
+            var resolvedCharging = reading.Charging;
+            var resolvedIssue = reading.Issue;
             if (fresh)
             {
                 anyFresh = true;
@@ -541,11 +547,13 @@ internal sealed class TrayModel
                     meaningfulChange = true;
                 last = nextLast;
             }
-            else if (staleHeld && resolvedLink == LinkState.Online && previous?.Last is { } keptLast)
+            else if (staleHeld && resolvedLink == LinkState.Online && previous is { Last: { } keptLast })
             {
-                // 适配器返还旧读数（如 HoldOnline）时保留原时间戳且仅在未过期时视为有效，避免倒退 ReadAt 污染续航计时。
+                // 适配器返还旧读数（如 HoldOnline）或乱序旧轮询到达时，保留较新的电量、充电态与错误态，避免回退污染历史与提醒。
                 fresh = !IsExpired(keptLast, now, inGameMode);
-                if (previous.Link != resolvedLink || previous.Device != device)
+                resolvedCharging = previous.Charging;
+                resolvedIssue = previous.Issue;
+                if (previous.Link != resolvedLink || previous.Device != device || previous.Fresh != fresh)
                     meaningfulChange = true;
             }
             else if (previous is null || previous.Link != resolvedLink || previous.Device != device ||
@@ -554,11 +562,12 @@ internal sealed class TrayModel
                 meaningfulChange = true;
             }
 
-            var status = new DeviceStatus(device, resolvedLink, reading.Issue, reading.Charging, last, fresh);
+            var status = new DeviceStatus(device, resolvedLink, resolvedIssue, resolvedCharging, last, fresh);
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
-            if (!staleHeld)
+            // 仅当旧读数仍保持在线态时跳过续航更新；若已转为休眠/离线必须通知续航模型暂停计时。
+            if (!staleHeld || resolvedLink != LinkState.Online)
                 ObserveRuntime(device.Id, status, now);
             if (fresh && UpdateReminder(status, now))
                 meaningfulChange = true;
@@ -688,8 +697,21 @@ internal sealed class TrayModel
             if (items.Count(item => item.Link == LinkState.Online) >= 2)
             {
                 dualOnlineRazerModels.Add(group.Key);
-                foreach (var item in items)
-                    mergedRazerIds.Remove(item.Device.Id);
+                var modelIds = new HashSet<string>(
+                    items.Select(item => item.Device.Id)
+                        .Concat(devices.Values
+                            .Where(item => IsMergeableRazer90B(item.Device) &&
+                                item.Device.Kind == group.Key.Kind &&
+                                StringComparer.OrdinalIgnoreCase.Equals(item.Device.Name, group.Key.Name))
+                            .Select(item => item.Device.Id)),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var id in modelIds)
+                {
+                    mergedRazerIds.Remove(id);
+                    activeRouteIds.Remove(id);
+                }
+                foreach (var pair in mergedRazerIds.Where(p => modelIds.Contains(p.Value)).ToArray())
+                    mergedRazerIds.Remove(pair.Key);
                 merged.AddRange(items);
                 continue;
             }
@@ -712,8 +734,10 @@ internal sealed class TrayModel
             bool alreadyMapped = items.Length == 1 &&
                 mergedRazerIds.TryGetValue(items[0].Device.Id, out var mappedCanonical) &&
                 devices.ContainsKey(mappedCanonical);
+            // 单通道切换或跨重启/换口后原主 ID 离线：只要不是双机型号且只有唯一已知建档，就继续合并到原主 ID 保留别名与历史。
             bool singleSwitch = items.Length == 1 && !devices.ContainsKey(items[0].Device.Id) &&
-                known.Length == 1 && (known[0].Device.Connection != items[0].Device.Connection || alreadyMapped);
+                known.Length == 1 &&
+                (known[0].Device.Connection != items[0].Device.Connection || alreadyMapped || !known[0].IsOnline);
             if (!hasBothConnections && !singleSwitch)
             {
                 if (alreadyMapped)
@@ -723,7 +747,12 @@ internal sealed class TrayModel
                     merged.Add(items[0] with { Device = items[0].Device with { Id = targetId } });
                 }
                 else
+                {
+                    // 已回到原主 ID 单路工作，清除旧的合并路由映射避免残留指向已拔出的有线/接收器路径。
+                    if (items.Length == 1 && devices.ContainsKey(items[0].Device.Id))
+                        activeRouteIds.Remove(items[0].Device.Id);
                     merged.AddRange(items);
+                }
                 continue;
             }
 
@@ -899,10 +928,10 @@ internal sealed class TrayModel
 
         if (incoming is LinkState.Busy or LinkState.Unknown)
         {
-            // R1：已离线设备不因瞬时 Busy/Unknown 复活；休眠设备遇瞬时异常时保留原 asleepSince，避免重置 10 分钟离线计时。
+            // R1：已离线设备不因瞬时 Busy/Unknown 复活；休眠设备遇瞬时或连续异常时保留原 asleepSince，避免重置 10 分钟离线计时。
             if (previousLink == LinkState.Offline)
                 return LinkState.Offline;
-            if (previousLink != LinkState.Asleep)
+            if (previousLink != LinkState.Asleep && !asleepSince.ContainsKey(id))
                 asleepSince.Remove(id);
             return incoming;
         }
