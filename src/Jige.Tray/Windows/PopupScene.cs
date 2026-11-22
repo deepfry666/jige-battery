@@ -635,21 +635,10 @@ internal sealed partial class PopupScene : IDisposable
             _ => colors.Low
         };
         DeviceIcon(canvas, notice.Device.Kind, 14, 46, 36, accent.WithAlpha(36), accent);
-        var (title, detail) = Presentation.Reminder(noticeKind, notice, model.Name(notice.Device),
-            model.Runtime(notice, DateTimeOffset.UtcNow));
+        var (title, suffix) = Presentation.ReminderParts(noticeKind, notice, model.Runtime(notice, DateTimeOffset.UtcNow));
         canvas.Text(title, 62, 44, 269, 21, 14, colors.Ink, 600, ellipsis: true);
-        if (noticeKind == ReminderKind.LowBattery)
-        {
-            // 低电量保持原排版：名称过长时只省略名称，「只剩 xx%」始终完整可见。
-            string value = $" 只剩 {Presentation.Value(notice)}";
-            float valueWidth = canvas.Measure(value, 13) + 2;
-            float available = 268 - valueWidth;
-            float nameWidth = canvas.Text(model.Name(notice.Device), 62, 64, available, 20, 13, colors.Secondary,
-                ellipsis: true);
-            canvas.Text(value, 62 + Math.Min(nameWidth, available), 64, valueWidth, 20, 13, colors.Secondary);
-        }
-        else
-            canvas.Text(detail, 62, 64, 268, 20, 13, colors.Secondary, ellipsis: true);
+        // 名称过长时只省略名称，「只剩 xx%」「预计可用约 40 分钟」等后缀始终完整可见。
+        canvas.NameWithSuffix(model.Name(notice.Device), suffix, 62, 64, 268, 20, 13, colors.Secondary);
         DrawNoticeButton(canvas, NoticeButtons[0], "1 小时后提醒", false);
         DrawNoticeButton(canvas, NoticeButtons[1], "知道了", true);
     }

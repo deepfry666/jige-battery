@@ -18,6 +18,9 @@ internal static class PanelLayout
     public const int DiagnosticFooterHeight = 68;
     public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
     public const int SettingsHeight = 571;
+    public const int SettingsHeaderHeight = 20, SettingsSections = 3, SettingsOptionHeight = 34;
+    /// <summary>屏幕太矮时省掉三组小标题（卡片间距保留），避免整个面板被等比缩小。</summary>
+    public const int SettingsCompactHeight = SettingsHeight - SettingsSections * SettingsHeaderHeight;
     public const int UpdatesCompactHeight = 268;
     public const int UpdatesAvailableHeight = 404;
     public const int DeviceRowsTop = 117;
@@ -35,7 +38,7 @@ internal static class PanelLayout
         switch (page)
         {
             case PanelPage.Notice or PanelPage.Welcome: return new(NoticeHeight, 0);
-            case PanelPage.Settings: return new(SettingsHeight + footerExtra, 0);
+            case PanelPage.Settings: return new(SettingsHeightFor(availableHeight) + footerExtra, 0);
             case PanelPage.Updates:
                 int target = count > 0 ? UpdatesAvailableHeight : UpdatesCompactHeight;
                 return new(Math.Min(Math.Max(UpdatesCompactHeight, availableHeight), target), 0);
@@ -49,6 +52,13 @@ internal static class PanelLayout
                 return new((int)Math.Ceiling(baseHeight + deviceRows * DeviceRowHeight), deviceRows);
         }
     }
+
+    /// <summary>放不下「带小标题的设置页 + 诊断页脚 + 一行展开项」时使用紧凑设置页。</summary>
+    public static bool CompactSettings(int availableHeight) =>
+        availableHeight < SettingsHeight + DiagnosticFooterExtraHeight + SettingsOptionHeight;
+
+    public static int SettingsHeightFor(int availableHeight) =>
+        CompactSettings(availableHeight) ? SettingsCompactHeight : SettingsHeight;
 
     public static double Ease(double progress)
     {

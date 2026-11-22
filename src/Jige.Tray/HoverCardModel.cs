@@ -244,7 +244,9 @@ internal static class HoverCardBuilder
         DateTimeOffset? lastCharge = null)
     {
         bool charging = device.Fresh && (device.IsFull || device.IsCharging);
-        string? charged = !charging && lastCharge is { } at && at <= now ? RuntimeEstimator.ChargedAgo(at, now) : null;
+        // 休眠时「休眠中 · N 分钟前」更要紧，单行放不下时不再加「上次充电」。
+        string? charged = !charging && device.Link != LinkState.Asleep && lastCharge is { } at && at <= now
+            ? RuntimeEstimator.ChargedAgo(at, now) : null;
         List<string> parts = [];
         if (device.Fresh && device.IsFull)
             parts.Add("已充满");
@@ -264,10 +266,9 @@ internal static class HoverCardBuilder
 
         if (device.Last is { } last)
         {
-            string age = ReadAge(last.ReadAt, now);
-            // 已显示「上次充电」时，刚读到的读数不再重复写「刚刚读取」，避免单行放不下。
-            if (charged is null || age != "刚刚读取")
-                parts.Add(age);
+            // 已显示「上次充电」时设备在线、读数是新的，不再写读取时间，避免单行放不下。
+            if (charged is null)
+                parts.Add(ReadAge(last.ReadAt, now));
         }
         else
             parts.Add("等待读取");
@@ -294,23 +295,26 @@ internal static class HoverCardBuilder
         string remaining = RuntimeEstimator.Format(runtime.Hours);
         if (device.IsFull)
             return $"满电预计可用{remaining}";
-        return runtime.Days is { } days
-            ? $"预计可用{remaining} · 按你的用法{RuntimeEstimator.FormatDays(days)}"
+        // 封顶的「超过 999 小时」再接天数会放不下一行，且数字已足够说明问题。
+        return runtime.Days is { } days && runtime.Hours < 995
+            ? $"预计可用{remaining}，够用{RuntimeEstimator.FormatDays(days)}"
             : $"预计可用{remaining}";
     }
 
     internal static string ListRowStatus(DeviceStatus device, BatteryTone tone, RuntimeEstimate runtime)
     {
         if (runtime is { Charging: true, Kind: RuntimeKind.Ready } && device.Fresh && device.IsCharging && !device.IsFull)
-            return ChargeEstimator.Format(runtime.Hours);
+            return ChargeEstimator.Format(runtime.Hours, compact: true);
         if (runtime.Kind == RuntimeKind.None || device.Link == LinkState.Asleep || device.Fresh && (device.IsFull || device.IsCharging))
             return ListRowStatus(device, tone);
-        string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;
+        // 列表行只有约 106px：低电量靠红/橙色表达，文字统一写剩余时间，避免「电量偏低 · 约 18 小时」被截断。
+        if (runtime.Kind == RuntimeKind.Ready)
+            return $"可用{RuntimeEstimator.Format(runtime.Hours)}";
         return tone switch
         {
-            BatteryTone.Low => remaining is null ? "电量低" : $"电量低 · {remaining}",
-            BatteryTone.Warning => remaining is null ? "电量偏低" : $"电量偏低 · {remaining}",
-            _ => remaining is null ? "可用时间估算中" : $"可用{remaining}"
+            BatteryTone.Low => "电量低",
+            BatteryTone.Warning => "电量偏低",
+            _ => "可用时间估算中"
         };
     }
 

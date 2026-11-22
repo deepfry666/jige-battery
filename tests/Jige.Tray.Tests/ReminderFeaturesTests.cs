@@ -217,7 +217,23 @@ public sealed class ReminderFeaturesTests
         var device = new DeviceStatus(Mouse, LinkState.Online, ReadIssue.None, ChargingState.NotCharging,
             new(Mouse, 12, false, T0), true);
         var (_, detail) = Presentation.GameEntryBanner(device, "测试鼠标", new(RuntimeKind.Ready, .66), 1);
-        Assert.Equal("预计可用约 40 分钟，建议先插线 · 另有 1 台电量低", detail);
+        // 横幅只有约 246px：有其他低电量设备时省掉「建议先插线」，两行都不截断。
+        Assert.Equal("预计可用约 40 分钟 · 另有 1 台电量低", detail);
+        Assert.Equal("预计可用约 40 分钟，建议先插线",
+            Presentation.GameEntryBanner(device, "测试鼠标", new(RuntimeKind.Ready, .66), 0).Detail);
+        Assert.Equal((" 只剩 12%", "建议先插线再开局 · 另有 2 台电量低"),
+            Presentation.GameEntryBannerParts(device, RuntimeEstimate.None, 2));
+    }
+
+    [Fact]
+    public void NoticeSuffixKeepsTheKeyInformationSeparateFromTheName()
+    {
+        var device = new DeviceStatus(Mouse, LinkState.Online, ReadIssue.None, ChargingState.NotCharging,
+            new(Mouse, 30, false, T0), true);
+        Assert.Equal(("鼠标按你的用法撑不过今天", " 预计可用约 40 分钟"),
+            Presentation.ReminderParts(ReminderKind.Predicted, device, new(RuntimeKind.Ready, .66)));
+        Assert.Equal(" 建议找空充电", Presentation.ReminderParts(ReminderKind.Predicted, device, RuntimeEstimate.Estimating).Suffix);
+        Assert.Equal(" 只剩 30%", Presentation.ReminderParts(ReminderKind.LowBattery, device, RuntimeEstimate.None).Suffix);
     }
 
     [Fact]
@@ -230,6 +246,11 @@ public sealed class ReminderFeaturesTests
         Feed(model, Mouse, 80, 72);
         var card = HoverCardBuilder.Build(model, Mouse.Id, T0.AddHours(72));
         Assert.Equal("上次充电 3 天前", card.StatusLine);
+
+        // 休眠时优先显示「休眠中 · N 分钟前」，不再挤进「上次充电」。
+        var asleepAt = T0.AddHours(72.5);
+        model.ApplyPoll([new(Mouse, null, false, ChargingState.Unknown, LinkState.Asleep, asleepAt)], false, asleepAt);
+        Assert.DoesNotContain("上次充电", HoverCardBuilder.Build(model, Mouse.Id, asleepAt).StatusLine);
         Assert.Equal(T0, model.LastCharged(Mouse.Id));
 
         Assert.Equal("刚充过电", RuntimeEstimator.ChargedAgo(T0, T0.AddMinutes(20)));

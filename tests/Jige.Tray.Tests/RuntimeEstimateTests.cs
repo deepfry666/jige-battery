@@ -260,7 +260,7 @@ public sealed class RuntimeEstimateTests
         var estimate = RuntimeEstimator.Estimate(learned with { UsageDays = 3, UsageDailyHours = 2 }, status, T0);
         Assert.Equal(30, estimate.Hours, 6);
         Assert.Equal(15, estimate.Days!.Value, 6);
-        Assert.Equal("预计可用约 30 小时 · 按你的用法约 15 天", HoverCardBuilder.RuntimeLine(status, estimate));
+        Assert.Equal("预计可用约 30 小时，够用约 15 天", HoverCardBuilder.RuntimeLine(status, estimate));
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class RuntimeEstimateTests
     [InlineData(17, "约 18 小时")]
     [InlineData(63, "约 65 小时")]
     [InlineData(432, "约 430 小时")]
-    [InlineData(1200, "999 小时以上")]
+    [InlineData(1200, "超过 999 小时")]
     public void FormatRoundsToReadableSteps(double hours, string expected) =>
         Assert.Equal(expected, RuntimeEstimator.Format(hours));
 
@@ -309,6 +309,9 @@ public sealed class RuntimeEstimateTests
         Assert.Equal("预计可用约 36 小时", Presentation.Status(device, 15, runtime, compact: true));
         Assert.Equal("2.4G 已连接 · 预计可用约 36 小时", Presentation.Status(device, 15, runtime, compact: false));
         Assert.Equal("可用约 36 小时", HoverCardBuilder.ListRowStatus(device, BatteryTone.Normal, runtime));
+        // 悬停列表行很窄：低电量只靠颜色表达，文字统一写剩余时间。
+        Assert.Equal("可用约 36 小时", HoverCardBuilder.ListRowStatus(device, BatteryTone.Warning, runtime));
+        Assert.Equal("电量偏低", HoverCardBuilder.ListRowStatus(device, BatteryTone.Warning, RuntimeEstimate.Estimating));
         Assert.Equal(Presentation.Status(device, 15), Presentation.Status(device, 15, RuntimeEstimate.None, compact: true));
 
         Assert.Equal("可用时间估算中", Presentation.Status(device, 15, RuntimeEstimate.Estimating, compact: true));

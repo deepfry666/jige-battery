@@ -300,24 +300,48 @@ internal static class Presentation
         _ => "设备"
     };
 
-    /// <summary>提醒卡片的标题与说明（三类提醒）。</summary>
-    public static (string Title, string Detail) Reminder(ReminderKind kind, DeviceStatus device, string name,
-        RuntimeEstimate runtime) => kind switch
-    {
-        ReminderKind.Predicted => ($"{KindName(device.Device.Kind)}按你的用法撑不过今天",
-            runtime.Kind == RuntimeKind.Ready
-                ? $"{name} 预计可用{RuntimeEstimator.Format(runtime.Hours)}，建议找空充电"
-                : $"{name} 建议找空充电"),
-        ReminderKind.FullCharge => ($"{KindName(device.Device.Kind)}已充满", $"{name} 可以拔线了"),
-        _ => (ReminderTitle(device.Device.Kind), $"{name} 只剩 {Value(device)}")
-    };
+    /// <summary>
+    /// 提醒卡片的标题，以及说明行里接在设备名后面的部分。
+    /// 绘制时名称过长只省略名称，后缀（电量、预计时间）始终完整可见。
+    /// </summary>
+    public static (string Title, string Suffix) ReminderParts(ReminderKind kind, DeviceStatus device, RuntimeEstimate runtime) =>
+        kind switch
+        {
+            ReminderKind.Predicted => ($"{KindName(device.Device.Kind)}按你的用法撑不过今天",
+                runtime.Kind == RuntimeKind.Ready ? $" 预计可用{RuntimeEstimator.Format(runtime.Hours)}" : " 建议找空充电"),
+            ReminderKind.FullCharge => ($"{KindName(device.Device.Kind)}已充满", " 可以拔线了"),
+            _ => (ReminderTitle(device.Device.Kind), $" 只剩 {Value(device)}")
+        };
 
-    /// <summary>进游戏横幅的两行文字。</summary>
+    /// <summary>提醒卡片的标题与完整说明（三类提醒）。</summary>
+    public static (string Title, string Detail) Reminder(ReminderKind kind, DeviceStatus device, string name,
+        RuntimeEstimate runtime)
+    {
+        var (title, suffix) = ReminderParts(kind, device, runtime);
+        return (title, name + suffix);
+    }
+
+    /// <summary>进游戏横幅：标题为「名称 + 只剩 xx%」（绘制时只省略名称），第二行控制在横幅宽度内。</summary>
+    public static (string TitleSuffix, string Detail) GameEntryBannerParts(DeviceStatus device, RuntimeEstimate runtime,
+        int others)
+    {
+        string remaining = runtime.Kind == RuntimeKind.Ready ? $"预计可用{RuntimeEstimator.Format(runtime.Hours)}" : "";
+        string detail = (remaining.Length > 0, others > 0) switch
+        {
+            (true, true) => $"{remaining} · 另有 {others} 台电量低",
+            (true, false) => $"{remaining}，建议先插线",
+            (false, true) => $"建议先插线再开局 · 另有 {others} 台电量低",
+            _ => "建议先插线再开局"
+        };
+        return ($" 只剩 {Value(device)}", detail);
+    }
+
     public static (string Title, string Detail) GameEntryBanner(DeviceStatus device, string name, RuntimeEstimate runtime,
-        int others) =>
-        ($"{name} 只剩 {Value(device)}",
-            (runtime.Kind == RuntimeKind.Ready ? $"预计可用{RuntimeEstimator.Format(runtime.Hours)}，建议先插线" : "建议先插线再开局") +
-            (others > 0 ? $" · 另有 {others} 台电量低" : ""));
+        int others)
+    {
+        var (suffix, detail) = GameEntryBannerParts(device, runtime, others);
+        return (name + suffix, detail);
+    }
 
     public static string ReminderTitle(DeviceKind kind) => kind switch
     {

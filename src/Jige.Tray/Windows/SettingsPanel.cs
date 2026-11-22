@@ -8,9 +8,10 @@ internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false)
 {
     public const int CardX = 9, CardWidth = PanelLayout.Width - 18;
-    public const int RowHeight = 44, OptionHeight = 34, Right = CardX + CardWidth - 13;
+    public const int RowHeight = 44, OptionHeight = PanelLayout.SettingsOptionHeight, Right = CardX + CardWidth - 13;
     /// <summary>第一组小标题的顶部，以及小标题高度、组间距和每组行数。</summary>
-    public const int StackTop = 47, HeaderHeight = 20, SectionGap = 6, SectionSize = 3;
+    public const int StackTop = 47, HeaderHeight = PanelLayout.SettingsHeaderHeight, SectionGap = 6,
+        SectionSize = PanelLayout.SettingsSections;
     public static readonly string[] SectionTitles = ["显示", "电量", "通用"];
     private const int MaxVisibleOptions = 6;
 
@@ -84,7 +85,11 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     public SettingRow? Expanded { get; private set; }
     public bool Animating { get; private set; }
     public bool HasDiagnosticFooter => hasDiagnosticFooter;
-    private int BaseHeight => PanelLayout.SettingsHeight + (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
+    /// <summary>屏幕太矮时不画小标题，见 <see cref="PanelLayout.CompactSettings"/>。</summary>
+    public bool Compact { get; } = PanelLayout.CompactSettings(availableHeight);
+    public int Header => Compact ? 0 : HeaderHeight;
+    private int BaseHeight => PanelLayout.SettingsHeightFor(availableHeight) +
+        (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
     public int FooterHeight => hasDiagnosticFooter ? PanelLayout.DiagnosticFooterHeight : PanelLayout.FooterHeight;
     private int Capacity => Math.Clamp((availableHeight - BaseHeight) / OptionHeight, 1, MaxVisibleOptions);
     public int SurfaceHeight => BaseHeight + Capacity * OptionHeight;
@@ -126,7 +131,7 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         for (int index = 0; ; index++)
         {
             if (index % SectionSize == 0)
-                y += (index > 0 ? 1 + SectionGap : 0) + HeaderHeight + 1;
+                y += (index > 0 ? 1 + SectionGap : 0) + Header + 1;
             if (index == (int)row)
                 break;
             y += RowHeight + VisibleHeight((SettingRow)index);

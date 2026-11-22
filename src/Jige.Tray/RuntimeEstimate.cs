@@ -388,7 +388,7 @@ internal static class RuntimeEstimator
         if (rounded < 1)
             return $"约 {Math.Round(rounded * 60)} 分钟";
         if (hours >= 995)
-            return "999 小时以上";
+            return "超过 999 小时";
         return $"约 {rounded:0} 小时";
     }
 
@@ -404,5 +404,5 @@ internal static class RuntimeEstimator
     }
 
     public static string FormatDays(double days) =>
-        days >= 30 ? "30 天以上" : $"约 {Math.Max(2, Math.Round(days, MidpointRounding.AwayFromZero)):0} 天";
+        days >= 30 ? "超过 30 天" : $"约 {Math.Max(2, Math.Round(days, MidpointRounding.AwayFromZero)):0} 天";
 }

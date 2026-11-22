@@ -214,14 +214,16 @@ internal static class ChargeEstimator
         return Math.Min(99, Math.Round(hours, MidpointRounding.AwayFromZero));
     }
 
-    public static string Format(double hours)
+    /// <summary>充满时间文字；<paramref name="compact"/> 用于悬停卡片列表等窄位置，省掉「约」。</summary>
+    public static string Format(double hours, bool compact = false)
     {
         double minutes = Math.Round(Rounded(hours) * 60);
         if (minutes <= 0)
             return "即将充满";
+        string about = compact ? "" : "约 ";
         if (minutes < 60)
-            return $"约 {minutes:0} 分钟充满";
+            return $"{about}{minutes:0} 分钟充满";
         int whole = (int)(minutes / 60), rest = (int)(minutes % 60);
-        return rest == 0 ? $"约 {whole} 小时充满" : $"约 {whole} 小时 {rest} 分钟充满";
+        return rest == 0 ? $"{about}{whole} 小时充满" : $"{about}{whole} 小时 {rest} 分钟充满";
     }
 }

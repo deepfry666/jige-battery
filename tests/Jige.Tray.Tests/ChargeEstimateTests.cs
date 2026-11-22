@@ -115,7 +115,8 @@ public sealed class ChargeEstimateTests
         Assert.Equal($"充电中 · {toFull}", Presentation.Status(device, 15, estimate, compact: false));
         Assert.Equal(toFull, Presentation.Status(device, 15, estimate, compact: true));
         Assert.Equal($"预计{toFull}", HoverCardBuilder.RuntimeLine(device, estimate));
-        Assert.Equal(toFull, HoverCardBuilder.ListRowStatus(device, BatteryTone.Charging, estimate));
+        // 悬停卡片列表行很窄，省掉「约」。
+        Assert.Equal(toFull[2..], HoverCardBuilder.ListRowStatus(device, BatteryTone.Charging, estimate));
     }
 
     [Fact]

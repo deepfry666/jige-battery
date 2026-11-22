@@ -452,6 +452,19 @@ internal sealed unsafe class Canvas : IDisposable
         }
     }
 
+    /// <summary>
+    /// 一行「名称 + 后缀」：放不下时只省略名称，后缀（电量、预计时间等关键信息）始终完整可见。
+    /// 名称至少保留 1/3 宽度，后缀本身过长时再省略后缀。
+    /// </summary>
+    public void NameWithSuffix(string name, string suffix, float x, float y, float w, float h, float size, Color color,
+        int weight = 400)
+    {
+        float suffixWidth = MathF.Min(Measure(suffix, size, weight) + 2, w * 2 / 3);
+        float nameMax = w - suffixWidth;
+        float nameWidth = MathF.Min(Text(name, x, y, nameMax, h, size, color, weight, ellipsis: true), nameMax);
+        Text(suffix, x + nameWidth, y, suffixWidth, h, size, color, weight, ellipsis: true);
+    }
+
     public float TextWrapped(string text, float x, float y, float w, float h, float size, Color color, int weight = 400,
         DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_LEADING)
     {

@@ -124,6 +124,23 @@ public sealed class PanelPagesTests
     }
 
     [Fact]
+    public void ShortScreensDropSectionHeadersInsteadOfShrinkingThePanel()
+    {
+        int threshold = PanelLayout.SettingsHeight + PanelLayout.DiagnosticFooterExtraHeight + SettingsPanel.OptionHeight;
+        Assert.False(PanelLayout.CompactSettings(threshold));
+        Assert.True(PanelLayout.CompactSettings(threshold - 1));
+        Assert.Equal(new PanelSize(PanelLayout.SettingsCompactHeight, 0), PanelLayout.Size(PanelPage.Settings, 0, 580));
+
+        var panel = new SettingsPanel(580);
+        Assert.True(panel.Compact);
+        Assert.Equal(PanelLayout.SettingsCompactHeight, panel.Height);
+        Assert.Equal(new PanelRect(9, 47, 326, 134), panel.SectionRect(0));
+        Assert.Equal(new PanelRect(9, 187, 326, 134), panel.SectionRect(1));
+        // 最后一组卡片底部到底栏分割线同样留 8px。
+        Assert.Equal(panel.Height - panel.FooterHeight - 8, panel.SectionRect(2).Y + panel.SectionRect(2).Height);
+    }
+
+    [Fact]
     public void SwitchingOptionsIsExclusiveAndKeepsHeightContinuous()
     {
         var panel = new SettingsPanel(760);

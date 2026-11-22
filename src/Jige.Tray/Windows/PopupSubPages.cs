@@ -62,8 +62,9 @@ internal sealed partial class PopupScene
         for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
         {
             var card = layout.SectionRect(section);
-            canvas.Text(SettingsPanel.SectionTitles[section], SettingsPanel.CardX + 8, card.Y - SettingsPanel.HeaderHeight,
-                200, SettingsPanel.HeaderHeight, 12, colors.Secondary, 600);
+            if (!layout.Compact)
+                canvas.Text(SettingsPanel.SectionTitles[section], SettingsPanel.CardX + 8, card.Y - SettingsPanel.HeaderHeight,
+                    200, SettingsPanel.HeaderHeight, 12, colors.Secondary, 600);
             canvas.Fill(card.X, card.Y, card.Width, card.Height, 7, colors.Layer);
         }
         foreach (var row in SettingsPanel.Rows)
@@ -403,7 +404,8 @@ internal sealed partial class PopupScene
 
     private void DrawDevicesPage(Canvas canvas)
     {
-        canvas.Text("点名称改名，勾选在任务栏显示，眼睛控制面板显示", 17, 55, 310, 18, 12, colors.Muted, ellipsis: true);
+        string place = model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons ? "托盘" : "任务栏";
+        canvas.Text($"点名称改名 · 勾选：在{place}显示 · 眼睛：在面板显示", 17, 55, 310, 18, 12, colors.Muted, ellipsis: true);
         // 「显示蓝牙设备」决定哪些设备出现，从设置页移到这里。
         var bluetooth = new HitBox(PopupAction.ShowBluetooth, new(9, 76, 326, 36));
         subButtons.Add(bluetooth);
@@ -498,7 +500,8 @@ internal sealed partial class PopupScene
         string thresholdLabel = custom ? $"提醒 {model.ThresholdFor(id)}%" : "提醒 默认";
         float chipX = 59 + prefix + badgeWidth + 6;
         float chipWidth = canvas.Measure(thresholdLabel, 10.5f, 600) + 12;
-        if (chipX + chipWidth <= (removable ? 212 : TrayCheckX - 4))
+        // 离线可移除的行右侧有「移除」按钮，统一不显示阈值标签，避免有的显示、有的因放不下而消失。
+        if (!removable && chipX + chipWidth <= TrayCheckX - 4)
         {
             var chip = new HitBox(new PopupTarget(PopupAction.DeviceThreshold, DeviceId: id),
                 new(chipX, y + 31, chipWidth, 15.5f));
