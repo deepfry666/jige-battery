@@ -278,6 +278,15 @@ internal static class HoverCardBuilder
     /// <summary>单设备悬停卡片的预计可用时间行；功能关闭或不适用时为空，卡片保持原高度。</summary>
     internal static string RuntimeLine(DeviceStatus device, RuntimeEstimate runtime)
     {
+        if (runtime.Charging)
+        {
+            return runtime.Kind switch
+            {
+                RuntimeKind.Ready => $"预计{ChargeEstimator.Format(runtime.Hours)}",
+                RuntimeKind.Estimating => "充满时间估算中",
+                _ => ""
+            };
+        }
         if (runtime.Kind == RuntimeKind.Estimating)
             return "预计可用时间估算中";
         if (runtime.Kind != RuntimeKind.Ready)
@@ -292,6 +301,8 @@ internal static class HoverCardBuilder
 
     internal static string ListRowStatus(DeviceStatus device, BatteryTone tone, RuntimeEstimate runtime)
     {
+        if (runtime is { Charging: true, Kind: RuntimeKind.Ready } && device.Fresh && device.IsCharging && !device.IsFull)
+            return ChargeEstimator.Format(runtime.Hours);
         if (runtime.Kind == RuntimeKind.None || device.Link == LinkState.Asleep || device.Fresh && (device.IsFull || device.IsCharging))
             return ListRowStatus(device, tone);
         string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;

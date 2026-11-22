@@ -26,6 +26,11 @@ internal sealed record SavedRuntimeEstimate
     public int UsageDays { get; init; }
     /// <summary>最近一次看到充电（含充满，或从电量回升推断出充过电）的时间。</summary>
     public DateTimeOffset? LastChargeAt { get; init; }
+    /// <summary>充电速率证据：按 <see cref="ChargeEstimator.Bands"/> 分段的上升百分点与对应在线小时数。</summary>
+    public double[]? ChargePercent { get; init; }
+    public double[]? ChargeHours { get; init; }
+    public DateTimeOffset? ChargeLearnedAt { get; init; }
+    public SavedChargeSegment? ChargeSegment { get; init; }
 }
 
 /// <summary>当前放电段。时间口径为「设备在线时长」，休眠、离线与程序未运行期间不计时。</summary>
@@ -50,10 +55,15 @@ internal sealed record SavedRuntimeSegment
 
 internal enum RuntimeKind { None, Estimating, Ready }
 
-internal readonly record struct RuntimeEstimate(RuntimeKind Kind, double Hours = 0, double? Days = null)
+/// <summary>
+/// 预计时间。<paramref name="Charging"/> 为 true 时 <paramref name="Hours"/> 表示距离充满的时间，
+/// 否则表示剩余可用时间。
+/// </summary>
+internal readonly record struct RuntimeEstimate(RuntimeKind Kind, double Hours = 0, double? Days = null, bool Charging = false)
 {
     public static RuntimeEstimate None => default;
     public static RuntimeEstimate Estimating => new(RuntimeKind.Estimating);
+    public static RuntimeEstimate ChargeEstimating => new(RuntimeKind.Estimating, Charging: true);
 }
 
 /// <summary>
@@ -93,7 +103,7 @@ internal static class RuntimeEstimator
             !Finite(segment.Hours) || !Finite(segment.EdgeHours) || !Finite(segment.ChunkPercent) ||
             !Finite(segment.ChunkHours) || segment.Hours < 0 || segment.ChunkPercent < 0 || segment.ChunkHours < 0))
             segment = null;
-        return saved with { Segment = segment is null ? null : segment with { Paused = true } };
+        return ChargeEstimator.Restore(saved with { Segment = segment is null ? null : segment with { Paused = true } });
     }
 
     private static bool Finite(double value) => double.IsFinite(value);

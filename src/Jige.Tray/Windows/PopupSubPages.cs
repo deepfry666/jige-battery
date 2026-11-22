@@ -102,7 +102,7 @@ internal sealed partial class PopupScene
             {
                 // 明确告知用户：数字由本机历史读数推算，不代表实际续航。
                 canvas.Text(name, 54, rect.Y + 4, 200, 20, 13.5f, colors.Ink);
-                canvas.Text("仅为估算，不代表实际续航", 54, rect.Y + 23, 200, 16, 11, colors.Muted, ellipsis: true);
+                canvas.Text("含充满时间 · 仅为估算，不代表实际", 54, rect.Y + 23, 200, 16, 11, colors.Muted, ellipsis: true);
             }
             else
                 canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);

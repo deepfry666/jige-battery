@@ -131,7 +131,8 @@ public sealed class RuntimeEstimateTests
         Discharge(model, Mouse, 60, 40, 0, .5);
         Feed(model, Mouse, 41, 10.1, charging: ChargingState.Charging);
         Assert.Null(model.RuntimeState(Mouse.Id)!.Segment);
-        Assert.Equal(RuntimeKind.None, model.Runtime(Status(model, Mouse.Id), T0.AddHours(10.1)).Kind);
+        // 充电中不再显示剩余可用时间，改为充满时间（首次充电先显示估算中）。
+        Assert.Equal(RuntimeEstimate.ChargeEstimating, model.Runtime(Status(model, Mouse.Id), T0.AddHours(10.1)));
 
         var unknown = NewModel();
         Discharge(unknown, Mouse, 60, 40, 0, .5);

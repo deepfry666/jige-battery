@@ -141,13 +141,20 @@ internal static class Presentation
 
     /// <summary>
     /// 叠加预计可用时间的状态文字。<paramref name="compact"/> 用于主面板列表行等窄位置。
-    /// 功能关闭、充电中或已断开时与 <see cref="Status(DeviceStatus, int)"/> 完全一致。
+    /// 功能关闭或已断开时与 <see cref="Status(DeviceStatus, int)"/> 完全一致；充电中追加充满预计时间。
     /// </summary>
     public static string Status(DeviceStatus device, int threshold, RuntimeEstimate runtime, bool compact)
     {
         string plain = Status(device, threshold);
         if (runtime.Kind == RuntimeKind.None)
             return plain;
+        if (runtime.Charging)
+        {
+            if (runtime.Kind != RuntimeKind.Ready || !device.Fresh || Tone(device, threshold) != BatteryTone.Charging || device.IsFull)
+                return plain;
+            string toFull = ChargeEstimator.Format(runtime.Hours);
+            return compact ? toFull : $"{plain} · {toFull}";
+        }
         string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;
         if (device.Fresh)
         {

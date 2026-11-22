@@ -72,6 +72,7 @@ internal sealed class TrayModel
     private readonly Dictionary<string, string> mergedRazerIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SavedRuntimeEstimate> runtime = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> runtimeShown = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, double> chargeShown = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>本轮放电已弹过「进游戏电量低」横幅的设备；充电或开新放电段后清除。</summary>
     private readonly HashSet<string> gameWarned = new(StringComparer.OrdinalIgnoreCase);
     private double unsavedRuntimeHours;
@@ -248,6 +249,7 @@ internal sealed class TrayModel
             history.Remove(id);
             runtime.Remove(id);
             runtimeShown.Remove(id);
+            chargeShown.Remove(id);
             asleepSince.Remove(id);
             removedOffline.Add(id);
         }
@@ -813,9 +815,12 @@ internal sealed class TrayModel
         var previous = runtime.GetValueOrDefault(id);
         if (previous is null && !(status.Fresh && status.Link == LinkState.Online))
             return;
-        var (next, hours) = RuntimeEstimator.Observe(previous, status, now, RuntimeGapLimit(), TimeZone);
+        var (charged, chargeHours) = ChargeEstimator.Observe(previous, status, now, RuntimeGapLimit());
+        var (next, hours) = RuntimeEstimator.Observe(charged, status, now, RuntimeGapLimit(), TimeZone);
         runtime[id] = next;
-        unsavedRuntimeHours += hours;
+        unsavedRuntimeHours += hours + chargeHours;
+        if (next.ChargeSegment is null || previous?.ChargeSegment is null)
+            chargeShown.Remove(id);
         if (next.Segment is null || previous?.Segment is null || next.Segment.Level > previous.Segment.Level)
         {
             runtimeShown.Remove(id);
@@ -833,10 +838,11 @@ internal sealed class TrayModel
         if (runtime.Remove(from, out var moved) && !runtime.ContainsKey(to))
             runtime[to] = moved;
         runtimeShown.Remove(from);
+        chargeShown.Remove(from);
     }
 
     /// <summary>
-    /// 当前应显示的剩余可用时间。功能关闭时返回 None（后台仍在学习）。
+    /// 当前应显示的预计时间：充电中为距离充满的时间，否则为剩余可用时间。功能关闭时返回 None（后台仍在学习）。
     /// 显示值带迟滞：同一放电段内小幅回升（≤15%）或相对变化不足 8% 时保持原值，避免数字来回跳。
     /// </summary>
     public RuntimeEstimate Runtime(DeviceStatus device, DateTimeOffset now)
@@ -844,6 +850,12 @@ internal sealed class TrayModel
         if (!Settings.ShowRuntimeEstimate)
             return RuntimeEstimate.None;
         string id = device.Device.Id;
+        if (device.IsCharging && !device.IsFull)
+        {
+            runtimeShown.Remove(id);
+            return ChargeTime(id, device, now);
+        }
+        chargeShown.Remove(id);
         var estimate = RuntimeEstimator.Estimate(runtime.GetValueOrDefault(id), device, now);
         if (estimate.Kind != RuntimeKind.Ready || device.IsFull)
         {
@@ -863,6 +875,22 @@ internal sealed class TrayModel
         // 返回显示值，天数按同一比例换算，保证面板、悬停卡片看到的是同一个数。
         double? shownDays = estimate.Days is { } days && estimate.Hours > 0 ? days * rounded / estimate.Hours : null;
         return estimate with { Hours = rounded, Days = shownDays is >= 2 ? shownDays : null };
+    }
+
+    /// <summary>充满时间只允许小幅下降后才刷新；回升超过 15% 才跟上（例如换成了慢充头），避免数字抖动。</summary>
+    private RuntimeEstimate ChargeTime(string id, DeviceStatus device, DateTimeOffset now)
+    {
+        var estimate = ChargeEstimator.Estimate(runtime.GetValueOrDefault(id), device, now);
+        if (estimate.Kind != RuntimeKind.Ready)
+        {
+            chargeShown.Remove(id);
+            return estimate;
+        }
+        double rounded = ChargeEstimator.Rounded(estimate.Hours);
+        if (chargeShown.TryGetValue(id, out double shown) && rounded > shown && rounded <= shown * 1.15)
+            rounded = shown;
+        chargeShown[id] = rounded;
+        return estimate with { Hours = rounded };
     }
 
     internal SavedRuntimeEstimate? RuntimeState(string id) => runtime.GetValueOrDefault(id);
@@ -905,6 +933,7 @@ internal sealed class TrayModel
         {
             runtime.Remove(id);
             runtimeShown.Remove(id);
+            chargeShown.Remove(id);
         }
     }
 
