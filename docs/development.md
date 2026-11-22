@@ -4,9 +4,9 @@
 
 ## 配置与缓存
 
-- `%LOCALAPPDATA%\Jige\config.json`：显示位置、外观模式（`theme`）、托盘模式、各设备的面板/托盘显示选择（`hiddenDeviceIds` / `trayExcludedDeviceIds`）、提醒阈值、查询间隔（含游戏间隔）、游戏保护、自动检查更新（`autoCheckUpdates`）、开机自启、设备别名。配置损坏时，保留一份 `config.broken-<时间>.json`，再恢复默认值。
+- `%LOCALAPPDATA%\Jige\config.json`：显示位置、外观模式（`theme`）、托盘模式、各设备的面板/托盘显示选择（`hiddenDeviceIds` / `trayExcludedDeviceIds`）、提醒阈值（含单台设备阈值 `deviceThresholds`、进游戏提醒 `gameEntryReminder`、充满提醒 `fullChargeReminder`）、查询间隔（含游戏间隔）、游戏保护、自动检查更新（`autoCheckUpdates`）、预计可用时间开关（`showRuntimeEstimate`）、开机自启、设备别名。配置损坏时，保留一份 `config.broken-<时间>.json`，再恢复默认值。
 - 游戏以普通窗口运行时，可以先退出几格，再在 `config.json` 里加上 `"gameProcessNames": ["Game.exe"]`（进程名见任务管理器，不区分大小写，可省略 `.exe`）。
-- `%LOCALAPPDATA%\Jige\state.json`：最近一次成功读数、提醒状态、每台设备最近 5 次读数。电量或状态有变化时才写盘。
+- `%LOCALAPPDATA%\Jige\state.json`：最近一次成功读数、提醒状态、每台设备最近 5 次读数，以及预计可用时间的统计摘要（`runtime`）。电量或状态有变化时才写盘，另外每累计在线半小时顺带保存一次估算进度。
 - `%LOCALAPPDATA%\Jige\jige.log`：脱敏日志，只记录状态变化和原因类别。
 - 开机自启使用当前用户 Run 项里的 `Jige Battery` 值。
 

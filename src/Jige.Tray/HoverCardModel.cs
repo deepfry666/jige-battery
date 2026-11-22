@@ -34,11 +34,13 @@ internal sealed record HoverCardContent(
     string StatusLine,
     HoverCardRow[] Rows,
     int TotalActiveCount,
-    int OverflowCount)
+    int OverflowCount,
+    string RuntimeLine = "")
 {
     public const int CardWidth = 248;
     public const int MaxListRows = 6;
     public const int SingleHeight = 126;
+    public const int RuntimeLineHeight = 18;
     public const int EmptyHeight = 64;
     public const int ListHeaderHeight = 28;
     public const int ListRowHeight = 42;
@@ -49,7 +51,7 @@ internal sealed record HoverCardContent(
 
     public int Height => Kind switch
     {
-        HoverCardKind.Single => SingleHeight,
+        HoverCardKind.Single => SingleHeight + (RuntimeLine.Length > 0 ? RuntimeLineHeight : 0),
         HoverCardKind.Empty => EmptyHeight,
         _ => ListHeaderHeight + Rows.Length * ListRowHeight + (OverflowCount > 0 ? ListOverflowHeight : 0) + ListBottomPadding
     };
@@ -130,7 +132,6 @@ internal static class HoverCardBuilder
 {
     public static HoverCardContent Build(TrayModel model, string? slotKey, DateTimeOffset now, bool forceList = false)
     {
-        int threshold = model.Settings.LowBatteryThreshold;
         bool isSingleDeviceSlot = !forceList && model.Settings.TrayMode == TrayDisplayMode.Custom &&
             !string.IsNullOrEmpty(slotKey) &&
             !StringComparer.OrdinalIgnoreCase.Equals(slotKey, TrayIconPlan.SingleKey);
@@ -141,7 +142,7 @@ internal static class HoverCardBuilder
                 item.IsActive && StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, slotKey));
             if (device is null)
                 return Empty();
-            return BuildSingle(model, device, threshold, now);
+            return BuildSingle(model, device, model.ThresholdFor(device.Device.Id), now);
         }
 
         if (forceList || model.Settings.TrayMode == TrayDisplayMode.LowestBattery)
@@ -156,7 +157,7 @@ internal static class HoverCardBuilder
                 return Empty();
 
             var rows = active.Take(HoverCardContent.MaxListRows)
-                .Select(device => BuildRow(model, device, threshold))
+                .Select(device => BuildRow(model, device, model.ThresholdFor(device.Device.Id), now))
                 .ToArray();
             int overflow = Math.Max(0, active.Length - HoverCardContent.MaxListRows);
             return new(
@@ -197,20 +198,21 @@ internal static class HoverCardBuilder
             Tone: tone,
             FilledCells: Presentation.FilledCells(device.Percentage, 10),
             IsCharging: device.IsCharging,
-            StatusLine: SingleStatusLine(device, tone, now),
+            StatusLine: SingleStatusLine(device, tone, now, model.LastCharged(device.Device.Id)),
             Rows: [],
             TotalActiveCount: 1,
-            OverflowCount: 0);
+            OverflowCount: 0,
+            RuntimeLine: RuntimeLine(device, model.Runtime(device, now)));
     }
 
-    private static HoverCardRow BuildRow(TrayModel model, DeviceStatus device, int threshold)
+    private static HoverCardRow BuildRow(TrayModel model, DeviceStatus device, int threshold, DateTimeOffset now)
     {
         var tone = Presentation.Tone(device, threshold);
         return new(
             DeviceId: device.Device.Id,
             Kind: device.Device.Kind,
             Name: model.Name(device.Device),
-            StatusText: ListRowStatus(device, tone),
+            StatusText: ListRowStatus(device, tone, model.Runtime(device, now)),
             Percentage: device.Percentage,
             IsEstimated: device.Last?.IsEstimated == true,
             ValueText: Presentation.Value(device),
@@ -238,8 +240,13 @@ internal static class HoverCardBuilder
         TotalActiveCount: 0,
         OverflowCount: 0);
 
-    internal static string SingleStatusLine(DeviceStatus device, BatteryTone tone, DateTimeOffset now)
+    internal static string SingleStatusLine(DeviceStatus device, BatteryTone tone, DateTimeOffset now,
+        DateTimeOffset? lastCharge = null)
     {
+        bool charging = device.Fresh && (device.IsFull || device.IsCharging);
+        // 休眠时「休眠中 · N 分钟前」更要紧，单行放不下时不再加「上次充电」。
+        string? charged = !charging && device.Link != LinkState.Asleep && lastCharge is { } at && at <= now
+            ? RuntimeEstimator.ChargedAgo(at, now) : null;
         List<string> parts = [];
         if (device.Fresh && device.IsFull)
             parts.Add("已充满");
@@ -249,18 +256,66 @@ internal static class HoverCardBuilder
             parts.Add("电量低");
         else if (tone == BatteryTone.Warning)
             parts.Add("电量偏低");
-        else if (device.Link != LinkState.Asleep)
+        else if (device.Link != LinkState.Asleep && charged is null)
             parts.Add(device.Last?.IsEstimated == true ? "电压估算" : "在线");
 
         if (device.Link == LinkState.Asleep)
             parts.Add("休眠中");
+        if (charged is not null)
+            parts.Add(charged);
 
         if (device.Last is { } last)
-            parts.Add(ReadAge(last.ReadAt, now));
+        {
+            // 已显示「上次充电」时设备在线、读数是新的，不再写读取时间，避免单行放不下。
+            if (charged is null)
+                parts.Add(ReadAge(last.ReadAt, now));
+        }
         else
             parts.Add("等待读取");
 
         return string.Join(" · ", parts);
+    }
+
+    /// <summary>单设备悬停卡片的预计可用时间行；功能关闭或不适用时为空，卡片保持原高度。</summary>
+    internal static string RuntimeLine(DeviceStatus device, RuntimeEstimate runtime)
+    {
+        if (runtime.Charging)
+        {
+            return runtime.Kind switch
+            {
+                RuntimeKind.Ready => $"预计{ChargeEstimator.Format(runtime.Hours)}",
+                RuntimeKind.Estimating => "充满时间估算中",
+                _ => ""
+            };
+        }
+        if (runtime.Kind == RuntimeKind.Estimating)
+            return "预计可用时间估算中";
+        if (runtime.Kind != RuntimeKind.Ready)
+            return "";
+        string remaining = RuntimeEstimator.Format(runtime.Hours);
+        if (device.IsFull)
+            return $"满电预计可用{remaining}";
+        // 封顶的「超过 999 小时」再接天数会放不下一行，且数字已足够说明问题。
+        return runtime.Days is { } days && runtime.Hours < 995
+            ? $"预计可用{remaining}，够用{RuntimeEstimator.FormatDays(days)}"
+            : $"预计可用{remaining}";
+    }
+
+    internal static string ListRowStatus(DeviceStatus device, BatteryTone tone, RuntimeEstimate runtime)
+    {
+        if (runtime is { Charging: true, Kind: RuntimeKind.Ready } && device.Fresh && device.IsCharging && !device.IsFull)
+            return ChargeEstimator.Format(runtime.Hours, compact: true);
+        if (runtime.Kind == RuntimeKind.None || device.Link == LinkState.Asleep || device.Fresh && (device.IsFull || device.IsCharging))
+            return ListRowStatus(device, tone);
+        // 列表行只有约 106px：低电量靠红/橙色表达，文字统一写剩余时间，避免「电量偏低 · 约 18 小时」被截断。
+        if (runtime.Kind == RuntimeKind.Ready)
+            return $"可用{RuntimeEstimator.Format(runtime.Hours)}";
+        return tone switch
+        {
+            BatteryTone.Low => "电量低",
+            BatteryTone.Warning => "电量偏低",
+            _ => "可用时间估算中"
+        };
     }
 
     internal static string ListRowStatus(DeviceStatus device, BatteryTone tone)

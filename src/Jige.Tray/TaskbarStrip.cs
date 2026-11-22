@@ -18,7 +18,7 @@ internal readonly record struct TaskbarStripDevice(
         var devices = model.Settings.TrayMode == TrayDisplayMode.LowestBattery
             ? model.TrayDevices()
             : model.OrderedDevices().Where(device => device.IsActive && model.Settings.IsInTray(device.Device.Id));
-        return devices.Select(device => From(device, model.Settings.LowBatteryThreshold)).ToArray();
+        return devices.Select(device => From(device, model.ThresholdFor(device.Device.Id))).ToArray();
     }
 
     public static TaskbarStripDevice[] WithPlaceholder(TaskbarStripDevice[] devices) =>

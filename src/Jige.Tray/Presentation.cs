@@ -139,6 +139,41 @@ internal static class Presentation
         return device.Last is not null ? $"{status} · 上次读数" : status;
     }
 
+    /// <summary>
+    /// 叠加预计可用时间的状态文字。<paramref name="compact"/> 用于主面板列表行等窄位置。
+    /// 功能关闭或已断开时与 <see cref="Status(DeviceStatus, int)"/> 完全一致；充电中追加充满预计时间。
+    /// </summary>
+    public static string Status(DeviceStatus device, int threshold, RuntimeEstimate runtime, bool compact)
+    {
+        string plain = Status(device, threshold);
+        if (runtime.Kind == RuntimeKind.None)
+            return plain;
+        if (runtime.Charging)
+        {
+            if (runtime.Kind != RuntimeKind.Ready || !device.Fresh || Tone(device, threshold) != BatteryTone.Charging || device.IsFull)
+                return plain;
+            string toFull = ChargeEstimator.Format(runtime.Hours);
+            return compact ? toFull : $"{plain} · {toFull}";
+        }
+        string? remaining = runtime.Kind == RuntimeKind.Ready ? RuntimeEstimator.Format(runtime.Hours) : null;
+        if (device.Fresh)
+        {
+            return Tone(device, threshold) switch
+            {
+                BatteryTone.Charging when device.IsFull && remaining is not null =>
+                    compact ? plain : $"已充满 · 满电预计可用{remaining}",
+                BatteryTone.Charging => plain,
+                BatteryTone.Low => remaining is null ? plain : $"电量低 · {remaining}",
+                BatteryTone.Warning => remaining is null ? plain : $"电量偏低 · {remaining}",
+                _ when compact => remaining is null ? "可用时间估算中" : $"预计可用{remaining}",
+                _ => $"{Connection(device.Device)} 已连接 · {(remaining is null ? "可用时间估算中" : $"预计可用{remaining}")}"
+            };
+        }
+        if (device.Link == LinkState.Asleep && !device.Device.UsesPassiveBatteryReports && remaining is not null)
+            return compact ? $"休眠 · 预计{remaining}" : $"休眠 · 上次读数 · 预计可用{remaining}";
+        return plain;
+    }
+
     public static string Value(DeviceStatus device) => device.Last is { } last
         ? $"{(last.IsEstimated ? "≈" : "")}{last.Percentage}%" : EmptyValue(device);
 
@@ -186,7 +221,7 @@ internal static class Presentation
     {
         const int limit = 127;
         string name = model.Name(device.Device);
-        string suffix = DeviceTooltipSuffix(device, model.Settings.LowBatteryThreshold);
+        string suffix = DeviceTooltipSuffix(device, model.ThresholdFor(device.Device.Id));
         int spare = Math.Max(4, limit - suffix.Length);
         return Shorten(name, spare) + suffix;
     }
@@ -224,7 +259,7 @@ internal static class Presentation
             .ThenBy(device => device.Percentage ?? int.MaxValue);
         var ordered = primary is null ? devices.AsEnumerable() : devices.Prepend(primary);
         var entries = ordered.Select(device =>
-            (Name: model.Name(device.Device), Value: DeviceTooltipSuffix(device, model.Settings.LowBatteryThreshold)))
+            (Name: model.Name(device.Device), Value: DeviceTooltipSuffix(device, model.ThresholdFor(device.Device.Id))))
             .ToArray();
 
         if (entries.Length == 0)
@@ -255,6 +290,57 @@ internal static class Presentation
         if (count > 0 && char.IsHighSurrogate(value[count - 1]))
             count--;
         return value[..count] + "…";
+    }
+
+    private static string KindName(DeviceKind kind) => kind switch
+    {
+        DeviceKind.Mouse => "鼠标",
+        DeviceKind.Headset => "耳机",
+        DeviceKind.Keyboard => "键盘",
+        _ => "设备"
+    };
+
+    /// <summary>
+    /// 提醒卡片的标题，以及说明行里接在设备名后面的部分。
+    /// 绘制时名称过长只省略名称，后缀（电量、预计时间）始终完整可见。
+    /// </summary>
+    public static (string Title, string Suffix) ReminderParts(ReminderKind kind, DeviceStatus device, RuntimeEstimate runtime) =>
+        kind switch
+        {
+            ReminderKind.Predicted => ($"{KindName(device.Device.Kind)}按你的用法撑不过今天",
+                runtime.Kind == RuntimeKind.Ready ? $" 预计可用{RuntimeEstimator.Format(runtime.Hours)}" : " 建议找空充电"),
+            ReminderKind.FullCharge => ($"{KindName(device.Device.Kind)}已充满", " 可以拔线了"),
+            _ => (ReminderTitle(device.Device.Kind), $" 只剩 {Value(device)}")
+        };
+
+    /// <summary>提醒卡片的标题与完整说明（三类提醒）。</summary>
+    public static (string Title, string Detail) Reminder(ReminderKind kind, DeviceStatus device, string name,
+        RuntimeEstimate runtime)
+    {
+        var (title, suffix) = ReminderParts(kind, device, runtime);
+        return (title, name + suffix);
+    }
+
+    /// <summary>进游戏横幅：标题为「名称 + 只剩 xx%」（绘制时只省略名称），第二行控制在横幅宽度内。</summary>
+    public static (string TitleSuffix, string Detail) GameEntryBannerParts(DeviceStatus device, RuntimeEstimate runtime,
+        int others)
+    {
+        string remaining = runtime.Kind == RuntimeKind.Ready ? $"预计可用{RuntimeEstimator.Format(runtime.Hours)}" : "";
+        string detail = (remaining.Length > 0, others > 0) switch
+        {
+            (true, true) => $"{remaining} · 另有 {others} 台电量低",
+            (true, false) => $"{remaining}，建议先插线",
+            (false, true) => $"建议先插线再开局 · 另有 {others} 台电量低",
+            _ => "建议先插线再开局"
+        };
+        return ($" 只剩 {Value(device)}", detail);
+    }
+
+    public static (string Title, string Detail) GameEntryBanner(DeviceStatus device, string name, RuntimeEstimate runtime,
+        int others)
+    {
+        var (suffix, detail) = GameEntryBannerParts(device, runtime, others);
+        return (name + suffix, detail);
     }
 
     public static string ReminderTitle(DeviceKind kind) => kind switch

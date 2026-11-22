@@ -86,9 +86,12 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         work = new(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         screenBounds = new(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         iconBounds = new(anchor.left, anchor.top, anchor.right, anchor.bottom);
+        float dpiScale = Desktop.Dpi(screen) / 96f;
+        // 按系统缩放下的可用高度决定设置页是否省掉小标题；紧凑版仍放不下时才等比缩小整个面板。
+        int nativeAvailable = dpiScale > 0 ? (int)(work.Height / dpiScale) - 24 : 0;
         int minimumHeight = IsNotice ? PanelLayout.NoticeHeight
-            : PanelLayout.SettingsHeight + PanelLayout.DiagnosticFooterExtraHeight + SettingsPanel.OptionHeight;
-        float newScale = Math.Min(Desktop.Dpi(screen) / 96f,
+            : PanelLayout.SettingsHeightFor(nativeAvailable) + PanelLayout.DiagnosticFooterExtraHeight + SettingsPanel.OptionHeight;
+        float newScale = Math.Min(dpiScale,
             Math.Min((work.Width - 16f) / PanelLayout.Width, work.Height / (minimumHeight + 24f)));
         if (newScale <= 0)
             throw new InvalidOperationException("找不到弹窗显示器的工作区");

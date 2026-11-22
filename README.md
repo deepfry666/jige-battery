@@ -32,10 +32,11 @@
 
 ## 功能
 
-- **一眼看电量**：任务栏常驻显示，鼠标移上去看所有设备的名称、状态和读取时间。
-- **主面板**：单击打开，电量最低的设备排在最上面，断开的设备收进「离线设备」。
-- **低电量提醒**：设备没在充电、连续两次读数都不高于阈值时才提醒，可以选「1 小时后提醒」。
-- **不打扰游戏**：全屏游戏时不弹窗、不抢焦点，查询放慢到 5 分钟一次，提醒推迟到回到桌面。
+- **一眼看电量**：任务栏常驻显示，鼠标移上去看所有设备的名称、状态、上次充电时间和读取时间。
+- **主面板与管理**：单击打开，电量最低的设备排在最上面，断开的设备收进「离线设备」；可改名、选择显示哪些设备、给单台设备设独立提醒阈值。
+- **预计可用与充满时间**（可选，默认关闭）：按本机在线耗电与分段充电记录估算「还能用多久 / 够用约几天 / 约多久充满」，仅用已有读数，不向设备多发查询。
+- **电量提醒**：低电量时在桌面提醒（支持「1 小时后提醒」）；刚进游戏时有低电量设备可在右下角弹一条可点穿、不抢焦点的小横幅（独占全屏不弹）；也支持「撑不过今天」预测提醒和充满提醒拔线。
+- **不打扰游戏**：全屏游戏时不弹窗、不抢焦点，查询放慢到 5 分钟一次，常规提醒推迟到回到桌面。
 - **自动更新**：每天检查一次新版本，后台下载并核对 SHA-256，面板底部提示「新版已就绪」，点一下才升级。可以在设置里关掉。
 - **轻量**：原生编译，单个进程，不需要安装 .NET 运行库，也不需要管理员权限。
 
@@ -105,7 +106,7 @@ Get-FileHash .\Jige-Setup-0.2.17-x64.exe -Algorithm SHA256
 | Rapoo VT9 Pro V2 | `24AE:14A9`，Rapoo Gen 2 Input 07 | HaloBattery | 仅按资料 |
 | Rapoo VT9 Pro | `24AE:1205`，Rapoo Feature 2A | OpenMouse | 仅按资料 |
 | [罗技 HID++](docs/protocols.md#罗技-hid-10-与-20) | Bolt、Unifying、Nano、LIGHTSPEED 及符合识别条件的接收器；支持老款 HID++ 1.0、USB 线缆及符合条件的罗技蓝牙鼠标和键盘 | Solaar / HaloBattery / Linux | 仅按资料 |
-| [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在设置里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
+| [Windows 蓝牙电量](docs/protocols.md#windows-蓝牙电量属性) | Windows 提供电量的各品牌蓝牙外设。支持在「管理设备」里关闭显示，与同一台设备的 HID++ 电量自动合并 | Windows 设备属性 | 仅按资料 |
 | [Logitech HID++ 耳机](docs/protocols.md#hid-耳机) | G533、G535、G733、G935、G PRO X Wireless 等匹配型号；部分读数为估算 | HaloBattery / HeadsetControl / Linux | 仅按资料 |
 | [Logitech Centurion](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | G PRO X 2、G522、G325 的无线接收器 | 多方开源实现一致 / 单一来源，按型号 | 仅按资料 |
 | [ASTRO A50 Gen 5](docs/protocols.md#logitech-centurion-与-astro-a50-gen-5) | 底座 `046D:0B1C` | 单一来源 | 仅按资料 |

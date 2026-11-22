@@ -23,7 +23,7 @@ internal sealed partial class PopupScene
                 PopupAction.TrayMode => SettingRow.TrayMode,
                 PopupAction.DisplayLocation => SettingRow.DisplayLocation,
                 PopupAction.Theme => SettingRow.Theme,
-                PopupAction.Threshold => SettingRow.Threshold,
+                PopupAction.Threshold or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
                 _ => null
             };
@@ -58,8 +58,15 @@ internal sealed partial class PopupScene
     {
         var layout = Settings!;
         var settings = model.Settings;
-        float cardHeight = SettingsPanel.CollapsedCardHeight + layout.ExtraHeight;
-        canvas.Fill(SettingsPanel.CardX, SettingsPanel.CardY, SettingsPanel.CardWidth, cardHeight, 7, colors.Layer);
+        // 三组卡片：显示 / 电量 / 通用，每组上方一个小标题。
+        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        {
+            var card = layout.SectionRect(section);
+            if (!layout.Compact)
+                canvas.Text(SettingsPanel.SectionTitles[section], SettingsPanel.CardX + 8, card.Y - SettingsPanel.HeaderHeight,
+                    200, SettingsPanel.HeaderHeight, 12, colors.Secondary, 600);
+            canvas.Fill(card.X, card.Y, card.Width, card.Height, 7, colors.Layer);
+        }
         foreach (var row in SettingsPanel.Rows)
         {
             var rect = layout.RowRect(row);
@@ -68,40 +75,47 @@ internal sealed partial class PopupScene
                 SettingRow.GameSilent => PopupAction.GameSilent,
                 SettingRow.Autostart => PopupAction.Autostart,
                 SettingRow.AutoUpdate => PopupAction.AutoUpdate,
-                SettingRow.Bluetooth => PopupAction.ShowBluetooth,
+                SettingRow.RuntimeEstimate => PopupAction.RuntimeEstimate,
                 _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
             };
             var button = new HitBox(target, rect);
             subButtons.Add(button);
-            int roundSide = row == SettingRow.TrayMode ? -1
-                : row == SettingRow.Theme && layout.Progress(row) == 0 ? 1 : 0;
+            int roundSide = SettingsPanel.IsSectionStart(row) ? -1
+                : SettingsPanel.IsSectionEnd(row) && layout.Progress(row) == 0 ? 1 : 0;
             DrawSettingBackground(canvas, button, roundSide);
-            if (row != SettingRow.TrayMode)
+            if (!SettingsPanel.IsSectionStart(row))
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
             DrawSettingIcon(canvas, row, 25, rect.Y + 14);
             string name = row switch
             {
-                SettingRow.TrayMode => "托盘显示",
+                SettingRow.TrayMode => "显示哪些设备",
                 SettingRow.DisplayLocation => "显示位置",
                 SettingRow.Theme => "外观模式",
-                SettingRow.Threshold => "低电量提醒",
+                SettingRow.Threshold => "电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
                 SettingRow.PollInterval => "查询间隔",
-                SettingRow.Bluetooth => "显示蓝牙设备",
                 SettingRow.AutoUpdate => "自动检查更新",
+                SettingRow.RuntimeEstimate => "预计可用时间",
                 _ => "开机自启"
             };
-            canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
+            if (row == SettingRow.RuntimeEstimate)
+            {
+                // 明确告知用户：数字由本机历史读数推算，不代表实际续航。
+                canvas.Text(name, 54, rect.Y + 4, 200, 20, 13.5f, colors.Ink);
+                canvas.Text("含充满时间 · 仅为估算，不代表实际", 54, rect.Y + 23, 200, 16, 11, colors.Muted, ellipsis: true);
+            }
+            else
+                canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
 
-            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.Bluetooth)
+            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.RuntimeEstimate)
             {
                 DrawSwitch(canvas, SwitchRect(rect), row switch
                 {
                     SettingRow.GameSilent => settings.GameSilent,
                     SettingRow.Autostart => settings.StartWithWindows,
                     SettingRow.AutoUpdate => settings.AutoUpdateEnabled,
-                    _ => settings.ShowBluetoothDevices
+                    _ => settings.ShowRuntimeEstimate
                 });
                 continue;
             }
@@ -119,8 +133,11 @@ internal sealed partial class PopupScene
             DrawChevron(canvas, SettingsPanel.Right - 6, rect.Y + 22, layout.Progress(row));
             DrawSettingChoices(canvas, row);
         }
-        canvas.Stroke(SettingsPanel.CardX + .5f, SettingsPanel.CardY + .5f,
-            SettingsPanel.CardWidth - 1, cardHeight - 1, 6.5f, colors.LayerStroke);
+        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        {
+            var card = layout.SectionRect(section);
+            canvas.Stroke(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1, 6.5f, colors.LayerStroke);
+        }
 
         float footer = layout.Height - layout.FooterHeight;
         if (HasDiagnosticReport)
@@ -183,7 +200,7 @@ internal sealed partial class PopupScene
                 if (hit.Height > 0)
                 {
                     subButtons.Add(new(choice.Target, hit));
-                    int optionRound = row == SettingRow.Theme && index == end - 1 ? 1 : 0;
+                    int optionRound = SettingsPanel.IsSectionEnd(row) && index == end - 1 ? 1 : 0;
                     DrawSettingBackground(canvas, new(choice.Target, rect), optionRound);
                 }
                 if (choice.Target is { Action: PopupAction.TrayToggle, DeviceId: { } id })
@@ -191,6 +208,15 @@ internal sealed partial class PopupScene
                     canvas.Text(choice.Label, 62, rect.Y, SettingsPanel.Right - 84, rect.Height, 13, colors.Ink,
                         ellipsis: true);
                     DrawCheckbox(canvas, SettingsPanel.Right - 16, rect.Y + 9, model.Settings.IsInTray(id), true, colors.Muted);
+                    continue;
+                }
+                if (choice.Target.Action is PopupAction.GameEntryReminder or PopupAction.FullChargeReminder)
+                {
+                    bool on = choice.Target.Action == PopupAction.GameEntryReminder
+                        ? model.Settings.GameEntryReminderEnabled : model.Settings.FullChargeReminder;
+                    canvas.Text(choice.Label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
+                        ellipsis: true);
+                    DrawCheckbox(canvas, SettingsPanel.Right - 16, rect.Y + 9, on, true, colors.Muted);
                     continue;
                 }
                 bool selected = IsSelected(choice.Target);
@@ -312,17 +338,20 @@ internal sealed partial class PopupScene
                 Line(5, 7, 5, 9);
                 Line(4, 8, 6, 8);
                 break;
+            case SettingRow.RuntimeEstimate:
+                // 沙漏：上下横梁与两个对顶三角。
+                Line(3.5f, 1.8f, 12.5f, 1.8f);
+                Line(3.5f, 14.2f, 12.5f, 14.2f);
+                Line(4.6f, 1.8f, 8, 8);
+                Line(11.4f, 1.8f, 8, 8);
+                Line(8, 8, 4.6f, 14.2f);
+                Line(8, 8, 11.4f, 14.2f);
+                Line(6.2f, 12.6f, 9.8f, 12.6f);
+                break;
             case SettingRow.PollInterval:
                 canvas.Ring(x + 8, y + 8, 6, ink, 1.3f);
                 Line(8, 4.8f, 8, 8);
                 Line(8, 8, 10.2f, 9.4f);
-                break;
-            case SettingRow.Bluetooth:
-                Line(8, 1.5f, 8, 14.5f);
-                Line(8, 1.5f, 12.5f, 5.5f);
-                Line(12.5f, 5.5f, 3.5f, 12.5f);
-                Line(3.5f, 3.5f, 12.5f, 10.5f);
-                Line(12.5f, 10.5f, 8, 14.5f);
                 break;
             case SettingRow.AutoUpdate:
                 // 带箭头的环形刷新符号。
@@ -352,8 +381,8 @@ internal sealed partial class PopupScene
         var settings = model.Settings;
         UpdateThumb(ref gameThumb, ref gameMotion, SwitchRect(Settings!.RowRect(SettingRow.GameSilent)), settings.GameSilent);
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
-        UpdateThumb(ref bluetoothThumb, ref bluetoothMotion, SwitchRect(Settings.RowRect(SettingRow.Bluetooth)), settings.ShowBluetoothDevices);
         UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion, SwitchRect(Settings.RowRect(SettingRow.AutoUpdate)), settings.AutoUpdateEnabled);
+        UpdateThumb(ref runtimeThumb, ref runtimeMotion, SwitchRect(Settings.RowRect(SettingRow.RuntimeEstimate)), settings.ShowRuntimeEstimate);
     }
 
     private void UpdateThumb(ref Composition.Layer? thumb, ref ThumbMotion? motion, PanelRect track, bool enabled)
@@ -375,8 +404,18 @@ internal sealed partial class PopupScene
 
     private void DrawDevicesPage(Canvas canvas)
     {
-        canvas.Text("点名称可改名，勾选在托盘显示，眼睛控制是否出现在", 17, 59, 310, 18, 12, colors.Muted);
-        canvas.Text("面板里。", 17, 77, 310, 18, 12, colors.Muted);
+        string place = model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons ? "托盘" : "任务栏";
+        canvas.Text($"点名称改名 · 勾选：在{place}显示 · 眼睛：在面板显示", 17, 55, 310, 18, 12, colors.Muted, ellipsis: true);
+        // 「显示蓝牙设备」决定哪些设备出现，从设置页移到这里。
+        var bluetooth = new HitBox(PopupAction.ShowBluetooth, new(9, 76, 326, 36));
+        subButtons.Add(bluetooth);
+        ButtonBackground(canvas, bluetooth, 6);
+        canvas.Text("显示蓝牙设备", 17, 76, 200, 36, 13, colors.Ink);
+        var track = new PanelRect(SettingsPanel.Right - 40, 84, 40, 20);
+        bool showBluetooth = model.Settings.ShowBluetoothDevices;
+        DrawSwitch(canvas, track, showBluetooth);
+        canvas.Dot(track.X + 10 + (showBluetooth ? 20 : 0), track.Y + 10, 6, showBluetooth ? colors.Solid : colors.Secondary);
+        canvas.Line(17, PanelLayout.DeviceRowsTop - 3.5f, Width - 17, PanelLayout.DeviceRowsTop - 3.5f, colors.Border);
         int visibleRows = Math.Min(size.Rows, Math.Max(0, devices.Length - offset));
         for (int i = 0; i < visibleRows; i++)
         {
@@ -392,7 +431,7 @@ internal sealed partial class PopupScene
         }
 
         string unidentified = model.UnknownReceivers > 0
-            ? $"检测到 {model.UnknownReceivers} 个未识别接收器" : "没看到设备？";
+            ? $"有 {model.UnknownReceivers} 个 USB 设备未识别" : "没看到设备？";
         string? feedback = DiagnosticExport.Label(diagnosticStatus) ?? error;
         if (HasDiagnosticReport)
         {
@@ -453,9 +492,25 @@ internal sealed partial class PopupScene
         }
 
         float prefix = canvas.Text($"{Presentation.Connection(device.Device)} · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
-        DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
+        float badgeWidth = DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
 
         float iconTop = y + 12.125f;
+        // 单台设备的低电量提醒阈值：点一下在「默认 → 5% → … → 30%」之间循环。
+        bool custom = model.Settings.DeviceThresholds.ContainsKey(id);
+        string thresholdLabel = custom ? $"提醒 {model.ThresholdFor(id)}%" : "提醒 默认";
+        float chipX = 59 + prefix + badgeWidth + 6;
+        float chipWidth = canvas.Measure(thresholdLabel, 10.5f, 600) + 12;
+        // 离线可移除的行右侧有「移除」按钮，统一不显示阈值标签，避免有的显示、有的因放不下而消失。
+        if (!removable && chipX + chipWidth <= TrayCheckX - 4)
+        {
+            var chip = new HitBox(new PopupTarget(PopupAction.DeviceThreshold, DeviceId: id),
+                new(chipX, y + 31, chipWidth, 15.5f));
+            subButtons.Add(chip);
+            canvas.Fill(chip.X, chip.Y, chip.Width, chip.Height, 4, custom ? Dim(colors.AccentSoft) : Dim(colors.Chip));
+            ButtonBackground(canvas, chip, 4);
+            canvas.Text(thresholdLabel, chip.X, chip.Y, chip.Width, chip.Height, 10.5f,
+                custom ? Dim(colors.Accent) : Dim(colors.Secondary), 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        }
         if (removable)
         {
             var remove = new HitBox(new PopupTarget(PopupAction.Remove, DeviceId: id), new(216, iconTop, 34, 30));

@@ -232,6 +232,9 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
         // 状态行：状态圆点 + 状态说明与读取时间。
         canvas.Dot(17, 104, 3, colors.Status(content.Tone));
         canvas.Text(content.StatusLine, 29, 95, width - 43, 18, 11.5f, colors.Secondary, ellipsis: true);
+        if (content.RuntimeLine.Length > 0)
+            canvas.Text(content.RuntimeLine, 29, 95 + HoverCardContent.RuntimeLineHeight, width - 43, 18, 11.5f,
+                colors.Muted, ellipsis: true);
     }
 
     private void DrawList(Canvas canvas, HoverCardContent content, int width)
@@ -310,7 +313,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
             a.SourceLabel != b.SourceLabel || a.Percentage != b.Percentage ||
             a.IsEstimated != b.IsEstimated || a.ValueText != b.ValueText ||
             a.Tone != b.Tone || a.FilledCells != b.FilledCells ||
-            a.IsCharging != b.IsCharging || a.StatusLine != b.StatusLine ||
+            a.IsCharging != b.IsCharging || a.StatusLine != b.StatusLine || a.RuntimeLine != b.RuntimeLine ||
             a.TotalActiveCount != b.TotalActiveCount || a.OverflowCount != b.OverflowCount ||
             a.Rows.Length != b.Rows.Length)
             return false;

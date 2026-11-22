@@ -322,6 +322,8 @@ public static class DiagnosticReport
                 return $"暂未启用（{disabled!.Reason}）";
         }
         var sample = group.First();
+        if (DeviceTopologyCache.IsKnownNonBattery(sample))
+            return "已知无电池设备（不计入）";
         if (AdapterRegistry.IsKnownHidReceiver(sample.VendorId, sample.ProductId))
             return "已知厂商但未命中协议描述符";
         return "未适配厂商";

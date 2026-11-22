@@ -13,6 +13,23 @@ public sealed class TrayV023Tests
         AdaptationSource.Catalog, VerificationTier.HardwareVerified);
 
     [Fact]
+    public void AsleepReadingKeepsTheModelNameResolvedWhileOnline()
+    {
+        var model = new TrayModel(new() { PollSeconds = 60 }, new());
+        var resolved = CompxMouse with { Name = "ATK X1 Ultra" };
+        List<string> names = [];
+        model.ApplyPoll([new(resolved, 40, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now,
+            onLinkChanged: (device, _, _) => names.Add(device.Name));
+        // 休眠回复只带目录默认名「ATK 鼠标」，不能把已细化的型号名换回去。
+        model.ApplyPoll([new(CompxMouse, null, false, ChargingState.Unknown, LinkState.Asleep, Now.AddSeconds(30),
+            ReadIssue.Timeout)], false, Now.AddSeconds(30), onLinkChanged: (device, _, _) => names.Add(device.Name));
+        var status = model.OrderedDevices().Single();
+        Assert.Equal(LinkState.Asleep, status.Link);
+        Assert.Equal("ATK X1 Ultra", status.Device.Name);
+        Assert.All(names, name => Assert.Equal("ATK X1 Ultra", name));
+    }
+
+    [Fact]
     public void R1AndR4_IdleTimeoutEntersAsleepWithoutGrayIconOrPanelFlicker()
     {
         long clockMs = 100_000L;
