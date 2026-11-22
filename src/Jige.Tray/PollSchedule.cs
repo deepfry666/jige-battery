@@ -30,6 +30,7 @@ internal sealed class PollSchedule(long createdMs)
     private bool userRequested;
     private bool urgentRescan;
     private bool forceRescan = true;
+    private HashSet<string>? targetedDeviceIds;
 
     public bool Running { get; private set; }
     public bool HeartbeatRunning { get; private set; }
@@ -43,12 +44,28 @@ internal sealed class PollSchedule(long createdMs)
             urgentRescan = true;
             requested = true;
             userRequested |= userInitiated;
+            targetedDeviceIds = null;
             return;
         }
         if (Running)
             return;
         requested = true;
         userRequested |= userInitiated;
+        targetedDeviceIds = null;
+    }
+
+    /// <summary>安排仅补查指定唤醒设备的轻量查询，避免单台设备从休眠恢复时牵连全量设备重查。</summary>
+    public void RequestTargeted(IEnumerable<string> deviceIds)
+    {
+        if (Running || requested || userRequested || urgentRescan)
+            return;
+        foreach (string id in deviceIds)
+        {
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+            targetedDeviceIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            targetedDeviceIds.Add(id);
+        }
     }
 
     /// <summary>系统从睡眠/休眠恢复：立即重新枚举并查询一次。</summary>
@@ -57,6 +74,7 @@ internal sealed class PollSchedule(long createdMs)
         forceRescan = true;
         urgentRescan = true;
         requested = true;
+        targetedDeviceIds = null;
     }
 
     /// <summary>检测到接收器插拔：失效缓存并尽快刷新。</summary>
@@ -65,6 +83,7 @@ internal sealed class PollSchedule(long createdMs)
         forceRescan = true;
         urgentRescan = true;
         requested = true;
+        targetedDeviceIds = null;
     }
 
     public long? Due(TraySettings settings, long nowMs, bool game)
@@ -75,7 +94,7 @@ internal sealed class PollSchedule(long createdMs)
             return nowMs;
         if (game)
             return (lastPollStartedMs ?? createdMs) + settings.GamePollSeconds * 1000L;
-        if (requested || lastPollStartedMs is null)
+        if (requested || targetedDeviceIds is { Count: > 0 } || lastPollStartedMs is null)
             return nowMs;
         return lastPollStartedMs.Value + settings.PollSeconds * 1000L;
     }
@@ -91,6 +110,22 @@ internal sealed class PollSchedule(long createdMs)
         return anchor + intervalMs;
     }
 
+    /// <summary>若当前仅有定向补查待办且未到常规全量轮询时刻，则接管本次运行并返回目标设备 ID。</summary>
+    public bool TryStartTargeted(TraySettings settings, long nowMs, bool game, out HashSet<string>? deviceIds)
+    {
+        deviceIds = null;
+        if (Running || HeartbeatRunning || game || userRequested || urgentRescan || requested ||
+            lastPollStartedMs is null || targetedDeviceIds is not { Count: > 0 } ||
+            nowMs >= lastPollStartedMs.Value + settings.PollSeconds * 1000L)
+            return false;
+
+        Running = true;
+        StartedByUser = false;
+        deviceIds = targetedDeviceIds;
+        targetedDeviceIds = null;
+        return true;
+    }
+
     public bool Start(long nowMs, bool game)
     {
         Running = true;
@@ -100,6 +135,7 @@ internal sealed class PollSchedule(long createdMs)
         bool shouldRescan = forceRescan;
         forceRescan = false;
         urgentRescan = false;
+        targetedDeviceIds = null;
         if (!game || userRequested)
             requested = false;
         userRequested = false;
@@ -253,5 +289,47 @@ internal readonly record struct GameMode(DiagnosticGameState Status)
             area.Right > area.Left && area.Bottom > area.Top &&
             frame.Left <= area.Left + tolerance && frame.Top <= area.Top + tolerance &&
             frame.Right >= area.Right - tolerance && frame.Bottom >= area.Bottom - tolerance;
+    }
+}
+
+/// <summary>
+/// 当本机未检测到任何蓝牙设备时，对全机 PnP 蓝牙扫描（SetupDiGetClassDevsW ALLCLASSES）降频，
+/// 避免每 30 秒遍历整机所有设备；有蓝牙设备、上次失败、收到插拔/恢复或超过 5 分钟兜底周期时照常扫描。
+/// </summary>
+internal sealed class BluetoothScanThrottle
+{
+    public const long EmptyRescanIntervalMs = 300_000;
+
+    private readonly object sync = new();
+    private bool hasScanned;
+    private bool lastFailed;
+    private int lastDeviceCount;
+    private long lastScanMs;
+
+    public bool ShouldScan(long nowMs, bool forceRescan)
+    {
+        lock (sync)
+        {
+            if (forceRescan || !hasScanned || lastFailed || lastDeviceCount > 0)
+                return true;
+            return nowMs - lastScanMs >= EmptyRescanIntervalMs;
+        }
+    }
+
+    public void Record(long nowMs, int deviceCount, bool failed)
+    {
+        lock (sync)
+        {
+            hasScanned = true;
+            lastScanMs = nowMs;
+            lastDeviceCount = deviceCount;
+            lastFailed = failed;
+        }
+    }
+
+    public void Invalidate()
+    {
+        lock (sync)
+            hasScanned = false;
     }
 }

@@ -717,3 +717,58 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             InsideBar(rect) && rect.Left > bar.CenterX;
     }
 }
+
+/// <summary>
+/// 过滤 Windows 11 任务栏 UIA 在瞬态重排期间偶发丢失应用按钮边界导致的直读条↔托盘闪烁。
+/// 仅在任务栏位置、DPI 与可见状态均未变化时，对连续短暂缺失应用按钮边界给予宽限并触发快速重试。
+/// </summary>
+internal sealed class TaskbarControlsStabilizer
+{
+    public const int MaxTransientMisses = 2;
+    public const long GraceMs = 1_500;
+
+    private Bounds lastBar;
+    private uint lastDpi;
+    private TaskbarControls? lastValid;
+    private int transientMisses;
+    private long firstMissMs;
+
+    public void Reset()
+    {
+        lastValid = null;
+        transientMisses = 0;
+        firstMissMs = 0;
+    }
+
+    public (TaskbarControls Controls, bool Retry) Apply(
+        Bounds bar, uint dpi, bool visible, bool bottomEdge, TaskbarControls incoming, long nowMs)
+    {
+        if (!visible || !bottomEdge || incoming.NotificationArea is null)
+        {
+            Reset();
+            return (incoming, false);
+        }
+
+        if (incoming.OccupiedRight is not null)
+        {
+            lastBar = bar;
+            lastDpi = dpi;
+            lastValid = incoming;
+            transientMisses = 0;
+            firstMissMs = 0;
+            return (incoming, false);
+        }
+
+        if (lastValid is { } cached && lastBar == bar && lastDpi == dpi)
+        {
+            if (transientMisses == 0)
+                firstMissMs = nowMs;
+            transientMisses++;
+            if (transientMisses <= MaxTransientMisses && nowMs - firstMissMs <= GraceMs)
+                return (cached with { NotificationArea = incoming.NotificationArea }, true);
+        }
+
+        Reset();
+        return (incoming, false);
+    }
+}

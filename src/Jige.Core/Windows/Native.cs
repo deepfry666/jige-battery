@@ -81,6 +81,21 @@ internal static unsafe partial class Native
         public uint WriteConstant;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct ProcessEntry32
+    {
+        public uint Size;
+        public uint Usage;
+        public uint ProcessId;
+        public nuint DefaultHeapId;
+        public uint ModuleId;
+        public uint Threads;
+        public uint ParentProcessId;
+        public int PriorityClassBase;
+        public uint Flags;
+        public fixed char ExeFile[260];
+    }
+
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true)]
     internal static partial nint GetClassDevs(in Guid classGuid, nint enumerator, nint parent, uint flags);
 
@@ -176,4 +191,16 @@ internal static unsafe partial class Native
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     internal static partial int SetCommTimeouts(SafeFileHandle file, in CommTimeouts timeouts);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial nint CreateToolhelp32Snapshot(uint flags, uint processId);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "Process32FirstW", SetLastError = true)]
+    internal static partial int Process32First(nint snapshot, ref ProcessEntry32 entry);
+
+    [LibraryImport("kernel32.dll", EntryPoint = "Process32NextW", SetLastError = true)]
+    internal static partial int Process32Next(nint snapshot, ref ProcessEntry32 entry);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial int CloseHandle(nint handle);
 }

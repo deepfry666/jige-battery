@@ -2,10 +2,38 @@ namespace Jige.Core.Adapters;
 
 internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDeviceAdapter, IPresenceAdapter
 {
+    private readonly Lock primaryLock = new();
+    private readonly HashSet<string> confirmedPrimaryPaths = new(StringComparer.OrdinalIgnoreCase);
+
     public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
+
+    public void ResetPrimaryCache()
+    {
+        lock (primaryLock)
+            confirmedPrimaryPaths.Clear();
+    }
+
+    private bool IsPrimaryConfirmed(string path)
+    {
+        lock (primaryLock)
+            return confirmedPrimaryPaths.Contains(path);
+    }
+
+    private void ConfirmPrimary(string path)
+    {
+        lock (primaryLock)
+            confirmedPrimaryPaths.Add(path);
+    }
+
+    private void ClearPrimary(string path)
+    {
+        lock (primaryLock)
+            confirmedPrimaryPaths.Remove(path);
+    }
 
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
+        var targets = new List<DeviceTarget>();
         foreach (var group in inventory.Hid
             .Where(hid => MouseReceiverCatalog.IsVendor(hid.VendorId, hid.ProductId))
             .GroupBy(hid => hid.ReceiverId, StringComparer.OrdinalIgnoreCase))
@@ -97,15 +125,23 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
                 _ => "无线接收器"
             };
-            yield return new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
+            targets.Add(new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
             {
                 SourceLabel = sourceLabel
             },
                 selectedEndpoint, "0")
             {
                 SiblingInputHids = siblings
-            };
+            });
         }
+
+        if (inventory.Warnings.Count == 0)
+        {
+            var live = targets.Select(target => target.Endpoint.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            lock (primaryLock)
+                confirmedPrimaryPaths.RemoveWhere(path => !live.Contains(path));
+        }
+        return targets;
     }
 
     internal static MouseReceiver? AllowedRoute(HidInterface endpoint)
@@ -137,8 +173,16 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
         using var session = transport.OpenHid(QueryEndpoint(endpoint, route), cancellationToken);
-        var result = await QueryAsync(session, endpoint, route, false, target.SiblingInputHids, transport, trace, cancellationToken)
+        // 主集合已稳定返回电量后，日常轮询跳过永远超时的旁路输入集合；诊断导出时始终完整监听。
+        IReadOnlyList<HidInterface> siblings = trace is null && IsPrimaryConfirmed(endpoint.Path)
+            ? []
+            : target.SiblingInputHids;
+        var result = await QueryAsync(session, endpoint, route, false, siblings, transport, trace, cancellationToken)
             .ConfigureAwait(false);
+        if (result.Level.HasValue && result.FromPrimary)
+            ConfirmPrimary(endpoint.Path);
+        else if (result.Issue == ReadIssue.InvalidResponse)
+            ClearPrimary(endpoint.Path);
         if (result.Asleep)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow);
         if (result.Level is null)
@@ -188,8 +232,13 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             var online = await QueryCompxOnlineAsync(session, endpoint, cancellationToken).ConfigureAwait(false);
             if (online is bool state)
                 return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Asleep);
-            var battery = await QueryAsync(session, endpoint, route, false, target.SiblingInputHids, transport, null, cancellationToken)
+            IReadOnlyList<HidInterface> siblings = IsPrimaryConfirmed(endpoint.Path) ? [] : target.SiblingInputHids;
+            var battery = await QueryAsync(session, endpoint, route, false, siblings, transport, null, cancellationToken)
                 .ConfigureAwait(false);
+            if (battery.Level.HasValue && battery.FromPrimary)
+                ConfirmPrimary(endpoint.Path);
+            else if (battery.Issue == ReadIssue.InvalidResponse)
+                ClearPrimary(endpoint.Path);
             if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric)
                 gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
             var compxLink = battery.Level.HasValue ? LinkState.Online
@@ -220,7 +269,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
     }
 
     private readonly record struct Reply(
-        int? Level, ChargingState Charging, ReadIssue Issue = ReadIssue.None, bool Asleep = false);
+        int? Level, ChargingState Charging, ReadIssue Issue = ReadIssue.None, bool Asleep = false, bool FromPrimary = true);
 
     private static async ValueTask<bool?> QueryCompxOnlineAsync(
         IHidSession session, HidInterface endpoint, CancellationToken cancellationToken)
@@ -431,7 +480,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                         trace?.Invoke(FrameDirection.Received, listener.Buffer.AsSpan(0, count));
                         if (MouseBatteryProtocol.TryCompxFromCollection(listener.Buffer.AsSpan(0, count),
                             out int level, out var compxCharging))
-                            return new(level, compxCharging);
+                            return new(level, compxCharging, FromPrimary: false);
                         siblingListeners[idx] = (listener.Session, listener.Buffer,
                             listener.Session.ReadInputAsync(listener.Buffer, token).AsTask());
                     }

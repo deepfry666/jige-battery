@@ -110,6 +110,8 @@ GetAncestor
 GetDC
 GetSysColor
 HIGHCONTRASTW
+IDXGIDevice3
 ReleaseDC
 SelectObject
+UpdateLayeredWindow
 WindowFromPoint
