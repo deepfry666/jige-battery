@@ -38,7 +38,12 @@ internal readonly record struct TaskbarStripDevice(
 }
 
 internal readonly record struct TaskbarStripSegment(
-    TaskbarStripDevice Device, IconRect Icon, IconRect? Bolt, IconRect Text, IconRect? Separator);
+    TaskbarStripDevice Device, IconRect Icon, IconRect? Bolt, IconRect Text, IconRect? Separator)
+{
+    public int Left => Icon.X - 4;
+    public int Right => Text.Right + 4;
+    public int Width => Right - Left;
+}
 
 internal sealed record TaskbarStripLayout(int Width, TaskbarStripSegment[] Segments)
 {
@@ -301,58 +306,127 @@ internal readonly record struct TaskbarStripPalette(
     Color Charging,
     Color Separator,
     Color? Plate = null,
-    Color? PlateBorder = null)
+    Color? PlateBorder = null,
+    TaskbarStripStyle Style = TaskbarStripStyle.Auto,
+    bool IsMonochrome = false)
 {
-    private const double MinContrast = 4.5;
+    private const double DefaultMinContrast = 4.5;
+    private const double HighContrastMinContrast = 5.5;
     private const double MinStatusDistance = 0.36;
-    private const double FramelessReturnContrast = 4.7;
+    private const double FramelessReturnDelta = 0.2;
     private const double FramelessReturnDistance = 0.37;
-    private const byte MinPlateAlpha = 112;
+    private const byte MinAutoPlateAlpha = 112;
+    private const byte MinForcedDarkPlateAlpha = 144;
+    private const byte MinForcedLightPlateAlpha = 160;
     private const byte MaxPlateAlpha = 224;
     private const byte PlateAlphaStep = 16;
 
-    private static readonly TaskbarStripPalette DarkBase =
-        new(new(0xf0ece4), Palette.Create(true).Warning, new(0xff8080), new(0x4ce07a), new(0xffffff, 48));
-    private static readonly TaskbarStripPalette DarkBoost =
-        new(new(0xffffff), new(0xffe838), new(0xff9494), new(0x62ed8d), new(0xffffff, 64));
-    private static readonly TaskbarStripPalette LightBase =
-        new(new(0x211d19), Palette.Create(false).Warning, new(0xb42318), new(0x0f7b38), new(0x000000, 40));
-    private static readonly TaskbarStripPalette LightBoost =
-        new(new(0x141210), new(0x763e00), new(0x9e160d), new(0x075925), new(0x000000, 52));
+    private readonly record struct SchemeInks(
+        TaskbarStripPalette Base,
+        TaskbarStripPalette Boost,
+        uint ScrimRgb,
+        Color Border,
+        double MinContrast,
+        bool Monochrome);
+
+    private static readonly SchemeInks StandardDark = new(
+        new(new(0xf0ece4), Palette.Create(true).Warning, new(0xff8080), new(0x4ce07a), new(0xffffff, 48)),
+        new(new(0xffffff), new(0xffe838), new(0xff9494), new(0x62ed8d), new(0xffffff, 64)),
+        0x12151cu, new(0xffffff, 30), DefaultMinContrast, false);
+
+    private static readonly SchemeInks StandardLight = new(
+        new(new(0x211d19), Palette.Create(false).Warning, new(0xb42318), new(0x0f7b38), new(0x000000, 40)),
+        new(new(0x141210), new(0x763e00), new(0x9e160d), new(0x075925), new(0x000000, 52)),
+        0xf6f7fau, new(0x000000, 28), DefaultMinContrast, false);
+
+    private static readonly SchemeInks HighContrastDark = new(
+        new(new(0xffffff), new(0xfff040), new(0xff8c94), new(0x52ff96), new(0xffffff, 72)),
+        new(new(0xffffff), new(0xfff566), new(0xffa3aa), new(0x78ffa8), new(0xffffff, 84)),
+        0x0b0d12u, new(0xffffff, 44), HighContrastMinContrast, false);
+
+    private static readonly SchemeInks HighContrastLight = new(
+        new(new(0x000000), new(0x703800), new(0xa30000), new(0x005922), new(0x000000, 64)),
+        new(new(0x000000), new(0x5e2e00), new(0x8c0000), new(0x004a1c), new(0x000000, 72)),
+        0xffffffu, new(0x000000, 42), HighContrastMinContrast, false);
+
+    private static readonly SchemeInks MonochromeDark = new(
+        new(new(0xf3f3f3), new(0xf3f3f3), new(0xf3f3f3), new(0xf3f3f3), new(0xffffff, 52), IsMonochrome: true),
+        new(new(0xffffff), new(0xffffff), new(0xffffff), new(0xffffff), new(0xffffff, 68), IsMonochrome: true),
+        0x12151cu, new(0xffffff, 30), DefaultMinContrast, true);
+
+    private static readonly SchemeInks MonochromeLight = new(
+        new(new(0x1b1b1b), new(0x1b1b1b), new(0x1b1b1b), new(0x1b1b1b), new(0x000000, 44), IsMonochrome: true),
+        new(new(0x000000), new(0x000000), new(0x000000), new(0x000000), new(0x000000, 56), IsMonochrome: true),
+        0xf6f7fau, new(0x000000, 28), DefaultMinContrast, true);
+
+    private static readonly SchemeInks IceBlueDark = new(
+        new(new(0xd8f1ff), new(0xffd15c), new(0xff6b8b), new(0x4ef2c8), new(0x9cd8ff, 56)),
+        new(new(0xe8f7ff), new(0xffe07d), new(0xff85a0), new(0x72f7d6), new(0x9cd8ff, 72)),
+        0x0d1520u, new(0x9cd8ff, 38), DefaultMinContrast, false);
+
+    private static readonly SchemeInks IceBlueLight = new(
+        new(new(0x0b4c7c), new(0x8a4b00), new(0xb81d38), new(0x007369), new(0x0b4c7c, 48)),
+        new(new(0x073b61), new(0x703a00), new(0x9c122a), new(0x005951), new(0x0b4c7c, 60)),
+        0xf0f7fcu, new(0x0b4c7c, 34), DefaultMinContrast, false);
 
     public bool UsesLightInk => TaskbarColorMath.RelativeLuminance(Foreground.Rgb) > 0.5;
     public bool HasPlate => Plate is not null;
 
     public static TaskbarStripPalette Create(bool dark) => Create(TaskbarBackdrop.FromDark(dark));
 
-    public static TaskbarStripPalette Create(TaskbarBackdrop backdrop, TaskbarStripPalette? previous = null)
+    public static TaskbarStripPalette Create(TaskbarBackdrop backdrop, TaskbarStripPalette? previous = null) =>
+        Create(backdrop, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Auto, previous);
+
+    public static TaskbarStripPalette Create(TaskbarBackdrop backdrop, TaskbarStripStyle style,
+        TaskbarStripColorScheme scheme, TaskbarStripPalette? previous = null)
     {
-        bool dark = backdrop.PrefersDarkPalette(previous?.UsesLightInk);
-        bool hadSamePolarityPlate = previous is { HasPlate: true } prev && prev.UsesLightInk == dark;
-        double framelessContrast = hadSamePolarityPlate ? FramelessReturnContrast : MinContrast;
-        double framelessDistance = hadSamePolarityPlate ? FramelessReturnDistance : MinStatusDistance;
+        bool dark = scheme switch
+        {
+            TaskbarStripColorScheme.Light => true,
+            TaskbarStripColorScheme.Dark => false,
+            _ => backdrop.PrefersDarkPalette(previous?.UsesLightInk)
+        };
+        var inks = ResolveScheme(scheme, dark);
+        double minDistance = inks.Monochrome ? 0.0 : MinStatusDistance;
+        bool hadSamePolarityPlate = previous is { HasPlate: true } prev &&
+            prev.UsesLightInk == dark && prev.Style == style && prev.IsMonochrome == inks.Monochrome;
+        double framelessContrast = hadSamePolarityPlate ? inks.MinContrast + FramelessReturnDelta : inks.MinContrast;
+        double framelessDistance = inks.Monochrome ? 0.0
+            : hadSamePolarityPlate ? FramelessReturnDistance : MinStatusDistance;
 
-        var basePalette = dark ? DarkBase : LightBase;
-        if (Passes(basePalette, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
-            framelessContrast, framelessDistance))
-            return basePalette;
+        if (style == TaskbarStripStyle.Frameless)
+        {
+            var chosenInk = Passes(inks.Base, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
+                inks.MinContrast, minDistance)
+                ? inks.Base
+                : inks.Boost;
+            return chosenInk with { Plate = null, PlateBorder = null, Style = style };
+        }
 
-        var boostPalette = dark ? DarkBoost : LightBoost;
-        if (Passes(boostPalette, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
-            framelessContrast, framelessDistance))
-            return boostPalette;
+        bool forcePlate = style is TaskbarStripStyle.Capsule or TaskbarStripStyle.Badges;
+        if (!forcePlate)
+        {
+            if (Passes(inks.Base, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
+                framelessContrast, framelessDistance))
+                return inks.Base with { Style = style };
 
-        uint scrimRgb = dark ? 0x12151cu : 0xf6f7fau;
-        var inks = dark ? DarkBase : LightBoost;
-        var border = dark ? new Color(0xffffff, 30) : new Color(0x000000, 28);
+            if (Passes(inks.Boost, backdrop.Rgb, backdrop.MinLuminance, backdrop.MaxLuminance,
+                framelessContrast, framelessDistance))
+                return inks.Boost with { Style = style };
+        }
+
+        var plateInks = dark ? inks.Base : inks.Boost;
         uint minGray = TaskbarColorMath.GrayFromLuminance(backdrop.MinLuminance);
         uint maxGray = TaskbarColorMath.GrayFromLuminance(backdrop.MaxLuminance);
+        byte startAlpha = forcePlate
+            ? (dark ? MinForcedDarkPlateAlpha : MinForcedLightPlateAlpha)
+            : MinAutoPlateAlpha;
 
         byte chosen = MaxPlateAlpha;
-        for (int alpha = MinPlateAlpha; alpha <= MaxPlateAlpha; alpha += PlateAlphaStep)
+        for (int alpha = startAlpha; alpha <= MaxPlateAlpha; alpha += PlateAlphaStep)
         {
-            if (PassesWithPlate(inks, scrimRgb, (byte)alpha, backdrop.Rgb, minGray, maxGray,
-                MinContrast, MinStatusDistance))
+            if (PassesWithPlate(plateInks, inks.ScrimRgb, (byte)alpha, backdrop.Rgb, minGray, maxGray,
+                inks.MinContrast, minDistance))
             {
                 chosen = (byte)alpha;
                 break;
@@ -361,13 +435,34 @@ internal readonly record struct TaskbarStripPalette(
 
         // 动态壁纸轻微波纹时保持上一档透明度，避免细微亮度抖动引发反复重绘。
         if (previous is { Plate: { } prevPlate } p && p.UsesLightInk == dark &&
+            p.Style == style && p.IsMonochrome == inks.Monochrome &&
+            prevPlate.Alpha >= startAlpha &&
             Math.Abs(prevPlate.Alpha - chosen) <= PlateAlphaStep &&
-            PassesWithPlate(inks, scrimRgb, prevPlate.Alpha, backdrop.Rgb, minGray, maxGray, 4.35, 0.35))
+            PassesWithPlate(plateInks, inks.ScrimRgb, prevPlate.Alpha, backdrop.Rgb, minGray, maxGray,
+                inks.MinContrast - 0.15, inks.Monochrome ? 0.0 : 0.35))
         {
             chosen = prevPlate.Alpha;
         }
 
-        return inks with { Plate = new Color(scrimRgb, chosen), PlateBorder = border };
+        return plateInks with
+        {
+            Plate = new Color(inks.ScrimRgb, chosen),
+            PlateBorder = inks.Border,
+            Style = style
+        };
+    }
+
+    /// <summary>供设置页配色下拉列表展示 3 个预览色点（主字色 / 低电色 / 充电色）。</summary>
+    public static (Color Foreground, Color Low, Color Charging) PreviewSwatches(TaskbarStripColorScheme scheme, bool darkPanel)
+    {
+        bool dark = scheme switch
+        {
+            TaskbarStripColorScheme.Light => true,
+            TaskbarStripColorScheme.Dark => false,
+            _ => darkPanel
+        };
+        var p = ResolveScheme(scheme, dark).Base;
+        return (p.Foreground, p.Low, p.Charging);
     }
 
     public (Color Icon, Color Text) Ink(BatteryTone tone, bool showBolt = true) => tone switch
@@ -379,14 +474,54 @@ internal readonly record struct TaskbarStripPalette(
         _ => (Foreground, Foreground)
     };
 
+    /// <summary>分块徽章样式下，按设备状态返回该徽章的底衬与边框色（纯色方案与休眠无闪电保持中性）。</summary>
+    public (Color Fill, Color Border) BadgeSurface(BatteryTone tone, bool showBolt)
+    {
+        var baseFill = Plate ?? new Color(UsesLightInk ? 0x12151cu : 0xf6f7fau, MinForcedDarkPlateAlpha);
+        var baseBorder = PlateBorder ?? new Color(UsesLightInk ? 0xffffffu : 0x000000u, 30);
+        if (IsMonochrome || tone is BatteryTone.Normal or BatteryTone.Idle || (tone == BatteryTone.Charging && !showBolt))
+            return (baseFill, baseBorder);
+
+        bool dark = UsesLightInk;
+        uint tint = tone switch
+        {
+            BatteryTone.Low => dark ? 0x3b161bu : 0xfce6e8u,
+            BatteryTone.Warning => dark ? 0x362b12u : 0xfcf2d9u,
+            _ => dark ? 0x13301fu : 0xe3f7eau
+        };
+        Color accent = tone switch
+        {
+            BatteryTone.Low => Low,
+            BatteryTone.Warning => Warning,
+            _ => Charging
+        };
+        byte fillAlpha = (byte)Math.Min(232, baseFill.Alpha + 16);
+        return (new Color(tint, fillAlpha), accent.WithAlpha(dark ? (byte)110 : (byte)96));
+    }
+
+    private static SchemeInks ResolveScheme(TaskbarStripColorScheme scheme, bool dark) => (scheme, dark) switch
+    {
+        (TaskbarStripColorScheme.HighContrast, true) => HighContrastDark,
+        (TaskbarStripColorScheme.HighContrast, false) => HighContrastLight,
+        (TaskbarStripColorScheme.Monochrome, true) => MonochromeDark,
+        (TaskbarStripColorScheme.Monochrome, false) => MonochromeLight,
+        (TaskbarStripColorScheme.IceBlue, true) => IceBlueDark,
+        (TaskbarStripColorScheme.IceBlue, false) => IceBlueLight,
+        (_, true) => StandardDark,
+        (_, false) => StandardLight
+    };
+
     private static bool Passes(TaskbarStripPalette palette, uint bgRgb, double minLum, double maxLum,
         double minContrast, double minDistance)
     {
-        return TaskbarColorMath.WorstContrast(palette.Foreground.Rgb, minLum, maxLum) >= minContrast &&
-               TaskbarColorMath.WorstContrast(palette.Warning.Rgb, minLum, maxLum) >= minContrast &&
-               TaskbarColorMath.WorstContrast(palette.Low.Rgb, minLum, maxLum) >= minContrast &&
-               TaskbarColorMath.WorstContrast(palette.Charging.Rgb, minLum, maxLum) >= minContrast &&
-               TaskbarColorMath.OkLabDistance(palette.Warning.Rgb, bgRgb) >= minDistance &&
+        if (TaskbarColorMath.WorstContrast(palette.Foreground.Rgb, minLum, maxLum) < minContrast ||
+            TaskbarColorMath.WorstContrast(palette.Warning.Rgb, minLum, maxLum) < minContrast ||
+            TaskbarColorMath.WorstContrast(palette.Low.Rgb, minLum, maxLum) < minContrast ||
+            TaskbarColorMath.WorstContrast(palette.Charging.Rgb, minLum, maxLum) < minContrast)
+            return false;
+        if (minDistance <= 0)
+            return true;
+        return TaskbarColorMath.OkLabDistance(palette.Warning.Rgb, bgRgb) >= minDistance &&
                TaskbarColorMath.OkLabDistance(palette.Low.Rgb, bgRgb) >= minDistance &&
                TaskbarColorMath.OkLabDistance(palette.Charging.Rgb, bgRgb) >= minDistance;
     }

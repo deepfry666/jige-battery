@@ -106,9 +106,25 @@ internal static class TaskbarStripPixels
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(scale);
         int width = layout.Width * scale;
         var pixels = new uint[width * TaskbarStripLayout.Height * scale];
-        if (palette.Plate is { } plate && layout.Width >= 6)
-            DrawPlate(plate.Premultiplied, palette.PlateBorder?.Premultiplied ?? 0u);
+        bool badges = palette.Style == TaskbarStripStyle.Badges;
+        bool meter = palette.Style == TaskbarStripStyle.Meter;
 
+        if (badges)
+        {
+            foreach (var segment in layout.Segments)
+            {
+                if (segment.Width < 6)
+                    continue;
+                var (fill, border) = palette.BadgeSurface(segment.Device.Tone, segment.Device.ShowBolt);
+                DrawPlate(segment.Left, segment.Width, fill.Premultiplied, border.Premultiplied);
+            }
+        }
+        else if (palette.Plate is { } plate && layout.Width >= 6)
+        {
+            DrawPlate(0, layout.Width, plate.Premultiplied, palette.PlateBorder?.Premultiplied ?? 0u);
+        }
+
+        int yOffset = meter ? -2 : 0;
         foreach (var segment in layout.Segments)
         {
             var (icon, text) = palette.Ink(segment.Device.Tone, segment.Device.ShowBolt);
@@ -119,24 +135,25 @@ internal static class TaskbarStripPixels
                 DeviceKind.Headset => Headset,
                 _ => Other
             };
-            Draw(shape, segment.Icon.X, segment.Icon.Y, icon);
+            Draw(shape, segment.Icon.X, segment.Icon.Y + yOffset, icon);
             if (segment.Bolt is { } bolt)
-                Draw(Bolt, bolt.X, bolt.Y, palette.Charging);
+                Draw(Bolt, bolt.X, bolt.Y + yOffset, palette.Charging);
             int x = segment.Text.X;
             foreach (char glyph in segment.Device.Text)
             {
                 int index = glyph switch { '%' => 10, '-' => 11, _ => glyph - '0' };
-                Draw(Digits[index], x, segment.Text.Y, text);
+                Draw(Digits[index], x, segment.Text.Y + yOffset, text);
                 x += TaskbarStripLayout.GlyphWidth + 1;
             }
-            if (segment.Separator is { } separator)
+            if (meter)
+                DrawMeter(segment, text);
+            if (!badges && segment.Separator is { } separator)
                 Blend(separator.X, separator.Y, separator.Width, separator.Height, palette.Separator.Premultiplied);
         }
         return pixels;
 
-        void DrawPlate(uint plateArgb, uint borderArgb)
+        void DrawPlate(int leftX, int logicalWidth, uint plateArgb, uint borderArgb)
         {
-            int logicalWidth = layout.Width;
             int logicalHeight = TaskbarStripLayout.Height;
             uint rimArgb = borderArgb != 0 ? CompositeOver(borderArgb, plateArgb) : plateArgb;
             for (int y = 0; y < logicalHeight; y++)
@@ -144,14 +161,36 @@ internal static class TaskbarStripPixels
                 int inset = y == 0 || y == logicalHeight - 1 ? 2 : y == 1 || y == logicalHeight - 2 ? 1 : 0;
                 if (y == 0 || y == logicalHeight - 1)
                 {
-                    Fill(inset, y, logicalWidth - inset * 2, 1, rimArgb);
+                    Fill(leftX + inset, y, logicalWidth - inset * 2, 1, rimArgb);
                 }
                 else
                 {
-                    Fill(inset, y, 1, 1, rimArgb);
-                    Fill(inset + 1, y, logicalWidth - (inset + 1) * 2, 1, plateArgb);
-                    Fill(logicalWidth - 1 - inset, y, 1, 1, rimArgb);
+                    Fill(leftX + inset, y, 1, 1, rimArgb);
+                    Fill(leftX + inset + 1, y, logicalWidth - (inset + 1) * 2, 1, plateArgb);
+                    Fill(leftX + logicalWidth - 1 - inset, y, 1, 1, rimArgb);
                 }
+            }
+        }
+
+        void DrawMeter(TaskbarStripSegment segment, Color litColor)
+        {
+            const int cells = 4, gap = 1, barY = 17, barHeight = 2;
+            int barLeft = segment.Icon.X;
+            int barWidth = segment.Text.Right - barLeft;
+            if (barWidth < cells * 2)
+                return;
+
+            int lit = segment.Device.Percentage is { } percent && percent > 0
+                ? Math.Clamp((percent * cells + 50) / 100, 1, cells)
+                : 0;
+            uint litArgb = litColor.Premultiplied;
+            uint dimArgb = palette.Foreground.WithAlpha(palette.UsesLightInk ? (byte)56 : (byte)48).Premultiplied;
+            for (int i = 0; i < cells; i++)
+            {
+                int cellLeft = barLeft + i * (barWidth + gap) / cells;
+                int cellRight = barLeft + (i + 1) * (barWidth + gap) / cells - gap;
+                if (cellRight > cellLeft)
+                    Blend(cellLeft, barY, cellRight - cellLeft, barHeight, i < lit ? litArgb : dimArgb);
             }
         }
 

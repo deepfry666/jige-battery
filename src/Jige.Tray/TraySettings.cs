@@ -20,6 +20,12 @@ internal enum TrayDisplayLocation { Taskbar, TrayIcons }
 [JsonConverter(typeof(JsonStringEnumConverter<ThemeMode>))]
 internal enum ThemeMode { Auto, Light, Dark }
 
+[JsonConverter(typeof(JsonStringEnumConverter<TaskbarStripStyle>))]
+internal enum TaskbarStripStyle { Auto, Frameless, Capsule, Badges, Meter }
+
+[JsonConverter(typeof(JsonStringEnumConverter<TaskbarStripColorScheme>))]
+internal enum TaskbarStripColorScheme { Auto, Light, Dark, HighContrast, Monochrome, IceBlue }
+
 internal sealed record TraySettings
 {
     public static IReadOnlyList<int> PollIntervals { get; } = Array.AsReadOnly<int>([30, 60, 120]);
@@ -27,6 +33,8 @@ internal sealed record TraySettings
     public static IReadOnlyList<int> DeviceThresholdOptions { get; } = Array.AsReadOnly<int>([5, 10, 15, 20, 30]);
 
     public TrayDisplayLocation DisplayLocation { get; init; } = TrayDisplayLocation.Taskbar;
+    public TaskbarStripStyle TaskbarStyle { get; init; } = TaskbarStripStyle.Auto;
+    public TaskbarStripColorScheme TaskbarColor { get; init; } = TaskbarStripColorScheme.Auto;
     public ThemeMode Theme { get; init; } = ThemeMode.Auto;
     public TrayDisplayMode TrayMode { get; init; } = TrayDisplayMode.Custom;
     public int LowBatteryThreshold { get; init; } = 15;
@@ -141,6 +149,13 @@ internal sealed record TraySettings
             TrayMode = mode,
             DisplayLocation = DisplayLocation == TrayDisplayLocation.TrayIcons
                 ? TrayDisplayLocation.TrayIcons : TrayDisplayLocation.Taskbar,
+            TaskbarStyle = TaskbarStyle is TaskbarStripStyle.Frameless or TaskbarStripStyle.Capsule
+                or TaskbarStripStyle.Badges or TaskbarStripStyle.Meter
+                ? TaskbarStyle : TaskbarStripStyle.Auto,
+            TaskbarColor = TaskbarColor is TaskbarStripColorScheme.Light or TaskbarStripColorScheme.Dark
+                or TaskbarStripColorScheme.HighContrast or TaskbarStripColorScheme.Monochrome
+                or TaskbarStripColorScheme.IceBlue
+                ? TaskbarColor : TaskbarStripColorScheme.Auto,
             Theme = Theme is ThemeMode.Light or ThemeMode.Dark ? Theme : ThemeMode.Auto,
             LowBatteryThreshold = Math.Clamp(LowBatteryThreshold, 0, 100),
             AutoCheckUpdates = AutoUpdateEnabled,
@@ -213,7 +228,8 @@ internal sealed class TrayFiles(string folder)
                     ?? throw new JsonException("配置缺少根对象");
             settings = loaded.Normalize();
             if (settings.PollSeconds != loaded.PollSeconds || settings.TrayMode != loaded.TrayMode ||
-                settings.DisplayLocation != loaded.DisplayLocation || settings.Theme != loaded.Theme)
+                settings.DisplayLocation != loaded.DisplayLocation || settings.Theme != loaded.Theme ||
+                settings.TaskbarStyle != loaded.TaskbarStyle || settings.TaskbarColor != loaded.TaskbarColor)
                 SaveMigratedSettings(settings, log);
             return true;
         }

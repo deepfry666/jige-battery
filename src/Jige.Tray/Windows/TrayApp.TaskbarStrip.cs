@@ -19,6 +19,7 @@ internal sealed partial class TrayApp
     private TaskbarStripWindow? stripWindow;
     private TaskbarStripGeometry stripGeometry;
     private TaskbarStripDisplay stripDisplay = new(TaskbarStripReason.HiddenTaskbar, default);
+    private TaskbarBackdrop taskbarBackdrop = TaskbarBackdrop.FromDark(true);
     private TaskbarBackdrop lastFallbackBackdrop = TaskbarBackdrop.FromDark(true);
     private TaskbarStripPalette stripPalette = TaskbarStripPalette.Create(true);
     private HWND stripOwner;
@@ -200,9 +201,10 @@ internal sealed partial class TrayApp
                     Desktop.TrySampleTaskbarBackdrop(stripGeometry.Owner, stripWindow.Handle, stripGeometry.Bar,
                         next.Bounds, scale, out var sampled))
                 {
+                    taskbarBackdrop = sampled;
                     stripBackdropSampled = true;
-                    stripPalette = TaskbarStripPalette.Create(sampled);
-                    darkTaskbar = stripPalette.UsesLightInk;
+                    stripPalette = ResolveStripPalette(sampled);
+                    darkTaskbar = sampled.PrefersDarkPalette();
                 }
                 stripWindow.Update(rendered, layout, next.Bounds, stripPalette, scale);
             }
@@ -304,12 +306,21 @@ internal sealed partial class TrayApp
         stripAutomation = null;
     }
 
+    private TaskbarStripPalette ResolveStripPalette(TaskbarBackdrop backdrop, TaskbarStripPalette? previous = null) =>
+        TaskbarStripPalette.Create(backdrop, model.Settings.TaskbarStyle, model.Settings.TaskbarColor, previous);
+
     private void InitializeTaskbarBackdrop()
     {
         var fallback = Desktop.ReadTaskbarBackdropFallback();
         lastFallbackBackdrop = fallback;
-        stripPalette = TaskbarStripPalette.Create(fallback);
-        darkTaskbar = stripPalette.UsesLightInk;
+        taskbarBackdrop = fallback;
+        stripPalette = ResolveStripPalette(fallback);
+        darkTaskbar = fallback.PrefersDarkPalette();
+    }
+
+    private void ApplyStripAppearanceSettings()
+    {
+        stripPalette = ResolveStripPalette(taskbarBackdrop);
     }
 
     private void RefreshTaskbarTheme(bool redraw = true)
@@ -319,14 +330,16 @@ internal sealed partial class TrayApp
         lastFallbackBackdrop = fallback;
         if (fallbackChanged)
         {
+            taskbarBackdrop = fallback;
             stripBackdropSampled = false;
             // 系统切换深浅色或强调色时先用注册表回退值立即重绘，等 Explorer/DWM 过渡动画稳定后再采样像素。
             stripBackdropDeferSample = true;
-            var nextPalette = TaskbarStripPalette.Create(fallback);
+            var nextPalette = ResolveStripPalette(fallback);
+            bool nextDark = fallback.PrefersDarkPalette();
             bool paletteChanged = nextPalette != stripPalette;
-            bool darkChanged = nextPalette.UsesLightInk != darkTaskbar;
+            bool darkChanged = nextDark != darkTaskbar;
             stripPalette = nextPalette;
-            darkTaskbar = nextPalette.UsesLightInk;
+            darkTaskbar = nextDark;
             if (redraw && (paletteChanged || darkChanged))
                 RefreshIcon();
         }
@@ -377,12 +390,13 @@ internal sealed partial class TrayApp
         if (Desktop.TrySampleTaskbarBackdrop(stripGeometry.Owner, window.Handle, stripGeometry.Bar,
             bounds, scale, out var sampled))
         {
-            var nextPalette = TaskbarStripPalette.Create(sampled, stripBackdropSampled ? stripPalette : null);
+            taskbarBackdrop = sampled;
+            var nextPalette = ResolveStripPalette(sampled, stripBackdropSampled ? stripPalette : null);
             stripBackdropSampled = true;
             if (nextPalette != stripPalette)
             {
                 stripPalette = nextPalette;
-                darkTaskbar = nextPalette.UsesLightInk;
+                darkTaskbar = sampled.PrefersDarkPalette(darkTaskbar);
                 RefreshStrip();
             }
         }

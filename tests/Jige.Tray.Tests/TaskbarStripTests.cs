@@ -679,6 +679,130 @@ public sealed class TaskbarStripTests
     }
 
     [Fact]
+    public void UserSelectableStylesAndColorSchemesRenderAndMeetContrastTargets()
+    {
+        var layout = TaskbarStripLayout.Build(Example);
+        var darkBg = TaskbarBackdrop.Uniform(0x1c1f28u, sampled: true);
+        var lightBg = TaskbarBackdrop.Uniform(0xeeeeeeu, sampled: true);
+        var redBg = TaskbarBackdrop.Uniform(0xc42b1cu, sampled: true);
+        var greenBg = TaskbarBackdrop.Uniform(0x107c10u, sampled: true);
+
+        // 1) Frameless 始终无底衬；Capsule / Badges 始终有底衬。
+        Assert.False(TaskbarStripPalette.Create(redBg, TaskbarStripStyle.Frameless, TaskbarStripColorScheme.Auto).HasPlate);
+        Assert.True(TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Capsule, TaskbarStripColorScheme.Auto).HasPlate);
+        Assert.True(TaskbarStripPalette.Create(lightBg, TaskbarStripStyle.Badges, TaskbarStripColorScheme.Auto).HasPlate);
+
+        // 2) 固定浅字/深字配色在反色任务栏上自动加底衬保证可读；纯色方案在绿底上无撞色可保持无框。
+        var lightInkOnLightBg = TaskbarStripPalette.Create(lightBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Light);
+        Assert.True(lightInkOnLightBg.UsesLightInk);
+        Assert.True(lightInkOnLightBg.HasPlate);
+        var darkInkOnDarkBg = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Dark);
+        Assert.False(darkInkOnDarkBg.UsesLightInk);
+        Assert.True(darkInkOnDarkBg.HasPlate);
+        var monoOnGreen = TaskbarStripPalette.Create(greenBg, TaskbarStripStyle.Auto, TaskbarStripColorScheme.Monochrome);
+        Assert.True(monoOnGreen.IsMonochrome);
+        Assert.Equal(monoOnGreen.Foreground, monoOnGreen.Low);
+        Assert.Equal(monoOnGreen.Foreground, monoOnGreen.Charging);
+        Assert.False(monoOnGreen.HasPlate);
+
+        // 3) 所有非无框样式 × 全部 6 套配色在红/蓝/深/浅/拼接壁纸上均满足最低对比度要求。
+        TaskbarBackdrop[] testBackdrops = [darkBg, lightBg, redBg, greenBg, new(0x767676u, 0.0, 1.0, true)];
+        foreach (var style in new[] { TaskbarStripStyle.Auto, TaskbarStripStyle.Capsule, TaskbarStripStyle.Badges, TaskbarStripStyle.Meter })
+        foreach (var scheme in Enum.GetValues<TaskbarStripColorScheme>())
+        foreach (var bg in testBackdrops)
+        {
+            var pal = TaskbarStripPalette.Create(bg, style, scheme);
+            double minTarget = scheme == TaskbarStripColorScheme.HighContrast ? 5.5 : 4.5;
+            uint effBg = pal.Plate is { } plate ? TaskbarColorMath.BlendOver(plate.Rgb, plate.Alpha, bg.Rgb) : bg.Rgb;
+            double lo = pal.Plate is { } pLo
+                ? Math.Min(TaskbarColorMath.RelativeLuminance(effBg),
+                    TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(pLo.Rgb, pLo.Alpha, TaskbarColorMath.GrayFromLuminance(bg.MinLuminance))))
+                : bg.MinLuminance;
+            double hi = pal.Plate is { } pHi
+                ? Math.Max(TaskbarColorMath.RelativeLuminance(effBg),
+                    TaskbarColorMath.RelativeLuminance(TaskbarColorMath.BlendOver(pHi.Rgb, pHi.Alpha, TaskbarColorMath.GrayFromLuminance(bg.MaxLuminance))))
+                : bg.MaxLuminance;
+            foreach (var ink in new[] { pal.Foreground, pal.Warning, pal.Low, pal.Charging })
+                Assert.True(TaskbarColorMath.WorstContrast(ink.Rgb, lo, hi) >= minTarget,
+                    $"style={style}, scheme={scheme}, bg=0x{bg.Rgb:x6}");
+        }
+
+        // 4) Badges 样式：段间 4px 间隙保持全透明，低电与充电徽章带独立底衬色且无竖分隔线。
+        var badgesPalette = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Badges, TaskbarStripColorScheme.Auto);
+        uint[] badgesPixels = TaskbarStripPixels.Render(layout, badgesPalette, 1);
+        var sep = layout.Segments[0].Separator!.Value;
+        Assert.Equal(0u, badgesPixels[sep.Y * layout.Width + sep.X]);
+        Assert.NotEqual(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Low, false));
+        Assert.NotEqual(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Charging, true));
+        Assert.Equal(badgesPalette.BadgeSurface(BatteryTone.Normal, false),
+            badgesPalette.BadgeSurface(BatteryTone.Charging, false));
+
+        // 5) Meter 样式：y=17..18 绘制 4 格微电量条，整数倍率缩放清晰无错位。
+        var meterPalette = TaskbarStripPalette.Create(darkBg, TaskbarStripStyle.Meter, TaskbarStripColorScheme.IceBlue);
+        uint[] meter1x = TaskbarStripPixels.Render(layout, meterPalette, 1);
+        uint[] meter2x = TaskbarStripPixels.Render(layout, meterPalette, 2);
+        var lowSeg = layout.Segments[1];
+        Assert.Equal(meterPalette.Low.Premultiplied, meter1x[17 * layout.Width + lowSeg.Icon.X]);
+        int width2x = layout.Width * 2;
+        for (int y = 0; y < TaskbarStripLayout.Height * 2; y++)
+        for (int x = 0; x < width2x; x++)
+            Assert.Equal(meter1x[y / 2 * layout.Width + x / 2], meter2x[y * width2x + x]);
+    }
+
+    [Fact]
+    public void TaskbarStyleAndColorSettingsRoundTripAndKeepDropdownOpenForLivePreview()
+    {
+        var directory = Directory.CreateTempSubdirectory("jige-strip-style-test-");
+        try
+        {
+            var files = new TrayFiles(directory.FullName);
+            const string legacy = """{"displayLocation":"Taskbar","pollSeconds":60}""";
+            File.WriteAllText(files.ConfigPath, legacy);
+            Assert.True(files.TryLoadSettings(out var loaded));
+            Assert.Equal(TaskbarStripStyle.Auto, loaded.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.Auto, loaded.TaskbarColor);
+            Assert.Equal(legacy, File.ReadAllText(files.ConfigPath));
+
+            var normalized = (new TraySettings
+            {
+                TaskbarStyle = (TaskbarStripStyle)99,
+                TaskbarColor = (TaskbarStripColorScheme)99
+            }).Normalize();
+            Assert.Equal(TaskbarStripStyle.Auto, normalized.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.Auto, normalized.TaskbarColor);
+
+            var model = new TrayModel(loaded, new());
+            var panel = new SettingsPanel(900);
+            Assert.Equal(5, panel.Choices(SettingRow.TaskbarStyle).Length);
+            Assert.Equal(6, panel.Choices(SettingRow.TaskbarColor).Length);
+
+            Assert.True(panel.Toggle(SettingRow.TaskbarStyle, 0, animate: false, selectedIndex: 0));
+            Assert.True(panel.Select(new(PopupAction.TaskbarStyle, (int)TaskbarStripStyle.Badges), model, 1, false, Save));
+            Assert.Equal(SettingRow.TaskbarStyle, panel.Expanded); // 保持展开便于实时对比任务栏。
+
+            Assert.True(panel.Toggle(SettingRow.TaskbarColor, 2, animate: false, selectedIndex: 0));
+            Assert.True(panel.Select(new(PopupAction.TaskbarColor, (int)TaskbarStripColorScheme.IceBlue), model, 3, false, Save));
+            Assert.Equal(SettingRow.TaskbarColor, panel.Expanded);
+
+            Assert.True(files.TryLoadSettings(out var persisted));
+            Assert.Equal(TaskbarStripStyle.Badges, persisted.TaskbarStyle);
+            Assert.Equal(TaskbarStripColorScheme.IceBlue, persisted.TaskbarColor);
+
+            void Save(TraySettings next)
+            {
+                files.SaveSettings(next.Normalize());
+                model.ApplySettings(next, DateTimeOffset.UnixEpoch);
+            }
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public void ExportTaskbarStripPngsWhenRequested()
     {
         if (Environment.GetEnvironmentVariable("JIGE_TRAY_PNG_DIR") is not { Length: > 0 } output)

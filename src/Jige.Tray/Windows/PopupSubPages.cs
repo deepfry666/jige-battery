@@ -22,6 +22,8 @@ internal sealed partial class PopupScene
             {
                 PopupAction.TrayMode => SettingRow.TrayMode,
                 PopupAction.DisplayLocation => SettingRow.DisplayLocation,
+                PopupAction.TaskbarStyle => SettingRow.TaskbarStyle,
+                PopupAction.TaskbarColor => SettingRow.TaskbarColor,
                 PopupAction.Theme => SettingRow.Theme,
                 PopupAction.Threshold or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder => SettingRow.Threshold,
                 PopupAction.PollInterval => SettingRow.PollInterval,
@@ -86,11 +88,13 @@ internal sealed partial class PopupScene
             if (!SettingsPanel.IsSectionStart(row))
                 canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
 
-            DrawSettingIcon(canvas, row, 25, rect.Y + 14);
+            DrawSettingIcon(canvas, row, 25, rect.Y + (rect.Height - 16) / 2);
             string name = row switch
             {
                 SettingRow.TrayMode => "显示哪些设备",
                 SettingRow.DisplayLocation => "显示位置",
+                SettingRow.TaskbarStyle => "任务栏样式",
+                SettingRow.TaskbarColor => "任务栏配色",
                 SettingRow.Theme => "外观模式",
                 SettingRow.Threshold => "电量提醒",
                 SettingRow.GameSilent => "游戏中不打扰",
@@ -102,8 +106,9 @@ internal sealed partial class PopupScene
             if (row == SettingRow.RuntimeEstimate)
             {
                 // 明确告知用户：数字由本机历史读数推算，不代表实际续航。
-                canvas.Text(name, 54, rect.Y + 4, 200, 20, 13.5f, colors.Ink);
-                canvas.Text("含充满时间 · 仅为估算，不代表实际", 54, rect.Y + 23, 200, 16, 11, colors.Muted, ellipsis: true);
+                float topPad = MathF.Max(2, (rect.Height - 36) / 2);
+                canvas.Text(name, 54, rect.Y + topPad, 200, 19, 13.5f, colors.Ink);
+                canvas.Text("含充满时间 · 仅为估算，不代表实际", 54, rect.Y + topPad + 18, 200, 16, 11, colors.Muted, ellipsis: true);
             }
             else
                 canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
@@ -124,13 +129,15 @@ internal sealed partial class PopupScene
             {
                 SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
                 SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation, displayLocationFallback),
+                SettingRow.TaskbarStyle => Presentation.TaskbarStyleLabel(settings.TaskbarStyle),
+                SettingRow.TaskbarColor => Presentation.TaskbarColorLabel(settings.TaskbarColor),
                 SettingRow.Theme => Presentation.ThemeModeLabel(settings.Theme),
                 SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
                 _ => Presentation.Interval(settings.PollSeconds)
             };
             canvas.Text(value, SettingsPanel.Right - 164, rect.Y, 140, rect.Height, 13, colors.Muted,
                 align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
-            DrawChevron(canvas, SettingsPanel.Right - 6, rect.Y + 22, layout.Progress(row));
+            DrawChevron(canvas, SettingsPanel.Right - 6, rect.Y + rect.Height / 2, layout.Progress(row));
             DrawSettingChoices(canvas, row);
         }
         for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
@@ -173,6 +180,8 @@ internal sealed partial class PopupScene
     {
         PopupAction.TrayMode => target.Value == (int)model.Settings.TrayMode,
         PopupAction.DisplayLocation => target.Value == (int)model.Settings.DisplayLocation,
+        PopupAction.TaskbarStyle => target.Value == (int)model.Settings.TaskbarStyle,
+        PopupAction.TaskbarColor => target.Value == (int)model.Settings.TaskbarColor,
         PopupAction.Theme => target.Value == (int)model.Settings.Theme,
         PopupAction.Threshold => target.Value == model.Settings.LowBatteryThreshold,
         PopupAction.PollInterval => target.Value == model.Settings.PollSeconds,
@@ -223,8 +232,19 @@ internal sealed partial class PopupScene
                 string label = row == SettingRow.DisplayLocation
                     ? SettingsPanel.DisplayLocationOptionLabel(choice, displayLocationFallback)
                     : choice.Label;
-                canvas.Text(label, 54, rect.Y, SettingsPanel.Right - 76, rect.Height, 13, colors.Ink,
+                bool showSwatches = choice.Target.Action == PopupAction.TaskbarColor;
+                float textWidth = showSwatches ? SettingsPanel.Right - 110 : SettingsPanel.Right - 76;
+                canvas.Text(label, 54, rect.Y, textWidth, rect.Height, 13, colors.Ink,
                     selected ? 600 : 400, ellipsis: true);
+                if (showSwatches)
+                {
+                    var (fgSwatch, lowSwatch, chgSwatch) = TaskbarStripPalette.PreviewSwatches(
+                        (TaskbarStripColorScheme)choice.Target.Value, darkPanel: TaskbarColorMath.RelativeLuminance(colors.Solid.Rgb) < 0.5);
+                    float cy = rect.Y + rect.Height / 2;
+                    DrawColorDot(canvas, SettingsPanel.Right - 46, cy, fgSwatch);
+                    DrawColorDot(canvas, SettingsPanel.Right - 36, cy, lowSwatch);
+                    DrawColorDot(canvas, SettingsPanel.Right - 26, cy, chgSwatch);
+                }
                 if (selected)
                 {
                     float x = SettingsPanel.Right - 16, y = rect.Y + 10;
@@ -303,6 +323,18 @@ internal sealed partial class PopupScene
                 Line(1, 10, 15, 10);
                 Line(10.5f, 11.8f, 12.5f, 11.8f);
                 break;
+            case SettingRow.TaskbarStyle:
+                // 胶囊样式图标：外框 + 内部两小格。
+                canvas.Stroke(x + 1, y + 4, 14, 8, 3.2f, ink, 1.3f);
+                Line(4, 8, 6.5f, 8);
+                Line(9.5f, 8, 12, 8);
+                break;
+            case SettingRow.TaskbarColor:
+                // 三点色板图标。
+                canvas.Ring(x + 8, y + 4.5f, 2.2f, ink, 1.2f);
+                canvas.Ring(x + 4.6f, y + 10.8f, 2.2f, ink, 1.2f);
+                canvas.Dot(x + 11.4f, y + 10.8f, 2.4f, ink);
+                break;
             case SettingRow.Theme:
                 canvas.Ring(x + 8, y + 8, 5.8f, ink, 1.3f);
                 canvas.PushClip(new PanelRect(x + 8, y + 1, 7, 14));
@@ -366,7 +398,13 @@ internal sealed partial class PopupScene
         }
     }
 
-    private static PanelRect SwitchRect(PanelRect row) => new(SettingsPanel.Right - 40, row.Y + 12, 40, 20);
+    private void DrawColorDot(Canvas canvas, float cx, float cy, Color swatch)
+    {
+        canvas.Dot(cx, cy, 3.1f, swatch);
+        canvas.Ring(cx, cy, 3.1f, colors.Border, 0.8f);
+    }
+
+    private static PanelRect SwitchRect(PanelRect row) => new(SettingsPanel.Right - 40, row.Y + (row.Height - 20) / 2, 40, 20);
 
     private void DrawSwitch(Canvas canvas, PanelRect rect, bool enabled)
     {

@@ -1222,6 +1222,8 @@ internal sealed partial class TrayApp : IDisposable
         bool gameSettingChanged = settings.GameSilent != model.Settings.GameSilent;
         bool bluetoothChanged = settings.ShowBluetoothDevices != model.Settings.ShowBluetoothDevices;
         bool displayLocationChanged = settings.DisplayLocation != model.Settings.DisplayLocation;
+        bool stripAppearanceChanged = settings.TaskbarStyle != model.Settings.TaskbarStyle ||
+            settings.TaskbarColor != model.Settings.TaskbarColor;
         bool themeChanged = settings.Theme != model.Settings.Theme;
         bool autoUpdateChanged = settings.AutoUpdateEnabled != model.Settings.AutoUpdateEnabled;
         model.ApplySettings(settings, DateTimeOffset.UtcNow);
@@ -1231,6 +1233,8 @@ internal sealed partial class TrayApp : IDisposable
             SetForegroundTracking();
         if (displayLocationChanged)
             RefreshStripGeometry();
+        if (stripAppearanceChanged)
+            ApplyStripAppearanceSettings();
         if (autoUpdateChanged)
         {
             if (settings.AutoUpdateEnabled)
@@ -1709,7 +1713,8 @@ internal sealed partial class TrayApp : IDisposable
             case PopupAction.ExpandSetting:
                 active.ToggleSetting((SettingRow)target.Value);
                 break;
-            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation or PopupAction.Theme
+            case PopupAction.TrayMode or PopupAction.Threshold or PopupAction.PollInterval or PopupAction.DisplayLocation
+                or PopupAction.TaskbarStyle or PopupAction.TaskbarColor or PopupAction.Theme
                 or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder:
                 active.SelectSetting(target, ChangeSettings);
                 break;
