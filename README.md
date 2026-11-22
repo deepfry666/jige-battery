@@ -1,46 +1,73 @@
-<p align="center"><img src="design/brand/fourj-mark.svg" width="88" alt="几格标志"></p>
+<p align="center"><img src="design/brand/fourj-mark.svg" width="84" alt="几格标志"></p>
 
 <h1 align="center">几格 · Jige Battery</h1>
 
 <p align="center"><b>不开厂商驱动，也能在 Windows 任务栏上看到无线鼠标、键盘和耳机的电量。</b></p>
+<p align="center"><sub>Lightweight, read-only Windows taskbar battery monitor for 2.4 GHz &amp; Bluetooth wireless peripherals — no vendor bloatware required.</sub></p>
 
 <p align="center">
-  <a href="https://jige.imfourj.cn">官网</a> ·
-  <a href="https://jige.imfourj.cn/download.html">下载</a> ·
-  <a href="CHANGELOG.md">更新记录</a> ·
-  <a href="docs/devices.md">支持的设备</a>
+  <a href="https://github.com/deepfry666/jige-battery/releases/latest"><img src="https://img.shields.io/github/v/release/deepfry666/jige-battery?style=flat-square&color=d45226&label=最新版本" alt="最新正式版"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/deepfry666/jige-battery?style=flat-square&color=191715&label=开源协议" alt="MIT 开源协议"></a>
+  <img src="https://img.shields.io/badge/Windows-10%20%2F%2011%20x64-191715?style=flat-square" alt="Windows 10 / 11 x64">
+  <img src="https://img.shields.io/badge/NativeAOT-~5%20MB-5d5850?style=flat-square" alt="约 5 MB 原生编译">
 </p>
 
-<p align="center">免费 · MIT 开源 · 约 5 MB · Windows 10 / 11（64 位）</p>
+<p align="center">
+  <a href="https://jige.imfourj.cn"><b>🌐 官网与在线演示</b></a> ·
+  <a href="https://jige.imfourj.cn/download.html"><b>⬇️ 下载与安装指南</b></a> ·
+  <a href="docs/devices.md">支持的设备</a> ·
+  <a href="CHANGELOG.md">更新记录</a> ·
+  <a href="https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml">提交新设备适配</a>
+</p>
 
 <p align="center"><img src="docs/images/win11-panel.png" width="560" alt="Windows 11 上的几格：任务栏时钟左边显示鼠标 12%、耳机充电中 45%、键盘 80%，上方是展开的几格面板"></p>
 
+<details>
+<summary><b>English Overview</b></summary>
+
+**Jige Battery (几格)** shows the battery levels of your 2.4 GHz wireless & Bluetooth mice, keyboards, and headsets directly on the Windows 10 / 11 taskbar — so you can keep heavy vendor apps (Synapse, G HUB, INZONE Hub, etc.) completely closed.
+
+- **Direct & Read-Only**: Talks to USB 2.4 GHz receivers via whitelisted read-only HID/serial queries only. Never modifies DPI, RGB, macros, or firmware, and backs off automatically when official vendor software is open.
+- **Zero Disturbance While Gaming**: Automatically hides and pauses popups in exclusive fullscreen games, with an optional click-through banner on game launch if a device is low.
+- **Tiny & Native**: Single-process C# .NET 10 NativeAOT binary (~5 MB installer), no runtime required, no admin privileges, no telemetry.
+- **Download**: [Latest GitHub Release](https://github.com/deepfry666/jige-battery/releases/latest) · [Official Site & Interactive Demo](https://jige.imfourj.cn)
+- **Device not listed?** Export a sanitized `diagnostics.txt` inside Jige and open a [Device Report](https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml) (see [CONTRIBUTING.md#english](CONTRIBUTING.md#english)).
+
+</details>
+
 ## 它解决什么问题
 
-在雷蛇、罗技或者各家鼠标驱动里调好灵敏度和回报率以后，很多人会把驱动关掉，免得占后台、影响游戏。可这样一来就看不到电量了，经常是打到一半鼠标突然没电。同时用几个牌子的话，为了看个电量还得开一堆软件。
+在雷蛇、罗技或各家驱动里调好灵敏度和回报率后，很多人会把驱动关掉，免得常驻后台占内存、影响游戏。可关掉之后就看不到电量了，经常打到一半鼠标突然没电；桌面上同时用几个牌子的话，为了看个电量还得开两三个客户端。
 
-几格直接和 USB 接收器通信，只发查电量的指令，所以厂商驱动可以一直关着。一个小工具就能同时看多个品牌的设备。
+**几格直接和 USB 接收器通信，只发白名单只读查电指令**，厂商驱动可以一直关着，一个 ~5 MB 的小工具就能同时看全多个品牌的无线外设。
+
+| 核心优势 | 说明 |
+| --- | --- |
+| **不开厂商驱动** | 直连 2.4 GHz 接收器与 Windows 蓝牙电量，多品牌统一显示 |
+| **纯只读 · 零遥测** | 只查电量与连接状态，不碰设置与固件，不上传任何个人或设备数据 |
+| **打游戏不打扰** | 独占全屏不弹窗、不抢焦点，轮询自动降频至 5 分钟 |
+| **极轻原生编译** | C# .NET 10 NativeAOT 单进程，约 5 MB，免安装运行库、免管理员权限 |
 
 ## 在任务栏上的样子
 
-Windows 10 和 Windows 11 默认都使用任务栏直读条，也可以在「设置 → 显示位置」切换为托盘图标（任务栏不在底部或通知区左侧放不下时，也会自动临时回退为托盘图标）。
+Windows 10 和 Windows 11 默认都使用**任务栏直读条**，并内置 **5 种样式**（自动融入、极简无框、磨砂胶囊、分块徽章、底栏格条）与 **9 套配色**，实时自适应深浅色、彩色主题与半透明任务栏背景。也可以在「设置 → 显示位置」切换为**托盘图标**（任务栏不在底部或空间不足时也会自动临时回退）。
 
 | 任务栏直读条（默认 · Win10 / Win11） | 托盘图标（可选 / 空间不足时自动回退） |
 | --- | --- |
 | <img src="docs/images/win11-taskbar.png" width="400" alt="任务栏直读条：通知区左侧显示鼠标 12% 红色、耳机充电中 45% 绿色、键盘 80%"> | <img src="docs/images/win10-tray.png" width="400" alt="托盘图标：鼠标、耳机、键盘三个图标，按电量从底部往上填色"> |
 | 通知区左侧横排显示每台设备的图标和电量，字和时钟一样大。 | 每台设备一个图标，设备剪影就是电量计，电量越多填得越高。 |
 
-两种显示的颜色规则一样：低于提醒阈值变红，略高于阈值变黄，充电中变绿并带一个闪电。
+两种显示的颜色规则一致：低于提醒阈值变红，略高于阈值变黄，充电中变绿并带闪电标志。
 
 ## 功能
 
-- **一眼看电量**：任务栏常驻显示，鼠标移上去看所有设备的名称、状态、上次充电时间和读取时间。
-- **主面板与管理**：单击打开，电量最低的设备排在最上面，断开的设备收进「离线设备」；可改名、选择显示哪些设备、给单台设备设独立提醒阈值。
-- **预计可用与充满时间**（可选，默认关闭）：按本机在线耗电与分段充电记录估算「还能用多久 / 够用约几天 / 约多久充满」，仅用已有读数，不向设备多发查询。
-- **电量提醒**：低电量时在桌面提醒（支持「1 小时后提醒」）；刚进游戏时有低电量设备可在右下角弹一条可点穿、不抢焦点的小横幅（独占全屏不弹）；也支持「撑不过今天」预测提醒和充满提醒拔线。
-- **不打扰游戏**：全屏游戏时不弹窗、不抢焦点，查询放慢到 5 分钟一次，常规提醒推迟到回到桌面。
-- **自动更新**：每天检查一次新版本，后台下载并核对 SHA-256，面板底部提示「新版已就绪」，点一下才升级。可以在设置里关掉。
-- **轻量**：原生编译，单个进程，不需要安装 .NET 运行库，也不需要管理员权限。
+- **一眼看电量**：任务栏常驻显示，支持 5 种直读条样式与 9 套配色实时切换；悬停卡片查看全部设备名称、状态、上次充电时间与读取时间。
+- **主面板与自定义管理**：单击打开，支持跟随系统 / 明亮 / 深色外观模式；电量最低的设备排在最上方，断开的设备收进「离线设备」；可改名、勾选显示哪些设备、给单台设备设独立提醒阈值（5%～30%）。
+- **预计可用与充满时间**（可选，默认关闭）：仅依据本机已有耗电与分段充电记录估算「还能用多久 / 够用约几天 / 约多久充满」，不向设备多发任何查询。
+- **电量提醒**：低电量桌面提醒（支持「1 小时后提醒」）；刚进游戏时若有低电量设备，可在右下角弹一条可点穿、不抢焦点的小横幅（独占全屏不弹）；也支持「撑不过今天」预测提醒和充满提醒拔线。
+- **不打扰游戏**：独占全屏游戏时自动隐藏直读条、不弹窗、不抢焦点，查询放慢到 5 分钟一次，切回桌面即恢复显示并补发提醒。
+- **静默自动更新**：每天检查一次正式版（优先国内镜像，异常自动回退 GitHub），后台下载并核对大小与 SHA-256，面板底部提示「新版已就绪」，点一下才升级；可在设置里关闭。
+- **轻量可靠**：NativeAOT 原生编译，单个进程，无需 .NET 运行库，无需管理员权限。
 
 ## 下载安装
 
@@ -122,7 +149,9 @@ Get-FileHash .\Jige-Setup-0.2.19-x64.exe -Algorithm SHA256
 
 </details>
 
-**你的设备不在表里，或者读数不对？** 在几格里导出诊断报告，按 [反馈指南](CONTRIBUTING.md) 提交，就能帮它加上适配。
+> [!TIP]
+> **你的设备不在表里，或者读数不对？**
+> 在几格里点「导出诊断信息」（自动脱敏、先用记事本打开审阅），然后直接点击 [提交设备电量报告](https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml)（详见 [反馈指南](CONTRIBUTING.md)），就能帮它加上适配。
 
 ## 只读与隐私
 

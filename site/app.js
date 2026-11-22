@@ -682,13 +682,82 @@
   requestAnimationFrame(function () { syncStageSlider(true); });
 
   /* ---------------------------------------------------------
-     5. 下载与安装指南页交互（浏览器自动识别、步骤切换、下载反馈、复制校验）
+     5. 首页设备兼容表快速检索
+     --------------------------------------------------------- */
+  var deviceSearchInput = document.querySelector("[data-device-search]");
+  var deviceListEl = document.querySelector("[data-device-list]");
+  var deviceCountEl = document.querySelector("[data-device-count]");
+  var deviceEmptyEl = document.querySelector("[data-device-empty]");
+  var deviceQueryEl = document.querySelector("[data-device-query]");
+  if (deviceSearchInput && deviceListEl) {
+    var deviceRows = deviceListEl.querySelectorAll(".device");
+    var totalRows = deviceRows.length;
+    var defaultMeta = deviceCountEl ? deviceCountEl.textContent : "";
+    var filterDevices = function () {
+      var raw = deviceSearchInput.value.trim();
+      var q = raw.toLowerCase();
+      var matched = 0;
+      for (var i = 0; i < deviceRows.length; i += 1) {
+        var text = (deviceRows[i].textContent || "").toLowerCase();
+        var hit = !q || text.indexOf(q) !== -1;
+        deviceRows[i].hidden = !hit;
+        if (hit) matched += 1;
+      }
+      if (deviceCountEl) {
+        deviceCountEl.textContent = q ? ("匹配 " + matched + " / " + totalRows) : defaultMeta;
+      }
+      if (deviceEmptyEl) {
+        deviceEmptyEl.hidden = matched > 0;
+      }
+      if (deviceQueryEl) {
+        deviceQueryEl.textContent = raw;
+      }
+    };
+    deviceSearchInput.addEventListener("input", filterDevices);
+  }
+
+  /* ---------------------------------------------------------
+     6. 下载与安装指南页交互（系统/浏览器自动识别、步骤切换、下载反馈、复制校验）
      --------------------------------------------------------- */
   var ua = typeof navigator === "object" && typeof navigator.userAgent === "string" ? navigator.userAgent : "";
+  var isWindows = /Windows/i.test(ua);
   var isInApp = /MicroMessenger|QQ\//i.test(ua);
-  if (isInApp) {
+  if (isInApp && isWindows) {
     each("[data-inapp-notice]", function (el) { el.hidden = false; });
+  } else if (ua && !isWindows) {
+    each("[data-nonwin-notice]", function (el) { el.hidden = false; });
   }
+
+  function copyPlainText(text, onDone) {
+    if (!text) return;
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(text).then(onDone, function () {});
+    } else {
+      var area = document.createElement("textarea");
+      area.value = text;
+      area.setAttribute("readonly", "");
+      area.className = "skip";
+      document.body.appendChild(area);
+      area.select();
+      try {
+        if (document.execCommand("copy")) onDone();
+      } catch (_) {}
+      document.body.removeChild(area);
+    }
+  }
+
+  each("[data-copy-page-url]", function (btn) {
+    var resetTimer = null;
+    var defaultLabel = btn.textContent;
+    btn.addEventListener("click", function () {
+      var url = "https://jige.imfourj.cn/download.html";
+      copyPlainText(url, function () {
+        btn.textContent = "已复制下载页链接";
+        if (resetTimer) clearTimeout(resetTimer);
+        resetTimer = setTimeout(function () { btn.textContent = defaultLabel; }, 2200);
+      });
+    });
+  });
 
   var guideTabs = document.querySelectorAll("[data-browser-tab]");
   if (guideTabs.length) {

@@ -4,10 +4,27 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>下载与安装指南 · 几格</title>
-  <meta name="description" content="下载几格 Windows 安装包，并按图示通过 Edge、Chrome 浏览器拦截与 Windows SmartScreen「Windows 已保护你的电脑」提示。">
+  <meta name="description" content="下载几格 Windows 安装包（国内镜像直连 / GitHub Release），并按图示通过 Edge、Chrome 浏览器拦截与 Windows SmartScreen 提示。">
+  <link rel="canonical" href="https://jige.imfourj.cn/download.html">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="几格 · Jige Battery">
+  <meta property="og:locale" content="zh_CN">
+  <meta property="og:title" content="下载与安装指南 · 几格（Windows 外设电量工具）">
+  <meta property="og:description" content="国内镜像直连下载几格 Windows 64 位安装包（约 5 MB，免管理员权限），附 Edge / Chrome 保留与 SmartScreen 两步放行图示。">
+  <meta property="og:url" content="https://jige.imfourj.cn/download.html">
+  <meta property="og:image" content="https://jige.imfourj.cn/assets/og-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="几格（Jige Battery）：Windows 任务栏直读条与主面板展示无线鼠标、耳机和键盘电量">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="下载与安装指南 · 几格（Windows 外设电量工具）">
+  <meta name="twitter:description" content="国内镜像直连下载几格 Windows 64 位安装包（约 5 MB，免管理员权限），附图文安装指引。">
+  <meta name="twitter:image" content="https://jige.imfourj.cn/assets/og-card.png">
+  <meta name="twitter:image:alt" content="几格（Jige Battery）：Windows 任务栏直读条与主面板展示无线鼠标、耳机和键盘电量">
   <meta name="theme-color" content="#f4f1ea">
   <meta name="color-scheme" content="light">
   <link rel="icon" href="assets/app-icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/app-icon.svg">
   <link rel="stylesheet" href="styles.css">
   <script src="app.js" defer></script>
 </head>
@@ -63,6 +80,15 @@
         <div class="guide-notice" data-inapp-notice hidden role="note">
           <p class="guide-notice-title">检测到你正在微信或 QQ 内置浏览器中打开</p>
           <p>内置浏览器通常无法直接下载 Windows 安装包。请点右上角 <span class="ui-chip">···</span>，选择 <span class="ui-chip">在默认浏览器中打开</span>（如 Edge 或 Chrome），再回到本页下载。</p>
+        </div>
+
+        <div class="guide-notice" data-nonwin-notice hidden role="note">
+          <p class="guide-notice-title">你当前似乎不在 Windows 电脑上</p>
+          <p>几格是 Windows 10 / 11（64 位）桌面小工具。你可以先复制下载页链接发到电脑打开，或者先去 GitHub 点个 Star 收藏。</p>
+          <div class="guide-notice-actions">
+            <button type="button" class="guide-notice-btn is-primary" data-copy-page-url>复制本页链接</button>
+            <a class="guide-notice-btn" href="https://github.com/deepfry666/jige-battery" target="_blank" rel="noopener noreferrer">去 GitHub 收藏</a>
+          </div>
         </div>
 
         <div class="masthead">
