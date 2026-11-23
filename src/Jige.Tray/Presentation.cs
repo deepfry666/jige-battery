@@ -114,7 +114,7 @@ internal static class Presentation
 
     public static string Status(DeviceStatus device, int threshold)
     {
-        if (device.Device.UsesPassiveBatteryReports && device.IsCharging)
+        if (device.Device.UsesPassiveBatteryReports && device.IsCharging && !device.IsFull)
             return "充电中";
         if (device.Fresh)
             return Tone(device, threshold) switch

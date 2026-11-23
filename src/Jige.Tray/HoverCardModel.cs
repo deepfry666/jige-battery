@@ -197,7 +197,7 @@ internal static class HoverCardBuilder
             ValueText: Presentation.Value(device),
             Tone: tone,
             FilledCells: Presentation.FilledCells(device.Percentage, 10),
-            IsCharging: device.IsCharging,
+            IsCharging: device.IsCharging && !device.IsFull,
             StatusLine: SingleStatusLine(device, tone, now, model.LastCharged(device.Device.Id)),
             Rows: [],
             TotalActiveCount: 1,
@@ -218,7 +218,7 @@ internal static class HoverCardBuilder
             ValueText: Presentation.Value(device),
             Tone: tone,
             FilledCells: Presentation.FilledCells(device.Percentage, 5),
-            IsCharging: device.IsCharging,
+            IsCharging: device.IsCharging && !device.IsFull,
             IsAsleep: device.Link == LinkState.Asleep);
     }
 

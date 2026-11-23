@@ -156,7 +156,9 @@ public sealed class TrayV029Tests
     [InlineData(8, ChargingState.NotCharging, (int)BatteryTone.Low, 0xc42b1cu, 0xff99a4u)]
     [InlineData(45, ChargingState.Charging, (int)BatteryTone.Charging, 0x0f7b0fu, 0x6ccb5fu)]
     [InlineData(99, ChargingState.Full, (int)BatteryTone.Charging, 0x0f7b0fu, 0x6ccb5fu)]
-    [InlineData(100, ChargingState.NotCharging, (int)BatteryTone.Charging, 0x0f7b0fu, 0x6ccb5fu)]
+    [InlineData(100, ChargingState.Charging, (int)BatteryTone.Charging, 0x0f7b0fu, 0x6ccb5fu)]
+    [InlineData(100, ChargingState.NotCharging, (int)BatteryTone.Normal, 0x1b1b1bu, 0xffffffu)]
+    [InlineData(100, ChargingState.Unknown, (int)BatteryTone.Normal, 0x1b1b1bu, 0xffffffu)]
     public void BatteryStatesUseExistingColors(int percent, ChargingState charging, int tone,
         uint lightInk, uint darkInk)
     {
