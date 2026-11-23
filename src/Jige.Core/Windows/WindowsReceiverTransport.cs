@@ -35,11 +35,14 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         try
         {
             var attributes = ReadAttributes(handle);
-            var caps = ReadCaps(handle, endpoint);
+            bool verifyUlxLayout = endpoint.RequiredOutputReportId == 0x05 && FinalmouseAdapter.Has0303Layout(endpoint);
+            var (caps, inputIds, outputIds, _) = ReadCapsInternal(handle, endpoint, verifyUlxLayout);
             if (attributes.VendorId != endpoint.VendorId || attributes.ProductId != endpoint.ProductId ||
                 caps.UsagePage != endpoint.UsagePage || caps.Usage != endpoint.Usage ||
                 caps.InputLength != endpoint.InputLength || caps.OutputLength != endpoint.OutputLength ||
-                caps.FeatureLength != endpoint.FeatureLength)
+                caps.FeatureLength != endpoint.FeatureLength ||
+                verifyUlxLayout && (attributes.Version != endpoint.FirmwareVersion ||
+                    inputIds != endpoint.InputReportIds || outputIds != endpoint.OutputReportIds))
                 throw new TransportException(ReadIssue.Disconnected, "HID 接口已变更，请重新枚举");
             cancellationToken.ThrowIfCancellationRequested();
             return new HidSession(handle, caps, endpoint.FeatureOnly);
@@ -87,12 +90,6 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         return attributes;
     }
 
-    internal static Native.HidCaps ReadCaps(SafeFileHandle handle, HidInterface? endpoint = null)
-    {
-        var (caps, _, _, _) = ReadCapsInternal(handle, endpoint, false);
-        return caps;
-    }
-
     internal static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsAndReportIds(
         SafeFileHandle handle, bool includeReportIds)
     {
@@ -105,7 +102,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
             SafeFileHandle handle,
             DomesticMouseStatus? domesticRoute,
             byte? interfaceNumber,
-            ushort? vid,
+            Native.HidAttributes attributes,
             bool includeUnknownHid,
             bool includeReportIds)
     {
@@ -138,8 +135,11 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
             }
 
             string? inputIds = null, outputIds = null, featureIds = null;
-            if (includeReportIds &&
-                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
+            bool inspectUlx = FinalmouseAdapter.NeedsReportIds(attributes.VendorId, attributes.ProductId, attributes.Version) &&
+                caps is { UsagePage: 0xFF00, Usage: 1, FeatureLength: 0,
+                    InputLength: FinalmouseProtocol.ReportLength, OutputLength: FinalmouseProtocol.ReportLength };
+            if (inspectUlx || includeReportIds &&
+                (caps.UsagePage >= 0xFF00 || attributes.VendorId == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
                  domesticRoute is not null))
             {
                 inputIds = ScanReportIds(data, 0, caps.InputLength);

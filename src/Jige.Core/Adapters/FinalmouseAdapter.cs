@@ -30,6 +30,9 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
     public static bool IsReceiver(HidInterface hid) => hid.VendorId == 0x361D;
     public static bool IsCatalogPid(ushort? pid) => pid == 0x0100;
 
+    internal static bool NeedsReportIds(ushort? vid, ushort? pid, ushort? firmware) =>
+        vid == 0x361D && IsCatalogPid(pid) && firmware == 0x0303;
+
     internal static bool IsVendorCollection(HidInterface hid) => IsReceiver(hid) &&
         hid is { UsagePage: 0xFF00, Usage: 0x0001, InputLength: FinalmouseProtocol.ReportLength,
             OutputLength: FinalmouseProtocol.ReportLength, MetadataIssue: ReadIssue.None };
@@ -94,7 +97,7 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
-        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x05, RequiredOutputReportId = 0x04 }, cancellationToken);
+        using var session = transport.OpenHid(QueryEndpoint(endpoint), cancellationToken);
         // 安全门 ②：第一条只发无害的 0x24 链路状态查询，回复格式正确才继续。
         var (link, sawReply) = await QueryAsync(session, UlxQuery.Link, trace, cancellationToken).ConfigureAwait(false);
         if (link is null)
@@ -148,7 +151,7 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
             gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
-        using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x05, RequiredOutputReportId = 0x04 }, cancellationToken);
+        using var session = transport.OpenHid(QueryEndpoint(endpoint), cancellationToken);
         var (link, sawReply) = await QueryAsync(session, UlxQuery.Link, null, cancellationToken).ConfigureAwait(false);
         if (link is null)
         {
@@ -161,6 +164,21 @@ internal sealed class FinalmouseAdapter(SafetyGateStore? gates = null) : IDevice
         }
         Confirm(endpoint.Path);
         return new(endpoint.ReceiverId, null, target.Device.Id, link[0] == 0 ? LinkState.Asleep : LinkState.Online);
+    }
+
+    internal static bool Has0303Layout(HidInterface endpoint) =>
+        NeedsReportIds(endpoint.VendorId, endpoint.ProductId, endpoint.FirmwareVersion) &&
+        endpoint is { Bus: HidBus.Usb, FeatureLength: 0, InputReportIds: "03,05", OutputReportIds: "03,05" };
+
+    private static HidInterface QueryEndpoint(HidInterface endpoint)
+    {
+        // Windows 实机报告（见 docs/protocols.md）：0303 的描述符可初始化输出 05，
+        // 但 ULX 只读请求在线上的首字节仍是 04。打开句柄时用描述符中的编号复核集合。
+        return endpoint with
+        {
+            RequiredInputReportId = 0x05,
+            RequiredOutputReportId = Has0303Layout(endpoint) ? (byte)0x05 : (byte)0x04
+        };
     }
 
     private static async ValueTask<(byte[]? Payload, bool SawReply)> QueryAsync(

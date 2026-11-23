@@ -192,7 +192,7 @@ public static partial class WindowsDeviceDiscovery
             pid = attributes.ProductId;
             var domesticRoute = DomesticMouseStatus.Find(vid, pid);
             var (caps, inputIds, outputIds, featureIds, matchedDomestic) = WindowsReceiverTransport.ReadCapsForDiscovery(
-                handle, domesticRoute, interfaceNumber, vid, includeUnknownHid, includeReportIds);
+                handle, domesticRoute, interfaceNumber, attributes, includeUnknownHid, includeReportIds);
             if (domesticRoute is not null && !includeUnknownHid && !includeReportIds && !matchedDomestic)
                 return null;
             if (readProduct && (caps.UsagePage >= 0xFF00 || vid == 0x046D && pid == 0x0AC4))
