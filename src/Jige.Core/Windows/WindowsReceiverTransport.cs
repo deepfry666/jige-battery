@@ -35,8 +35,12 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         try
         {
             var attributes = ReadAttributes(handle);
-            bool verifyUlxLayout = endpoint.RequiredOutputReportId == 0x05 && FinalmouseAdapter.Has0303Layout(endpoint);
-            var (caps, inputIds, outputIds, _) = ReadCapsInternal(handle, endpoint, verifyUlxLayout);
+            bool verifyUlxLayout = endpoint is { RequiredInputReportId: 0x05, RequiredOutputReportId: 0x05, RequiredFeatureReportId: null }
+                && FinalmouseAdapter.Has0303Layout(endpoint);
+            // 完整编号比对包含输入和输出 05。热换后即使 05 消失，也要作为接口变化触发重新枚举。
+            var (caps, inputIds, outputIds, _) = verifyUlxLayout
+                ? ReadCapsInternal(handle, null, true)
+                : ReadCapsInternal(handle, endpoint, false);
             if (attributes.VendorId != endpoint.VendorId || attributes.ProductId != endpoint.ProductId ||
                 caps.UsagePage != endpoint.UsagePage || caps.Usage != endpoint.Usage ||
                 caps.InputLength != endpoint.InputLength || caps.OutputLength != endpoint.OutputLength ||
