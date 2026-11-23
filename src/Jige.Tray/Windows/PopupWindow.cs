@@ -12,6 +12,7 @@ namespace Jige.Tray.Windows;
 internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? noticeId, RECT anchor, PanelPage firstPage) : IDisposable
 {
     public const nuint AnimationTimer = 1;
+    private static readonly Action ReleaseWin32Capture = static () => PInvoke.ReleaseCapture();
 
     private Composition? composition;
     private Composition.Layer? backdrop, background;
@@ -24,14 +25,14 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     private float scale, displayedHeight;
     private bool tracking, animations, acrylic, darkTheme;
     private Palette colors = null!;
-    private PopupTarget down;
+    private PointerButtonState<PopupTarget> pointer;
     private RECT anchor = anchor;
     private PanelPage page = noticeId is null ? firstPage : PanelPage.Notice;
     private PanelPage updatesReturnPage = PanelPage.Main;
     private int mainOffset, deviceOffset, wheelDelta;
     private bool offlineExpanded;
     private long shownAt;
-    private bool reclaimed, reclaimPending, shown, captured, darkTaskbar = true;
+    private bool reclaimed, reclaimPending, shown, darkTaskbar = true;
     private DateTimeOffset now;
     private bool running;
     private string? error;
@@ -167,12 +168,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         page = target;
         tracking = false;
         wheelDelta = 0;
-        down = default;
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
+        pointer.Cancel(ReleaseWin32Capture);
         ReplaceScene(SizeOf(target));
         Resize(transition is null ? scene!.DisplayHeight : displayedHeight);
         composition!.Commit();
@@ -229,12 +225,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         }
 
         transition = new(Environment.TickCount64, displayedHeight, size.Height, incomingPose, previousPose, direction);
-        down = default;
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
+        pointer.Cancel(ReleaseWin32Capture);
         // D2（#14）：若切页高度不变，横向滑入与透明渐显完全由 DirectComposition 合成器在 GPU 执行，
         // 只需一次性定时收尾（额外 +20ms 裕量避免 Windows 定时器提前 1-15ms 触发导致再等一整轮），不再每 15 ms 唤醒重绘。
         uint tickMs = MathF.Abs(displayedHeight - size.Height) < .5f
@@ -380,11 +371,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         if (Closing)
             return true;
         Closing = true;
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
+        pointer.Cancel(ReleaseWin32Capture);
         PInvoke.KillTimer(Handle, AnimationTimer);
         if (!animations || IsNotice)
             return false;
@@ -493,16 +480,15 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     public void PointerLeave()
     {
         tracking = false;
-        down = default;
+        if (!pointer.IsCaptured)
+            pointer.Cancel();
         if (transition is null)
             scene?.Pointer(-1, -1);
     }
 
     public void CaptureChanged()
     {
-        captured = false;
-        down = default;
-        if (transition is null)
+        if (pointer.Cancel() && transition is null)
             scene?.Pointer(-1, -1, false);
     }
 
@@ -510,35 +496,22 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
     {
         if (transition is not null)
         {
-            if (!pressed && captured)
-            {
-                captured = false;
-                down = default;
-                PInvoke.ReleaseCapture();
-            }
+            if (!pressed)
+                pointer.Cancel(ReleaseWin32Capture);
             return default;
         }
         var (x, y) = ClientPoint(lParam);
         var current = scene?.Hit(x, y) ?? default;
-        scene?.Pointer(x, y, pressed);
         if (pressed)
         {
-            down = current;
-            if (current.Action != PopupAction.None)
-            {
+            scene?.Pointer(x, y, true);
+            if (pointer.Press(current, capture: current.Action != PopupAction.None))
                 PInvoke.SetCapture(Handle);
-                captured = true;
-            }
             return default;
         }
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
-        var result = current == down ? current : default;
-        down = default;
-        return result;
+        bool clicked = pointer.Release(current, ReleaseWin32Capture, out var result);
+        scene?.Pointer(x, y, false);
+        return clicked ? result : default;
     }
 
     public PopupTarget Key(nuint key)

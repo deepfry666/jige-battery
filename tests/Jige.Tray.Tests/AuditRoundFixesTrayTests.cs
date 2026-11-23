@@ -471,6 +471,45 @@ public sealed class AuditRoundFixesTrayTests
         Assert.Equal(TaskbarEdge.Bottom, PopupPlacement.ResolveEdge(bottomIcon, screen, work, TaskbarEdge.Bottom));
     }
 
+    [Fact]
+    public void PointerButtonStateSurvivesSynchronousCaptureChangedDuringReleaseCapture()
+    {
+        // 模拟 Win32 ReleaseCapture() 同步派发 WM_CAPTURECHANGED -> CaptureChanged() 的重入场景：
+        // 按下按钮后释放时，ReleaseCapture 触发重入 Cancel() 不得抹掉本次点击结果，也不应触发多余重绘。
+        PointerButtonState<int> state = default;
+        Assert.True(state.Press(2, capture: true));
+        Assert.True(state.IsCaptured);
+
+        bool releaseCalled = false;
+        bool reentrantCancelSawActiveState = true;
+        bool clicked = state.Release(2, () =>
+        {
+            releaseCalled = true;
+            reentrantCancelSawActiveState = state.Cancel();
+        }, out int target);
+
+        Assert.True(releaseCalled);
+        Assert.False(reentrantCancelSawActiveState);
+        Assert.True(clicked);
+        Assert.Equal(2, target);
+        Assert.False(state.IsCaptured);
+
+        // 外部抢占捕获（Alt+Tab / 系统弹窗）触发 Cancel() 后，后续释放不得误触发点击。
+        Assert.True(state.Press(3, capture: true));
+        Assert.True(state.Cancel());
+        Assert.False(state.IsCaptured);
+        bool afterExternalCancel = state.Release(3, () => Assert.Fail("已失捕获时不应重复释放"), out int cancelledTarget);
+        Assert.False(afterExternalCancel);
+        Assert.Equal(0, cancelledTarget);
+
+        // 按下按钮 A 后拖到按钮 B 释放，仍应释放捕获且不触发点击。
+        Assert.True(state.Press(1, capture: true));
+        bool mismatchReleased = false;
+        bool mismatched = state.Release(4, () => mismatchReleased = true, out _);
+        Assert.True(mismatchReleased);
+        Assert.False(mismatched);
+    }
+
     private sealed class AsyncStubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond)
         : HttpMessageHandler
     {

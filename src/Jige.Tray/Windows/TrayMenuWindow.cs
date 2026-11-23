@@ -16,12 +16,13 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
 {
     public const int FadeInMs = 120;
     public const int FadeOutMs = 100;
+    private static readonly Action ReleaseWin32Capture = static () => PInvoke.ReleaseCapture();
 
     private Composition? composition;
     private Composition.Layer? surface;
     private HMONITOR monitor;
     private float scale;
-    private bool animations, acrylic, darkTheme, shown, tracking, reclaimed, reclaimPending, captured;
+    private bool animations, acrylic, darkTheme, shown, tracking, reclaimed, reclaimPending;
     private long shownAt;
     private Palette colors = null!;
     private Bounds? position;
@@ -29,7 +30,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
     private int hoverIndex = -1;
     private int pressedIndex = -1;
     private int focusIndex = -1;
-    private int downIndex = -1;
+    private PointerButtonState<int> pointer;
 
     public HWND Handle { get; private set; } = hwnd;
     public bool Closing { get; private set; }
@@ -87,11 +88,8 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         if (Closing)
             return Fades;
         Closing = true;
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
+        pressedIndex = -1;
+        pointer.Cancel(ReleaseWin32Capture);
         if (!shown || !Fades || composition is null)
             return false;
         composition.Root.FadeOut(FadeOutMs / 1000.0);
@@ -134,7 +132,8 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
     public void PointerLeave()
     {
         tracking = false;
-        downIndex = -1;
+        if (!pointer.IsCaptured)
+            pointer.Cancel();
         if (hoverIndex != -1 || pressedIndex != -1)
         {
             hoverIndex = -1;
@@ -145,10 +144,8 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
 
     public void CaptureChanged()
     {
-        captured = false;
-        if (downIndex != -1 || pressedIndex != -1)
+        if (pointer.Cancel() || pressedIndex != -1)
         {
-            downIndex = -1;
             pressedIndex = -1;
             RedrawAndCommit();
         }
@@ -161,28 +158,20 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         hoverIndex = hit;
         if (pressed)
         {
-            downIndex = hit;
             pressedIndex = hit;
             focusIndex = -1;
-            if (hit >= 0)
-            {
+            if (hit >= 0 && pointer.Press(hit, capture: true))
                 PInvoke.SetCapture(Handle);
-                captured = true;
-            }
+            else
+                pointer.Cancel(ReleaseWin32Capture);
             RedrawAndCommit();
             return TrayMenuCommand.None;
         }
 
-        if (captured)
-        {
-            captured = false;
-            PInvoke.ReleaseCapture();
-        }
-        int target = hit >= 0 && hit == downIndex ? hit : -1;
-        downIndex = -1;
         pressedIndex = -1;
+        bool clicked = pointer.Release(hit, ReleaseWin32Capture, out int target) && target >= 0;
         RedrawAndCommit();
-        return TrayMenuModel.CommandAt(target);
+        return clicked ? TrayMenuModel.CommandAt(target) : TrayMenuCommand.None;
     }
 
     public (TrayMenuCommand Command, bool Dismiss) Key(nuint key)
