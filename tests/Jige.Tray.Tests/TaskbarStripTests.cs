@@ -280,6 +280,63 @@ public sealed class TaskbarStripTests
         var newsLocated = TaskbarControls.Locate(bar, tray, overlapNews);
         Assert.Equal(1580, newsLocated.NotificationArea?.Left);
         Assert.Equal(536, newsLocated.OccupiedRight);
+
+        // 非按钮形态的第三方 DeskBand（Pane）位于 MSTaskListWClass 右侧时同样会被避让。
+        TaskbarControl[] nonButtonBand =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(390, 1040, 1580, 1080), "", "ReBarWindow32", false),
+            new(new(392, 1040, 1460, 1080), "", "MSTaskListWClass", false),
+            new(new(392, 1040, 536, 1080), "Appid: Chrome", "", true),
+            new(new(1460, 1040, 1580, 1080), "", "ToolbarWindow32", false),
+            new(new(1580, 1040, 1740, 1080), "4105", "DynamicContent2", false)
+        ];
+        var bandLocated = TaskbarControls.Locate(bar, tray, nonButtonBand);
+        Assert.Equal(1460, bandLocated.NotificationArea?.Left);
+        Assert.Equal(536, bandLocated.OccupiedRight);
+    }
+
+    [Fact]
+    public void Windows10IgnoresEmptyReservedGapBeforeNewsAndInterests()
+    {
+        var bar = new Bounds(0, 1040, 1920, 1080);
+        var nativeTray = new Bounds(1412, 1040, 1920, 1080);
+        // 真实 Win10 布局：ReBarWindow32/MSTaskListWClass 止于 1336，DynamicContent2 靠右缩紧在 [1412, 1536]，
+        // 中间 [1336, 1412] 没有任何控件，直读条应紧贴 DynamicContent2 左侧 4px（1408）而非停在 1332。
+        TaskbarControl[] controls =
+        [
+            new(new(0, 1040, 48, 1080), "", "Start", true),
+            new(new(48, 1040, 392, 1080), "", "TrayDummySearchControl", false),
+            new(new(312, 1040, 392, 1080), "", "DynamicContent1", false),
+            new(new(390, 1040, 1336, 1080), "", "ReBarWindow32", false),
+            new(new(392, 1040, 1336, 1080), "", "MSTaskSwWClass", false),
+            new(new(392, 1040, 1336, 1080), "", "MSTaskListWClass", false),
+            new(new(392, 1040, 720, 1080), "Appid: Chrome", "", true),
+            new(new(1412, 1040, 1536, 1080), "4105", "DynamicContent2", false),
+            new(new(1544, 1040, 1920, 1080), "303", "TrayNotifyWnd", false)
+        ];
+
+        var located = TaskbarControls.Locate(bar, nativeTray, controls);
+        Assert.Equal(1412, located.NotificationArea?.Left);
+        Assert.Equal(720, located.OccupiedRight);
+
+        var placed = TaskbarStripPlacement.Compute(Screen, bar, located.NotificationArea, located.OccupiedRight, 96, 109, true, true);
+        Assert.Equal(TaskbarStripReason.Ready, placed.Reason);
+        Assert.Equal(new Bounds(1299, 1049, 1408, 1071), placed.Bounds);
+
+        // 任务列表溢出出现翻页按钮（msctls_updown32）时，仍会避让翻页按钮而不是覆盖其上。
+        TaskbarControl[] overflowSpinner =
+        [
+            .. controls[..5],
+            new(new(392, 1040, 1316, 1080), "", "MSTaskListWClass", false),
+            new(new(392, 1040, 1316, 1080), "Appid: Chrome", "", true),
+            new(new(1316, 1040, 1336, 1080), "", "msctls_updown32", false),
+            .. controls[7..]
+        ];
+        var overflowLocated = TaskbarControls.Locate(bar, nativeTray, overflowSpinner);
+        Assert.Equal(1316, overflowLocated.NotificationArea?.Left);
+        Assert.Equal(TaskbarStripReason.NoRoom, TaskbarStripPlacement.Compute(
+            Screen, bar, overflowLocated.NotificationArea, overflowLocated.OccupiedRight, 96, 109, true, true).Reason);
     }
 
     [Fact]
@@ -304,7 +361,7 @@ public sealed class TaskbarStripTests
             new(new(1620, 1040, 1696, 1080), "", "", true)
         ];
         var crowdedLocated = TaskbarControls.Locate(bar, tray, crowded);
-        Assert.Equal(1700, crowdedLocated.NotificationArea?.Left);
+        Assert.Equal(1740, crowdedLocated.NotificationArea?.Left);
         Assert.Equal(1696, crowdedLocated.OccupiedRight);
         Assert.Equal(TaskbarStripReason.NoRoom, TaskbarStripPlacement.Compute(
             Screen, bar, crowdedLocated.NotificationArea, crowdedLocated.OccupiedRight, 96, 141, true, true).Reason);

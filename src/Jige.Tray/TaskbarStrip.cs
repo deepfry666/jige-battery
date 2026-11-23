@@ -726,8 +726,7 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
                 legacyListBounds = bounds;
         }
 
-        // Windows 10 使用经典 Win32 任务栏：MSTaskListWClass 是撑满可用区间的任务列表容器，
-        // 其右边界已避让「资讯和兴趣」、语言栏、第三方 ReBar 工具栏与溢出翻页按钮；
+        // Windows 10 使用经典 Win32 任务栏：MSTaskListWClass 是任务列表容器，
         // 真正占用宽度来自容器左侧的固定控件和容器内部的各个应用按钮，而非容器自身右边界。
         // 注意 Windows 10 任务按钮同样可能带 Appid: 前缀，不能据此误判为 Windows 11 XAML 任务栏。
         bool useLegacyTaskList = legacyListBounds is not null && !sawFrame && !sawModernTaskListClass;
@@ -735,7 +734,23 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
         if (useLegacyTaskList && legacyListBounds is { } legacy &&
             legacy.Right > bar.Left && legacy.Right < effectiveNotification.Left)
         {
-            effectiveNotification = effectiveNotification with { Left = legacy.Right };
+            // 开启「资讯和兴趣」时，Windows 10 会给右侧预留较宽槽位并把 DynamicContent2 靠右缩紧，
+            // 导致 MSTaskListWClass.Right 与 DynamicContent2.Left 之间存在纯空白间隙；
+            // 仅当该区间内实际存在其他控件（如右侧自定义工具栏、语言栏或任务栏溢出翻页按钮）时才向左收缩右边界。
+            int rightObstruction = effectiveNotification.Left;
+            foreach (var control in controls)
+            {
+                var bounds = control.Bounds;
+                if (!InsideBar(bounds))
+                    continue;
+                if (bounds.Left >= legacy.Right - 2 && bounds.Right > legacy.Right + 2 &&
+                    bounds.Left < rightObstruction)
+                {
+                    rightObstruction = Math.Max(legacy.Right, bounds.Left);
+                }
+            }
+            if (rightObstruction < effectiveNotification.Left)
+                effectiveNotification = effectiveNotification with { Left = rightObstruction };
         }
 
         int rightBoundary = effectiveNotification.Left;
