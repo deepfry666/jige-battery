@@ -137,6 +137,9 @@ internal static class AsusHidProtocol
     public static AsusHeadsetModel? FindHeadset(ushort? pid) =>
         pid.HasValue ? Array.Find(Headsets, model => model.Pid == pid.Value) : null;
 
+    internal static bool IsStrixGoFeatureCandidate(ushort? vid, ushort? pid, ushort? featureLength) =>
+        vid == VendorId && featureLength is >= HeadsetMinLength && FindHeadset(pid) is not null;
+
     public static bool IsKnownPid(ushort? pid) =>
         pid == OmniReceiverPid || FindKeyboard(pid) is not null || FindMouse(pid) is not null || FindHeadset(pid) is not null;
 
@@ -179,6 +182,8 @@ internal static class AsusHidProtocol
 
     public static bool AllowsRequest(ReadOnlySpan<byte> frame)
     {
+        if (frame.Length >= HeadsetMinLength && frame.StartsWith(StrixGoPrefix))
+            return !frame[StrixGoPrefix.Length..].ContainsAnyExcept((byte)0);
         if (frame.Length is < 64 or > 65)
             return false;
         if (frame[0] == 0x00 && frame[1] == 0x12 && frame[2] is 0x01 or 0x07)
@@ -189,8 +194,6 @@ internal static class AsusHidProtocol
             return !frame[3..].ContainsAnyExcept((byte)0);
         if (frame[0] == 0x03 && frame[1] == 0x12 && frame[2] == 0x07)
             return !frame[3..].ContainsAnyExcept((byte)0);
-        if (frame.Length >= StrixGoPrefix.Length && frame[..StrixGoPrefix.Length].SequenceEqual(StrixGoPrefix))
-            return !frame[StrixGoPrefix.Length..].ContainsAnyExcept((byte)0);
         return false;
     }
 
@@ -413,8 +416,9 @@ internal sealed class AsusHidAdapter(SafetyGateStore? gates = null, TimeSpan? he
 
     private static AsusHeadsetModel? MatchHeadset(HidInterface hid)
     {
-        if (DeviceCatalog.IsDisabledPath(hid, out _) || hid.VendorId != AsusHidProtocol.VendorId ||
-            hid.MetadataIssue != ReadIssue.None || hid.FeatureLength is not >= AsusHidProtocol.HeadsetMinLength)
+        if (DeviceCatalog.IsDisabledPath(hid, out _) || hid.MetadataIssue != ReadIssue.None ||
+            !AsusHidProtocol.IsStrixGoFeatureCandidate(hid.VendorId, hid.ProductId, hid.FeatureLength) ||
+            hid.FeatureReportIds is not null && !hid.FeatureReportIds.Split(',').Contains("FF", StringComparer.OrdinalIgnoreCase))
             return null;
         return AsusHidProtocol.FindHeadset(hid.ProductId);
     }
@@ -447,12 +451,15 @@ internal sealed class AsusHidAdapter(SafetyGateStore? gates = null, TimeSpan? he
             }, endpoint, "0");
         }
 
-        // ROG Strix Go 2.4：同一接收器只取第一个支持 >= 64B Feature 的集合（优先厂商页）。
+        // 优先使用声明 FF 的集合；旧报告缺少编号时仍可按厂商页识别唯一候选。
         foreach (var group in inventory.Hid.Where(hid => MatchHeadset(hid) is not null)
             .GroupBy(hid => hid.ReceiverId, StringComparer.OrdinalIgnoreCase))
         {
-            var endpoint = group.OrderBy(hid => hid.UsagePage is >= 0xFF00 ? 0 : 1).First();
-            if (gates?.IsBlocked(endpoint, out _) == true)
+            var preferred = group.GroupBy(hid => (Declared: hid.FeatureReportIds is not null, VendorPage: hid.UsagePage is >= 0xFF00))
+                .OrderByDescending(rank => rank.Key.Declared)
+                .ThenByDescending(rank => rank.Key.VendorPage)
+                .First();
+            if (preferred.Take(2).ToArray() is not [var endpoint] || gates?.IsBlocked(endpoint, out _) == true)
                 continue;
             var model = MatchHeadset(endpoint)!;
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
@@ -683,6 +690,8 @@ internal sealed class AsusOmniAdapter(SafetyGateStore? gates = null) : IMultiDev
     {
         using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 3, RequiredOutputReportId = 3 }, token);
         var req = AsusHidProtocol.EncodeMouseBattery(endpoint.OutputLength!.Value, 0x03);
+        if (!AsusHidProtocol.AllowsRequest(req))
+            throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
         var frame = await HidQuery.OutputAsync(session, session, req, endpoint.InputLength!.Value,
             packet => AsusHidProtocol.TryDecodeMouseBattery(packet, AsusMouseScale.Percent, 0x03, out _, out _, out _, out _),
             trace, token).ConfigureAwait(false);
@@ -699,6 +708,8 @@ internal sealed class AsusOmniAdapter(SafetyGateStore? gates = null) : IMultiDev
     {
         using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 2, RequiredOutputReportId = 2 }, token);
         var req = AsusHidProtocol.EncodeKeyboardBattery(endpoint.OutputLength!.Value, 0x02);
+        if (!AsusHidProtocol.AllowsRequest(req))
+            throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
         var frame = await HidQuery.OutputAsync(session, session, req, endpoint.InputLength!.Value,
             packet => AsusHidProtocol.TryDecodeKeyboardBattery(packet, layout, 0x02, out _, out _, out _),
             trace, token).ConfigureAwait(false);

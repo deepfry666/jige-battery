@@ -35,19 +35,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         try
         {
             var attributes = ReadAttributes(handle);
-            bool verifyUlxLayout = endpoint is { RequiredInputReportId: 0x05, RequiredOutputReportId: 0x05, RequiredFeatureReportId: null }
-                && FinalmouseAdapter.Has0303Layout(endpoint);
-            // 完整编号比对包含输入和输出 05。热换后即使 05 消失，也要作为接口变化触发重新枚举。
-            var (caps, inputIds, outputIds, _) = verifyUlxLayout
-                ? ReadCapsInternal(handle, null, true)
-                : ReadCapsInternal(handle, endpoint, false);
-            if (attributes.VendorId != endpoint.VendorId || attributes.ProductId != endpoint.ProductId ||
-                caps.UsagePage != endpoint.UsagePage || caps.Usage != endpoint.Usage ||
-                caps.InputLength != endpoint.InputLength || caps.OutputLength != endpoint.OutputLength ||
-                caps.FeatureLength != endpoint.FeatureLength ||
-                verifyUlxLayout && (attributes.Version != endpoint.FirmwareVersion ||
-                    inputIds != endpoint.InputReportIds || outputIds != endpoint.OutputReportIds))
-                throw new TransportException(ReadIssue.Disconnected, "HID 接口已变更，请重新枚举");
+            var caps = ReadOpenedCaps(handle, endpoint, attributes);
             cancellationToken.ThrowIfCancellationRequested();
             return new HidSession(handle, caps, endpoint.FeatureOnly);
         }
@@ -92,12 +80,6 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         if (Native.GetHidAttributes(handle, ref attributes) == 0)
             throw WindowsErrors.Last("读取 HID VID/PID");
         return attributes;
-    }
-
-    internal static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsAndReportIds(
-        SafeFileHandle handle, bool includeReportIds)
-    {
-        return ReadCapsInternal(handle, null, includeReportIds);
     }
 
     /// <summary>单次读取 HID 描述符，按需检查目标国产鼠标报告 ID 或枚举全部声明报告 ID，避免重复调用 GetPreparsedData。</summary>
@@ -150,6 +132,16 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 outputIds = ScanReportIds(data, 1, caps.OutputLength);
                 featureIds = ScanReportIds(data, 2, caps.FeatureLength);
             }
+            if (outputIds is null && HyperXHeadsetProtocol.IsCloud3SOutputCandidate(attributes.VendorId, attributes.ProductId,
+                caps.UsagePage, interfaceNumber, caps.OutputLength))
+            {
+                // 多个同形集合时，普通轮询和完整诊断必须选中同一个 0C 命令集合。
+                outputIds = DeclaresReportId(data, 1, 0x0C, caps.OutputLength) ? "0C" : "";
+            }
+            if (featureIds is null && AsusHidProtocol.IsStrixGoFeatureCandidate(attributes.VendorId, attributes.ProductId, caps.FeatureLength))
+            {
+                featureIds = DeclaresReportId(data, 2, AsusHidProtocol.HeadsetReportId, caps.FeatureLength) ? "FF" : "";
+            }
 
             if (domesticMatched)
             {
@@ -168,8 +160,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         }
     }
 
-    private static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsInternal(
-        SafeFileHandle handle, HidInterface? endpoint, bool includeReportIds)
+    private static Native.HidCaps ReadOpenedCaps(SafeFileHandle handle, HidInterface endpoint, Native.HidAttributes attributes)
     {
         if (Native.GetPreparsedData(handle, out var data) == 0)
             throw WindowsErrors.Last("读取 HID 描述符");
@@ -178,20 +169,28 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
             int status = Native.GetHidCaps(data, out var caps);
             if (status != 0x00110000)
                 throw new TransportException(ReadIssue.IoError, $"解析 HID 描述符失败（0x{status:X8}）", nativeCode: status);
-            if (endpoint is not null)
+            // 先识别同一路径上被替换的接口，避免过期的报告编号把热插拔误判为永久 I/O 错误。
+            if (attributes.VendorId != endpoint.VendorId || attributes.ProductId != endpoint.ProductId ||
+                endpoint.FirmwareVersion is ushort firmware && attributes.Version != firmware ||
+                caps.UsagePage != endpoint.UsagePage || caps.Usage != endpoint.Usage ||
+                caps.InputLength != endpoint.InputLength || caps.OutputLength != endpoint.OutputLength ||
+                caps.FeatureLength != endpoint.FeatureLength)
+                throw new TransportException(ReadIssue.Disconnected, "HID 接口已变更，请重新枚举");
+
+            if (endpoint is { RequiredInputReportId: 0x05, RequiredOutputReportId: 0x05, RequiredFeatureReportId: null } &&
+                FinalmouseAdapter.Has0303Layout(endpoint))
             {
-                VerifyReportId(data, 0, endpoint.RequiredInputReportId, caps.InputLength);
-                VerifyReportId(data, 1, endpoint.RequiredOutputReportId, caps.OutputLength);
-                VerifyReportId(data, 2, endpoint.RequiredFeatureReportId, caps.FeatureLength);
+                if (ScanReportIds(data, 0, caps.InputLength) != endpoint.InputReportIds ||
+                    ScanReportIds(data, 1, caps.OutputLength) != endpoint.OutputReportIds)
+                    throw new TransportException(ReadIssue.Disconnected, "ULX 报告布局已变更，请重新枚举");
             }
-            if (!includeReportIds)
-                return (caps, null, null, null);
-            return (
-                caps,
-                ScanReportIds(data, 0, caps.InputLength),
-                ScanReportIds(data, 1, caps.OutputLength),
-                ScanReportIds(data, 2, caps.FeatureLength)
-            );
+            else
+            {
+                VerifyReportId(data, 0, endpoint.RequiredInputReportId, caps.InputLength, endpoint.InputReportIds);
+                VerifyReportId(data, 1, endpoint.RequiredOutputReportId, caps.OutputLength, endpoint.OutputReportIds);
+                VerifyReportId(data, 2, endpoint.RequiredFeatureReportId, caps.FeatureLength, endpoint.FeatureReportIds);
+            }
+            return caps;
         }
         finally
         {
@@ -199,107 +198,32 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         }
     }
 
-    internal static (string? InputIds, string? OutputIds, string? FeatureIds) ReadDeclaredReportIds(
-        SafeFileHandle handle, Native.HidCaps caps)
+    // 只操作同一份预解析描述符，所有编号共用一块缓冲区，不产生 USB 通信。
+    private static unsafe int InitializeReport(nint data, int type, byte id, byte[] buffer)
     {
-        if (Native.GetPreparsedData(handle, out var data) == 0)
-            return (null, null, null);
-        try
-        {
-            return (
-                ScanReportIds(data, 0, caps.InputLength),
-                ScanReportIds(data, 1, caps.OutputLength),
-                ScanReportIds(data, 2, caps.FeatureLength)
-            );
-        }
-        finally
-        {
-            Native.FreePreparsedData(data);
-        }
+        fixed (byte* report = buffer)
+            return Native.InitializeReportForId(type, id, data, report, (uint)buffer.Length);
     }
 
-    private static unsafe string? ScanReportIds(nint data, int reportType, ushort length)
+    private static string? ScanReportIds(nint data, int type, ushort length)
     {
         if (length == 0)
             return null;
-        // 仅在内存中按 HID 描述符校验声明过的报告 ID，不产生任何 USB 通信。
         var buffer = new byte[length];
-        List<string> ids = [];
-        fixed (byte* report = buffer)
-        {
-            for (int id = 0; id <= byte.MaxValue; id++)
-            {
-                if (Native.InitializeReportForId(reportType, (byte)id, data, report, length) == 0x00110000)
-                {
-                    ids.Add($"{id:X2}");
-                    if (ids.Count >= 16)
-                    {
-                        ids.Add("...");
-                        break;
-                    }
-                }
-            }
-        }
-        return ids.Count == 0 ? "00(raw)" : string.Join(',', ids);
+        return HidReportDescriptor.ListIds(id => InitializeReport(data, type, id, buffer));
     }
 
-    internal static bool DeclaresReportId(SafeFileHandle handle, int reportType, byte reportId, ushort length)
-    {
-        if (Native.GetPreparsedData(handle, out var data) == 0)
-            return false;
-        try
-        {
-            return DeclaresReportId(data, reportType, reportId, length);
-        }
-        finally
-        {
-            Native.FreePreparsedData(data);
-        }
-    }
+    private static bool DeclaresReportId(nint data, int type, byte id, ushort length) =>
+        length > 0 && HidReportDescriptor.IsDeclared(type, id, InitializeReport(data, type, id, new byte[length]));
 
-    private static unsafe bool DeclaresReportId(nint data, int reportType, byte reportId, ushort length)
+    private static void VerifyReportId(nint data, int type, byte? id, ushort length, string? enumeratedIds)
     {
-        if (length == 0)
-            return false;
-        var buffer = new byte[length];
-        fixed (byte* report = buffer)
-            return Native.InitializeReportForId(reportType, reportId, data, report, length) == 0x00110000;
-    }
-
-    private static unsafe void VerifyReportId(nint data, int reportType, byte? id, ushort length)
-    {
-        if (id is not byte reportId)
+        if (id is not byte required)
             return;
         if (length == 0)
-            throw new TransportException(ReadIssue.IoError, $"HID 描述符报告长度为 0（类型 {reportType}，ID {reportId:X2}）");
-
-        // 只在内存中初始化描述符指定的报告，验证编号时无 USB 发包。
+            throw new TransportException(ReadIssue.IoError, $"HID 描述符报告长度为 0（类型 {type}，ID {required:X2}）");
         var buffer = new byte[length];
-        fixed (byte* report = buffer)
-        {
-            int status = Native.InitializeReportForId(reportType, reportId, data, report, length);
-            if (status == 0x00110000)
-                return;
-
-            // 部分设备（如雷蛇 90B 鼠标 MI_00 的 91B Feature 报告）在 HID 描述符里使用无编号的常量/原始项，
-            // HidP_GetCaps 会公布正确的 FeatureLength，但 HidP_InitializeReportForID 对所有 ID（含 00）均返回不存在。
-            // 若要求的是隐式无编号报告 ID 0 且描述符中未声明任何非零报告 ID，则视为合法的无编号报告放行。
-            if (reportId == 0 && !HasNumberedReportId(data, reportType, report, length))
-                return;
-
-            throw new TransportException(ReadIssue.IoError,
-                $"HID 描述符未确认报告 ID {reportId:X2}（类型 {reportType}，0x{status:X8}）", nativeCode: status);
-        }
-    }
-
-    private static unsafe bool HasNumberedReportId(nint data, int reportType, byte* report, ushort length)
-    {
-        for (int candidate = 1; candidate <= byte.MaxValue; candidate++)
-        {
-            if (Native.InitializeReportForId(reportType, (byte)candidate, data, report, length) == 0x00110000)
-                return true;
-        }
-        return false;
+        HidReportDescriptor.Require(type, required, enumeratedIds, candidate => InitializeReport(data, type, candidate, buffer));
     }
 
     private static unsafe void ConfigureSerial(SafeFileHandle handle, int baudRate)

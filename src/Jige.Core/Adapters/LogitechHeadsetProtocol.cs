@@ -64,7 +64,7 @@ internal static class LogitechHeadsetProtocol
         var data = frame.Slice(payloadStart, length - 1);
         if (query == LogitechHeadsetQuery.Bridge)
         {
-            if (data.Length < 3 || data[0] != 0 || data[1] != 1)
+            if (data.Length < 3 || data[0] != 0 || data[1] != 1 || !ValidIndex(data[2]))
                 return false;
             parameters = data[2..];
             return true;

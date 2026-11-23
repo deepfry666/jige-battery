@@ -38,6 +38,11 @@ public sealed class MouseAdapterTests
         Assert.Equal(MouseChannel.FeatureInput, shape.Channel);
         Assert.Equal(17, shape.Length);
         Assert.Null(shape.Usage);
+        var query = shape.QueryEndpoint(Atk);
+        Assert.Equal((byte)8, query.RequiredFeatureReportId);
+        Assert.Equal((byte)8, query.RequiredInputReportId);
+        Assert.Null(query.RequiredOutputReportId);
+        Assert.False(query.FeatureOnly);
     }
 
     [Fact]
@@ -280,6 +285,162 @@ public sealed class MouseAdapterTests
         var afterReset = await registry.ReadAsync(device, transport4, null, CancellationToken.None);
         Assert.Equal(25, afterReset.Percentage);
         transport4.AssertComplete();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CompxResolvesInputAndOutputOnTheirOwnCollections(bool heartbeat)
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x11D9, null, 0xFF02, 2, 17, 17, 0, 1);
+        var sibling = main with { Path = "reply", UsagePage = 0xFF06, InputLength = 49, OutputLength = 0 };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([main, sibling], [], [])));
+        var notifications = Enumerable.Repeat(new ReceiverStep(DiagnosticOperation.HidInput, Pad("091D", 49)), 5);
+        var transport = new FakeReceiverTransport(
+            ("cmd", heartbeat
+                ? [new(DiagnosticOperation.OpenHid, Issue: ReadIssue.IoError, Code: -1072627696),
+                   new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidOutput, "080300000000000000000000000000004A")]
+                : [new(DiagnosticOperation.OpenHid, Issue: ReadIssue.IoError, Code: -1072627696),
+                   new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidOutput, CompxRequest),
+                   new(DiagnosticOperation.HidOutput, "081000000000000000000000000000003D")]),
+            ("reply", heartbeat
+                ? [new(DiagnosticOperation.OpenHid), .. notifications, new(DiagnosticOperation.HidInput, Pad("0803000000010100000000000000000048", 49))]
+                : [new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidInput, Pad(CapturedCompxReply, 49)),
+                   .. notifications, new(DiagnosticOperation.HidInput, Pad("0810000000030108000000000000000031", 49))]));
+
+        if (heartbeat)
+        {
+            var presence = await registry.CheckPresenceAsync(device, transport, CancellationToken.None);
+            Assert.Equal(LinkState.Online, presence?.Link);
+        }
+        else
+        {
+            var reading = await registry.ReadAsync(device, transport, null, CancellationToken.None);
+            Assert.Equal(25, reading.Percentage);
+            Assert.Equal("ATK F1 Ultimate 2.0", reading.Device.Name);
+        }
+        var first = transport.OpenedHids[0];
+        Assert.Equal((byte)8, first.RequiredInputReportId);
+        Assert.Equal((byte)8, first.RequiredOutputReportId);
+        var input = Assert.Single(transport.OpenedHids, hid => hid.Path == "reply");
+        Assert.True(input.InputOnly);
+        Assert.Equal((byte)8, input.RequiredInputReportId);
+        var output = transport.OpenedHids.Last(hid => hid.Path == "cmd");
+        Assert.Equal((byte)8, output.RequiredOutputReportId);
+        Assert.Null(output.RequiredInputReportId);
+        transport.AssertComplete();
+    }
+
+    [Fact]
+    public async Task CompxMissingInputIdOnBothCollectionsCannotSend()
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x11D9, null, 0xFF02, 2, 17, 17, 0, 1);
+        var sibling = main with { Path = "reply", UsagePage = 0xFF06, InputLength = 49, OutputLength = 0 };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([main, sibling], [], [])));
+        var missingId = new ReceiverStep(DiagnosticOperation.OpenHid, Issue: ReadIssue.IoError, Code: -1072627696);
+        var transport = new FakeReceiverTransport(("cmd", [missingId]), ("reply", [missingId]));
+        var reading = await registry.ReadAsync(device, transport, null, CancellationToken.None);
+
+        Assert.Equal(ReadIssue.IoError, reading.Issue);
+        Assert.Equal(0, transport.Writes);
+        transport.AssertComplete();
+    }
+
+    [Theory]
+    [InlineData("0904", ReadIssue.Timeout)]
+    [InlineData("081D0000000201750000000000000000B8", ReadIssue.Timeout)]
+    [InlineData("08040000000219000E46000000000000DB", ReadIssue.InvalidResponse)]
+    public async Task GenericCompxSplitInputBlocksOnlyMalformedBatteryReplies(string frame, ReadIssue expected)
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x1998, null, 0xFF02, 2, 17, 17, 0, 1)
+            { InputReportIds = "09", OutputReportIds = "08" };
+        var sibling = main with { Path = "reply", UsagePage = 0xFF06, InputLength = 49, InputReportIds = "08,09", OutputLength = 0 };
+        var gates = new SafetyGateStore();
+        var registry = AdapterRegistry.CreateDefault(gates: gates);
+        var device = Assert.Single(registry.Detect(new([main, sibling], [], [])));
+        Assert.Equal(AdaptationSource.Generic, device.Target.Device.Source);
+        var transport = new FakeReceiverTransport(
+            ("cmd", [new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidOutput, CompxRequest)]),
+            ("reply", [new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidInput, Pad(frame, 49)),
+                new(DiagnosticOperation.HidInput, Issue: ReadIssue.Timeout)]));
+
+        var reading = await registry.ReadAsync(device, transport, null, CancellationToken.None);
+
+        Assert.Equal(expected, reading.Issue);
+        Assert.Equal(expected == ReadIssue.InvalidResponse, gates.IsBlocked(main, out _));
+        transport.AssertComplete();
+    }
+
+    [Fact]
+    public async Task SplitCompxWaitsForBatteryAmidUnrelatedInputNotifications()
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x1031, null, 0xFF02, 2, 17, 17, 0, 1)
+            { InputReportIds = "09", OutputReportIds = "08" };
+        var sibling = main with { Path = "reply", UsagePage = 0xFF06, InputLength = 49, InputReportIds = "08,09", OutputLength = 0 };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([main, sibling], [], [])));
+        var notifications = Enumerable.Repeat(new ReceiverStep(DiagnosticOperation.HidInput, Pad("0904", 49)), 9);
+        var transport = new FakeReceiverTransport(
+            ("cmd", [new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidOutput, CompxRequest)]),
+            ("reply", [new(DiagnosticOperation.OpenHid), .. notifications, new(DiagnosticOperation.HidInput, Pad(CapturedCompxReply, 49))]));
+
+        Assert.Equal(25, (await registry.ReadAsync(device, transport, null, CancellationToken.None)).Percentage);
+        transport.AssertComplete();
+    }
+
+    [Fact]
+    public void SplitCompxNeverPairsDifferentProductsInOneContainer()
+    {
+        var command = new HidInterface("shared", "cmd", 0x3367, 0x1961, null, 0xFF02, 2, 0, 0, 17, 1);
+        var reply = new HidInterface("shared", "reply", 0x260D, 0x1074, null, 0xFF01, 0, 17, 0, 0, 2);
+        Assert.Empty(new SplitCompxAdapter().Detect(new([command, reply], [], [])));
+    }
+
+    [Fact]
+    public async Task CompxRetriesSiblingAfterConfirmedPrimaryStopsReplying()
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x1031, null, 0xFF02, 2, 17, 17, 0, 1);
+        var sibling = main with { Path = "reply", UsagePage = 0xFF06, InputLength = 49, OutputLength = 0 };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([main, sibling], [], [])));
+        ReceiverStep open = new(DiagnosticOperation.OpenHid);
+        ReceiverStep silent = new(DiagnosticOperation.HidInput, Issue: ReadIssue.Timeout);
+        ReceiverStep query = new(DiagnosticOperation.HidOutput, CompxRequest);
+        var confirmed = new FakeReceiverTransport(("cmd", [open, new(DiagnosticOperation.HidInput, CapturedCompxReply), query]),
+            ("reply", [open, silent]));
+        Assert.Equal(25, (await registry.ReadAsync(device, confirmed, null, CancellationToken.None)).Percentage);
+        confirmed.AssertComplete();
+
+        var quiet = new FakeReceiverTransport(("cmd", [open, silent, query]));
+        Assert.Equal(ReadIssue.Timeout, (await registry.ReadAsync(device, quiet, null, CancellationToken.None)).Issue);
+        quiet.AssertComplete();
+
+        var moved = new FakeReceiverTransport(("cmd", [open, silent, query]),
+            ("reply", [open, new(DiagnosticOperation.HidInput, Pad(CapturedCompxReply, 49))]));
+        Assert.Equal(25, (await registry.ReadAsync(device, moved, null, CancellationToken.None)).Percentage);
+        moved.AssertComplete();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task SplitInputCannotBypassOutputCheckOrAmbiguousReceivers(bool ambiguous)
+    {
+        var main = new HidInterface("rx", "cmd", 0x373B, 0x1031, null, 0xFF02, 2, 17, 17, 0, 1);
+        var reply = main with { Path = "in1", UsagePage = 0xFF06, InputLength = 49, OutputLength = 0 };
+        var other = reply with { Path = "in2", UsagePage = 0xFF07 };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new(ambiguous ? [main, reply, other] : [main, reply], [], [])));
+        var missingId = new ReceiverStep(DiagnosticOperation.OpenHid, Issue: ReadIssue.IoError, Code: -1072627696);
+        var transport = new FakeReceiverTransport(
+            ("cmd", ambiguous ? [missingId] : [missingId, missingId]),
+            ("in1", [new(DiagnosticOperation.OpenHid)]), ("in2", ambiguous ? [new(DiagnosticOperation.OpenHid)] : []));
+        var reading = await registry.ReadAsync(device, transport, null, CancellationToken.None);
+        Assert.Equal(ReadIssue.IoError, reading.Issue);
+        Assert.Equal(0, transport.Writes);
+        transport.AssertComplete();
     }
 
     internal static string Pad(string prefix, int bytes) => prefix.PadRight(bytes * 2, '0');

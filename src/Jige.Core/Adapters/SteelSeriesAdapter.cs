@@ -111,6 +111,8 @@ internal static class SteelSeriesProtocol
     {
         var frame = new byte[length];
         prefix.CopyTo(frame, 0);
+        if (!AllowsRequest(frame))
+            throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
         return frame;
     }
 
@@ -360,11 +362,6 @@ internal sealed class SteelSeriesAdapter(SafetyGateStore? gates = null) : IDevic
         if (model.Protocol == SteelSeriesProtocolKind.ArctisProWireless)
             return await ReadArctisProAsync(target, endpoint, outLen, inLen, transport, trace, token).ConfigureAwait(false);
 
-        byte? requiredOutId = model.Protocol switch
-        {
-            SteelSeriesProtocolKind.Arctis1 or SteelSeriesProtocolKind.Arctis7 or SteelSeriesProtocolKind.NovaProWireless => 0x06,
-            _ => 0x00
-        };
         byte[] request = model.Protocol switch
         {
             SteelSeriesProtocolKind.Arctis1 => SteelSeriesProtocol.Encode(outLen, 0x06, 0x12),
@@ -375,10 +372,7 @@ internal sealed class SteelSeriesAdapter(SafetyGateStore? gates = null) : IDevic
             SteelSeriesProtocolKind.Rival3Mouse => SteelSeriesProtocol.Encode(outLen, 0x00, 0xAA, 0x01),
             _ => SteelSeriesProtocol.Encode(outLen, 0x00, 0xB0)
         };
-        if (!SteelSeriesProtocol.AllowsRequest(request))
-            return AdapterRegistry.Failure(target, ReadIssue.IoError, "报文未通过只读白名单");
-
-        using var session = transport.OpenHid(endpoint with { RequiredOutputReportId = requiredOutId }, token);
+        using var session = transport.OpenHid(endpoint with { RequiredOutputReportId = request[0] }, token);
         var frame = await HidQuery.OutputAsync(session, session, request, inLen,
             packet => Decode(packet, model.Protocol).Matched, trace, token, milliseconds: 800).ConfigureAwait(false);
         if (frame is null)

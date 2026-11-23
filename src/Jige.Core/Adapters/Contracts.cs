@@ -61,6 +61,7 @@ public interface ISerialSession : IDisposable
 public sealed class TransportException(ReadIssue issue, string message, Exception? innerException = null, int? nativeCode = null)
     : IOException(message, innerException)
 {
+    internal const int ReportIdNotFound = unchecked((int)0xC0110010); // HIDP_STATUS_REPORT_DOES_NOT_EXIST
     public ReadIssue Issue { get; } = issue;
     public int? NativeCode { get; } = nativeCode;
 }
