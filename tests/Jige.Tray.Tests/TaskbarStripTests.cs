@@ -512,11 +512,55 @@ public sealed class TaskbarStripTests
     public void ChargingAndFullHaveBoltsAndUnreadableShowsTwoDashes()
     {
         Assert.True(TaskbarStripDevice.From(Status(12, ChargingState.Charging), 15).ShowBolt);
+        Assert.True(TaskbarStripDevice.From(Status(100, ChargingState.Charging), 15).ShowBolt);
         Assert.True(TaskbarStripDevice.From(Status(98, ChargingState.Full), 15).ShowBolt);
-        Assert.True(TaskbarStripDevice.From(Status(100, ChargingState.NotCharging), 15).ShowBolt);
+        Assert.True(TaskbarStripDevice.From(Status(100, ChargingState.Full), 15).ShowBolt);
+
+        var unpluggedFull = TaskbarStripDevice.From(Status(100, ChargingState.NotCharging), 15);
+        Assert.False(unpluggedFull.ShowBolt);
+        Assert.Equal(BatteryTone.Normal, unpluggedFull.Tone);
+
+        var unknownFull = TaskbarStripDevice.From(Status(100, ChargingState.Unknown), 15);
+        Assert.False(unknownFull.ShowBolt);
+        Assert.Equal(BatteryTone.Normal, unknownFull.Tone);
+
         var unknown = Status(12, ChargingState.Unknown) with { Fresh = false };
         Assert.Equal("--", TaskbarStripDevice.From(unknown, 15).Text);
         Assert.False(TaskbarStripDevice.From(unknown, 15).ShowBolt);
+    }
+
+    [Fact]
+    public void UnpluggingAt100PercentClearsBoltChargingToneAndFullLabel()
+    {
+        var model = new TrayModel(new(), new());
+        var mouse = new DeviceIdentity("logitech-hidpp:bolt/2/unit-M", "MX Anywhere 3S", DeviceKind.Mouse);
+
+        model.ApplyPoll([new(mouse, 100, false, ChargingState.Full, LinkState.Online, Now)], false, Now);
+        var fullStrip = Assert.Single(TaskbarStripDevice.Build(model));
+        var fullDevice = Assert.Single(model.OrderedDevices());
+        Assert.True(fullStrip.ShowBolt);
+        Assert.Equal(BatteryTone.Charging, fullStrip.Tone);
+        Assert.Equal("已充满", Presentation.Status(fullDevice, 15));
+        Assert.Equal("MX Anywhere 3S 100% 已充满", Presentation.DeviceTooltip(model, fullDevice));
+
+        var unpluggedAt = Now.AddSeconds(30);
+        model.ApplyPoll([new(mouse, 100, false, ChargingState.NotCharging, LinkState.Online, unpluggedAt)], false, unpluggedAt);
+        var unpluggedStrip = Assert.Single(TaskbarStripDevice.Build(model));
+        var unpluggedDevice = Assert.Single(model.OrderedDevices());
+        Assert.False(unpluggedStrip.ShowBolt);
+        Assert.Equal(BatteryTone.Normal, unpluggedStrip.Tone);
+        Assert.False(unpluggedDevice.IsFull);
+        Assert.Equal("2.4G 已连接", Presentation.Status(unpluggedDevice, 15));
+        Assert.Equal("MX Anywhere 3S 100%", Presentation.DeviceTooltip(model, unpluggedDevice));
+        Assert.Equal("刚充过电", HoverCardBuilder.Build(model, mouse.Id, unpluggedAt).StatusLine);
+        Assert.Equal("在线 · 2.4G", HoverCardBuilder.Build(model, null, unpluggedAt, forceList: true).Rows[0].StatusText);
+
+        // 拔线满电后进入短时休眠，也不应恢复成绿色充电态。
+        var asleepAt = unpluggedAt.AddMinutes(1);
+        model.ApplyPresence([new("bolt", 2, mouse.Id, LinkState.Asleep)], asleepAt);
+        var asleepStrip = Assert.Single(TaskbarStripDevice.Build(model));
+        Assert.False(asleepStrip.ShowBolt);
+        Assert.Equal(BatteryTone.Normal, asleepStrip.Tone);
     }
 
     [Fact]

@@ -31,7 +31,7 @@ internal readonly record struct TaskbarStripDevice(
         // A short sleep keeps the last reading's tone; charging without bolt renders with foreground ink.
         // Only a current charging/full observation gets a lightning bolt.
         if ((device.Link == LinkState.Asleep || device is { Link: LinkState.Online, PendingRefresh: true }) &&
-            device.Last is { WasChargingOrFull: true } or { Percentage: 100 })
+            device.Last is { WasChargingOrFull: true })
             tone = BatteryTone.Charging;
         return new(device.Device.Kind, tone == BatteryTone.Idle ? null : device.Percentage, tone, showBolt);
     }

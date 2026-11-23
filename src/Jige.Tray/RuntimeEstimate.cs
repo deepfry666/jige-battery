@@ -345,7 +345,7 @@ internal static class RuntimeEstimator
     /// <summary>计算当前剩余在线可用时长。数据不足时返回「估算中」，充电中或已断开返回 None。</summary>
     public static RuntimeEstimate Estimate(SavedRuntimeEstimate? state, DeviceStatus status, DateTimeOffset now)
     {
-        if (!status.IsActive || status.Last is not { } last || status.IsCharging)
+        if (!status.IsActive || status.Last is not { } last || status.IsCharging && !status.IsFull)
             return RuntimeEstimate.None;
         var rate = Rate(state, now);
         if (status.IsFull)

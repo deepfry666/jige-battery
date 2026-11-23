@@ -8,7 +8,7 @@ internal sealed record DeviceStatus(DeviceIdentity Device, LinkState Link, ReadI
 {
     public int? Percentage => Last?.Percentage;
     public bool IsCharging => (Fresh || Device.UsesPassiveBatteryReports && IsOnline) && Charging == ChargingState.Charging;
-    public bool IsFull => Fresh && (Charging == ChargingState.Full || Percentage == 100);
+    public bool IsFull => Fresh && (Charging == ChargingState.Full || Charging == ChargingState.Charging && Percentage == 100);
     public bool IsOnline => Link == LinkState.Online;
     /// <summary>在线或短时休眠（未超时转离线）均视为活跃设备，避免鼠标静止数秒即跳入「离线设备」闪烁（R1）。</summary>
     public bool IsActive => Link is LinkState.Online or LinkState.Asleep;
@@ -1144,8 +1144,7 @@ internal sealed class TrayModel
     }
 
     private static bool IsChargedFull(DeviceStatus device) =>
-        device is { Fresh: true, Link: LinkState.Online, Last: { } last } &&
-        (device.Charging == ChargingState.Full || device.Charging == ChargingState.Charging && last.Percentage == 100);
+        device is { Link: LinkState.Online, Last: not null, IsFull: true };
 
     /// <summary>
     /// 预测提醒：剩余可用时长不够本机日均在线时长（按你的用法撑不过一天），且电量还没到低电量阈值。
