@@ -41,6 +41,71 @@ public sealed class AdapterTests
         Assert.True(hid.Closed);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Ulx0303ReadsBatteryAndPresenceWithReportedDescriptor(bool heartbeat)
+    {
+        var endpoint = Ulx with
+        {
+            FirmwareVersion = 0x0303, InterfaceNumber = null, InputReportIds = "03,05", OutputReportIds = "03,05"
+        };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([endpoint], [], [])));
+        var hid = new HidStub(new() { [0xA4] = "0503240101", [0x85] = "050405026410", [0xA5] = "0503250100" });
+        var transport = new TransportStub { Hid = hid, ValidateHid = CheckDeclaredReportIds };
+
+        if (heartbeat)
+        {
+            var presence = await registry.CheckPresenceAsync(device, transport, CancellationToken.None);
+            Assert.Equal(LinkState.Online, presence?.Link);
+            Assert.Equal([0xA4], hid.Writes);
+        }
+        else
+        {
+            var reading = await registry.ReadAsync(device, transport, null, CancellationToken.None);
+            Assert.Equal(ReadIssue.None, reading.Issue);
+            Assert.Equal(78, reading.Percentage);
+            Assert.True(reading.IsEstimated);
+            Assert.Equal(ChargingState.NotCharging, reading.Charging);
+            Assert.Equal([0xA4, 0xA6, 0x85, 0xA5], hid.Writes);
+        }
+        Assert.True(hid.Closed);
+    }
+
+    [Theory]
+    [InlineData(0x0100, 0x0303, "03,05", "04", true)]
+    [InlineData(0x0100, 0x0302, "03,05", "03,05", false)]
+    [InlineData(0x0103, 0x0303, "03,05", "03,05", false)]
+    [InlineData(0x0100, 0x0303, "03", "03,05", false)]
+    [InlineData(0x0100, 0x0303, "03,05", "05", false)]
+    public async Task UlxUsesStandardOutputCheckOutsideThe0303Layout(
+        int pid, int firmware, string inputIds, string outputIds, bool shouldOpen)
+    {
+        var endpoint = Ulx with
+        {
+            ProductId = (ushort)pid, FirmwareVersion = (ushort)firmware, InputReportIds = inputIds, OutputReportIds = outputIds
+        };
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([endpoint], [], [])));
+        var hid = new HidStub(new() { [0xA4] = "0503240100" });
+        var reading = await registry.ReadAsync(device, new TransportStub { Hid = hid, ValidateHid = CheckDeclaredReportIds },
+            null, CancellationToken.None);
+
+        Assert.Equal(shouldOpen ? ReadIssue.None : ReadIssue.IoError, reading.Issue);
+        Assert.Equal(shouldOpen ? new byte[] { 0xA4 } : [], hid.Writes);
+    }
+
+    private static void CheckDeclaredReportIds(HidInterface endpoint)
+    {
+        Assert.Equal((byte)0x05, endpoint.RequiredInputReportId);
+        Assert.NotNull(endpoint.RequiredOutputReportId);
+        static bool Declares(string? ids, byte? required) => ids?.Split(',').Contains($"{required:X2}") == true;
+        if (!Declares(endpoint.InputReportIds, endpoint.RequiredInputReportId) ||
+            !Declares(endpoint.OutputReportIds, endpoint.RequiredOutputReportId))
+            throw new TransportException(ReadIssue.IoError, "HIDP_STATUS_REPORT_DOES_NOT_EXIST", nativeCode: -1072627696);
+    }
+
     [Fact]
     public async Task SilentPercentageFallsBackToVoltageAndChecksCharging()
     {
@@ -255,12 +320,17 @@ public sealed class AdapterTests
     private sealed class TransportStub : IReceiverTransport
     {
         public IHidSession? Hid { get; init; }
+        public Action<HidInterface>? ValidateHid { get; init; }
         public ISerialSession? Serial { get; init; }
         public bool Busy { get; init; }
         public int Baud { get; private set; }
         public int SerialOpens { get; private set; }
 
-        public IHidSession OpenHid(HidInterface endpoint, CancellationToken token) => Hid!;
+        public IHidSession OpenHid(HidInterface endpoint, CancellationToken token)
+        {
+            ValidateHid?.Invoke(endpoint);
+            return Hid!;
+        }
 
         public ISerialSession OpenSerial(UsbSerialPort endpoint, int baudRate, CancellationToken token)
         {
@@ -280,6 +350,7 @@ public sealed class AdapterTests
 
         public ValueTask WriteOutputAsync(byte[] report, CancellationToken token)
         {
+            Assert.Equal(0x04, report[0]);
             Writes.Add(report[2]);
             reply = replies.TryGetValue(report[2], out var hex) ? Convert.FromHexString(hex) : null;
             return ValueTask.CompletedTask;
