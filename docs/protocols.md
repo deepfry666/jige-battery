@@ -1,13 +1,13 @@
 # 设备读取协议
 
-几格已在 Windows 11 实机读到 Sony INZONE H9 一代和游狼 HTX Ultra 8K 的电量。其余条目按公开协议、社区样本和离线回放适配，实机状态见各节。C# 实现依据公开协议与报文独立编写，其中 openinzone 用于核对字段。
+几格已在 Windows 11 实机读到 Sony INZONE H9 一代和游狼 HTX Ultra 8K 的电量。使用 Finalmouse ULX 接收器（固件 `0303`）的用户也已确认 Windows 版 0.2.24 能读到电量。其他设备的资料来源与验证范围见各节。C# 实现依据公开协议与报文独立编写，其中 openinzone 用于核对字段。
 
 ## Finalmouse UltralightX
 
 | 项目 | 本阶段实现 | 验证证据 |
 | --- | --- | --- |
 | 接口 | 厂商 `361D`（已知 `361D:0100`，其余 PID 走通用家族识别），唯一 `FF00:0001`，输入、输出报告各 64 字节，含报告 ID | 固件 `0303` 的 Windows 诊断确认了该集合和长度。未收录 PID 需通过唯一特征、`24` 链路回复校验和异常拦截三道安全门。 |
-| 封帧 | Output `04`，后接 `02`、高位置位的命令、`00`、填零。Input `05`，后接长度、命令、载荷长度和数据 | 社区实机帧印证电压回复的报告 ID、长度和字段。本项目未在实机验证输入及输出 |
+| 封帧 | Output `04`，后接 `02`、高位置位的命令、`00`、填零。Input `05`，后接长度、命令、载荷长度和数据 | 电压回包的报告 ID、长度和字段见社区实机帧 |
 | `24` 链路 | 非零后继续。零表示无线链路断开，按“休眠或关机”显示并结束本轮读取。链路查询无回复时本轮也结束 | 社区记录了链路载荷 `01`。零值无法区分休眠和关机，是否唤醒设备未核实 |
 | `26` 电量 | 载荷依次为百分比、低位 mV、高位 mV；接受 0–100。超时或无有效百分比时走 `05` | 有社区固件持续不回复 `26`。百分比回复仍待本项目实机确认 |
 | `05` 电压 | 读取小端毫伏，按 XPanel 曲线分段线性插值并标记估算；`0000` 和 `FFFF` 无有效读数 | 社区实机帧 `05 04 05 02 64 10` 对应 4196 mV、78%。同一设备充电时记录载荷 `B4 10`，对应 4276 mV、88%。两值均有离线用例 |
@@ -17,7 +17,7 @@
 
 允许的发包前缀固定为 `04 02 A4 00`、`04 02 A6 00`、`04 02 85 00`、`04 02 A5 00`。资料中的十进制 37 和 38 分别对应十六进制 `25` 和 `26`。
 
-2026-11-23 的几格 0.2.23 Windows 诊断显示，USB 接收器 `361D:0100` 固件 `0303` 的厂商集合无 Feature 报告，Windows 能初始化的输入、输出编号均为 `03,05`。此前强制初始化输出 `04` 会在发送第一条查询前返回 `HIDP_STATUS_REPORT_DOES_NOT_EXIST`。遇到这组描述符时，普通轮询、心跳与诊断在打开接口时复核输入和输出 `05`。实际发送的只读帧仍按上述协议使用 `04`。该兼容处理已覆盖离线回归，修复后的读数待 Windows 实机复测。
+2026-11-23 的几格 0.2.23 Windows 诊断显示，USB 接收器 `361D:0100` 固件 `0303` 的厂商集合无 Feature 报告，Windows 能初始化的输入、输出编号均为 `03,05`。此前强制初始化输出 `04` 会在发送第一条查询前返回 `HIDP_STATUS_REPORT_DOES_NOT_EXIST`。遇到这组描述符时，普通轮询、心跳与诊断在打开接口时复核输入和输出 `05`。实际发送的只读帧仍按上述协议使用 `04`。同一用户升级到 0.2.24 后确认这只接收器恢复了电量读数。具体读数来自百分比查询还是电压估算，仍待逐帧记录确认。
 
 - HaloBattery，MIT。提供帧格式、曲线与社区实机记录。[协议实现说明](https://github.com/HeyOkay/HaloBattery/blob/main/providers/finalmouse.py) · [实机讨论 #284](https://github.com/HeyOkay/HaloBattery/pull/284) · [测试记录](https://github.com/HeyOkay/HaloBattery/blob/main/tests/test_device_pr284_finalmouse.py) · [许可证](https://github.com/HeyOkay/HaloBattery/blob/main/LICENSE)
 - XPanel 为厂商公开网页，未发现网页源码的开源许可证。厂商单独发布的 USB 权限清单采用 MIT。[XPanel](https://xpanel.finalmouse.com/) · [USB 权限清单和许可证](https://github.com/teamfinalmouse/xpanel-linux-permissions)
@@ -47,9 +47,9 @@
 
 ## ATK 与游狼鼠标
 
-游狼 HTX Ultra 8K 已由几格在 Windows 11 实机读到电量，其他接收器待验证。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。同一物理接收器只允许一个匹配的家族和一个接口，多个候选集合或跨家族冲突一律由安全门 ① 跳过。对于未收录的 `373B`（ATK）与 `361D`（Finalmouse）接收器，支持按唯一接口特征通用识别并施加三道安全门：① 特征必须唯一对应单个协议家族；② 首条只发无害状态查询，回复格式校验通过后才继续；③ 格式不符立即停止并按 `VID:PID:接口特征` 持久化拦截，重启有效，点击「重新检测」清除。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
+游狼 HTX Ultra 8K 已由几格在 Windows 11 实机读到电量，其他接收器待验证。匹配表记录的是无线接收器，证据等级沿用[设备清单](../research/device-catalog.md)。每个物理接收器须匹配唯一的协议家族和命令集合。出现多个候选命令集合或跨家族冲突时，安全门 ① 跳过该接收器。对于未收录的 `373B`（ATK）与 `361D`（Finalmouse）接收器，支持按唯一接口特征通用识别并施加三道安全门：① 特征必须唯一对应单个协议家族；② 首条只发无害状态查询，回复格式校验通过后才继续；③ 格式不符立即停止并按 `VID:PID:接口特征` 持久化拦截，重启有效，点击「重新检测」清除。发送前重新检查 VID/PID、厂商使用页和用法、该通道上的报告长度，以及包括补零区在内的完整白名单请求。
 
-共享接收器（如 `373B:11D9`、`101A`、`1278` 及通用识别的 ATK 接收器）不再按 PID 写死型号，默认显示「ATK 鼠标」，仅在协议通过 `0x10`（CID/MID）读出已登记型号（例如 OpenMouse 记录的 F1 Ultimate 2.0 `1/8`、A9 Ultimate `1/3`）时更新名称。Compx-OUT 查询期间仅对主集合发送输出报告，同时可对同一接收器的其他厂商输入集合（如 `FF05`、`FF06`）挂起只读监听以接收跨集合回复，并在诊断报告中输出每个集合的收发统计。
+共享接收器（如 `373B:11D9`、`101A`、`1278` 及通用识别的 ATK 接收器）不再按 PID 写死型号，默认显示「ATK 鼠标」，仅在协议通过 `0x10`（CID/MID）读出已登记型号（例如 OpenMouse 记录的 F1 Ultimate 2.0 `1/8`、A9 Ultimate `1/3`）时更新名称。Compx-OUT 查询期间仅对主集合发送输出报告，同时可对同一接收器的其他厂商输入集合（如 `FF05`、`FF06`）挂起只读监听以接收跨集合回复。若主集合声明输出 `08` 而未声明输入 `08`，仅当同一接收器上有唯一可用的厂商输入集合声明 `08` 时才发送查询。诊断报告按集合统计收发。
 
 | 家族 | 白名单请求与传输 | 运行状态 | 证据等级 |
 | --- | --- | --- | --- |
@@ -96,7 +96,7 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 
 ### 2.4G 接收器
 
-匹配 VID `046D`、唯一的 `FF00:0002` 长集合（输入和输出各 20 字节，报告 ID `11`）。同 PID、同物理容器的 `FF00:0001` 短集合（各 7 字节，ID `10`）用于接收短回复和发送旧版寄存器读。已收录的 PID 如下。[Solaar 接收器目录](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/base_usb.py)
+匹配 VID `046D`、唯一的 `FF00:0002` 长集合（输入和输出各 20 字节，报告 ID `11`）。同 PID、同物理容器的 `FF00:0001` 短集合使用 7 字节输入报告 `10` 接收短回复。已识别接收器的短集合可以只读，HID++ 1.0 寄存器查询另需 7 字节输出报告 `10`。已收录的 PID 如下。[Solaar 接收器目录](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/base_usb.py)
 
 | 家族 | PID |
 | --- | --- |
@@ -148,13 +148,14 @@ Windows 经典蓝牙 HID 路径含 `VID&0002046D`，HID over GATT 路径形如 `
 | 型号 | PID、集合、白名单 | 证据 | 验证 |
 | --- | --- | --- | --- |
 | G PRO X 2 LIGHTSPEED | `0AF7`，MI_03、`FFA0:0001`，前缀 `51` | 多方开源实现一致 | 未在实机验证 |
+| G522 LIGHTSPEED | `0B18`，MI_03、`FFA0:0001`，前缀 `50 23` | 单一来源 | 未在实机验证 |
 | G325 LIGHTSPEED | `0B21`，MI_03、`FFA0:0001`，仅固定 `50 23 0B 00 03 1A 00 03 00 07 0A` 查询 | 单一来源 | 未在实机验证 |
 | ASTRO A50 Gen 5 | `0B1C`，MI_08、`FF32:0074`，仅 `02 0C 03 00 06 0C` | 单一来源 | 未在实机验证 |
 | ASTRO A50 X | `0B0B`，集合与查询未核实，保持禁用 | 未核实 | 未在实机验证 |
 
 PRO X 3 `046D:0B45` 保持关闭。
 
-以上查询的报告长度均为 64 字节，尾部补零。Centurion 桥仅允许查询接收器 Root 的 `0003`、桥内 Root 的 `0104` 及其 `f0`。桥内帧验证长度、内部索引及事务，跳过 ACK、断链通知和不匹配的内层帧。仅在 `0AF7` 完成桥接查表且收到 `0104` 索引明确为零时，允许备用查询 `51 08 00 03 1A 00 03 00 04 0A`。无回复时结束，读失败回显阶段。EQ、睡眠设置、任意桥转发等均不允许。
+以上查询的报告长度均为 64 字节，尾部补零。Centurion 桥仅允许查询接收器 Root 的 `0003`、桥内 Root 的 `0104` 及其 `f0`。查询桥索引时跳过原样返回的请求，等待有效索引。桥内帧验证长度、内部索引及事务，跳过 ACK、断链通知和不匹配的内层帧。仅在 `0AF7` 完成桥接查表且收到 `0104` 索引明确为零时，允许备用查询 `51 08 00 03 1A 00 03 00 04 0A`。无回复时结束，读失败回显阶段。EQ、睡眠设置、任意桥转发等均不允许。
 
 G325 跳过 ACK，用实机状态帧 `50 23 0B 00 03 10 00 06 00 07 0A` 的字节 12/13 读百分比和充电状态。Gen 5 根据命令 `06` 和回复长度读取百分比及底座充电标志，拒绝其他命令及数值越界。底座可能主动推送同格式遥测，无法从 HANDLE `00` 区分推送和请求的回复。[G325 实机记录](https://github.com/Sapd/HeadsetControl/issues/581) · [PRO X 2 实机载荷](https://github.com/HeyOkay/HaloBattery/issues/103) · [HeadsetControl Gen 5 实机样式](https://github.com/Sapd/HeadsetControl/blob/master/lib/devices/logitech_astro_a50.hpp)
 
@@ -191,7 +192,7 @@ V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实
 | --- | --- | --- | --- |
 | ASUS ROG / TUF 鼠标与 OMNI / Strix Go 2.4 | 鼠标：`0B05` `MI_00` 厂商集合 64/65B（Harpe II Ace 接收器 `1AD0` 走 `MI_02 / FF01` RID `03`）；OMNI `1ACE` 走 `MI_02`（`FF02` 配对表、`FF01` 鼠标、`FF00` 键盘）；Strix Go 2.4 `18D6/18D7` 走 `>=64B` Feature `FF` | 鼠标 `00/03 12 07`；OMNI 配对表 `01 A0`、键盘 `02 12 01`；Strix Go `FF 08 00 FD 04 12 F1 03 52 01`（电压四档映射并扣除充电抬升） | G-Helper / HaloBattery（MIT） |
 | SteelSeries 赛睿 | 现代耳机与鼠标走 `1038` `FFC0:0001`（优先 `MI_03`）；经典 Arctis 与 Nova Pro 底座按型号匹配指定接口与厂商页 | 现代耳机 `00 B0`；Nova Pro `06 B0`（9 档估算）；Arctis 1/7X/7P `06 12`；Arctis 7 `06 14` / `06 18`；Arctis 9 `00 20`；Arctis Pro `41 AA` / `40 AA`；Aerox `00 D2`；Rival 3 `00 AA 01` | HeadsetControl / Linux / rivalcfg / alloyctl / HaloBattery（MIT） |
-| HyperX 极度未知 | Cloud II HP（`FF90:0303`）、Kingston（`FF13:0001`）、Cloud Flight（`FF53/FF90:0303`）、Cloud Alpha（`FF43:0202`）、Cloud III / II Core（`FF13:0001` Output 或 Feature 回退）、Cloud III S（`MI_03` 跨集合监听） | `06 FF BB 02/03`；Kingston 62B `... BB 02/03`；Flight `21 FF 05`；Alpha `21 BB 03/0B/0C`；Cloud III `66 89/8A`；Cloud III S `0C 02 03 01 00 06/48`（严格 GET `01`，拒绝 SET `00`） | HeadsetControl / HyperHeadset / HyperXBatteryMonitor / HaloBattery（MIT） |
+| HyperX 极度未知 | Cloud II HP（`FF90:0303`）、Kingston（`FF13:0001`）、Cloud Flight（`FF53/FF90:0303`）、Cloud Alpha（`FF43:0202`）、Cloud III / II Core（`FF13:0001`，按实际发送通道校验 Output 或 Feature `66`，回复走 Input `66`）、Cloud III S（优先 `MI_03`、核对 Output `0C`，可跨集合收回复） | `06 FF BB 02/03`；Kingston 62B `... BB 02/03`；Flight `21 FF 05`；Alpha `21 BB 03/0B/0C`；Cloud III `66 89/8A`；Cloud III S `0C 02 03 01 00 06/48`（严格 GET `01`，拒绝 SET `00`） | HeadsetControl / HyperHeadset / HyperXBatteryMonitor / HaloBattery（MIT） |
 | Corsair 海盗船 | Void Elite `0A55`（`FFC5:0001`）；Bragi `FF42:0001`（65B RID `00` 或 64B RID `02`）；Void v2 / Virtuoso Max / HS80 Max（`MI_04`） | Void Elite `C9 64`；Bragi / Void v2 仅允许 `CMD_GET (02)` 查询电量 `0F`、充电 `10`、只读心跳 `12` 与固件 `13`；**严禁发送软件模式切换 `01 03 00 02`** | HeadsetControl / ckb-next / OpenLinkHub / HS80_Control / HaloBattery（MIT） |
 | 分集合 Compx（Endgame Gear XM2we / DAREU A950） | 同接收器 `FF02:0002`（17B Feature `08`）发请求、`FF01:0000`（17B Input `09`）收回复；Endgame Gear 4K `3367:1970` 置入 `DisabledPaths` | 仅 `08 04 … 49` 查电量与 `08 03 … 4A` 查链路（XM2we） | okms/xm2we-linux / MousePower（MIT）/ HaloBattery（MIT） |
 | Pulsar Sonix / EWEADN / AJAZZ / MCHOSE V3 / AULA / Keychron / Audeze | 均按精确 `VID:PID + 接口/使用页/报告长度` 路由，不做公版 VID 泛化 | Pulsar Sonix `00 00 08 81 01 … 8A 00`；EWEADN `00 30`；AJAZZ V2 MAX `00 10`；GearHub V5 `00 F7`；MCHOSE V3 `4D 01 01 00 00 09 00 00 08`；AULA `00 AA 10`；Keychron `B3 06` → `B4 06`；Audeze 仅单帧只读 `06 07 80 05 5A 03 00 D6 0C`（不发未核实初始化序列） | HaloBattery（MIT）/ aj179-linux（MIT）/ OpenMouse |
@@ -216,7 +217,7 @@ V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实
 
 ## Windows 传输约定
 
-`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。登记在路径开关表 `DeviceCatalog.DisabledPaths` 中、证据不足或存在写入风险的路径，在打开设备句柄之前就会被跳过，并在诊断报告里标注「已识别，暂未启用：原因」。罗技推送使用只读访问。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
+`list` 用零读写权限句柄取 HID 元数据。`read` 仅对匹配的厂商集合请求读写权限。登记在路径开关表 `DeviceCatalog.DisabledPaths` 中、证据不足或存在写入风险的路径，在打开设备句柄之前就会被跳过，并在诊断报告里标注「已识别，暂未启用：原因」。罗技推送和跨集合查询的辅助输入句柄使用只读权限。同一进程按 Windows 设备容器标识串行化物理接收器的访问，每个逻辑设备可另外指定设备槽位。标准输入集合只用于枚举元数据。串口使用短连接并在每次查询结束后释放。
 
 重叠读写取消时调用 `CancelIoEx`。同步的 SetupAPI、打开设备和 HID Feature 调用在工作线程上执行，外层有期限。驱动若迟迟未返回，调用者可先结束等待，工作线程在驱动返回后释放句柄和接收器锁。雷蛇 90B 使用 HID Feature 通道。罗技和雷蛇在打开已匹配的集合后，用 HID 描述符核对查询所需的报告 ID。[HID 报告 API 文档](https://learn.microsoft.com/en-us/windows-hardware/drivers/hid/sending-hid-reports) · [串口句柄文档](https://learn.microsoft.com/en-us/windows/win32/devio/communications-resource-handles)
 

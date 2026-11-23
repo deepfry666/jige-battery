@@ -28,8 +28,25 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         lock (gate)
             OpenedHids.Add(endpoint);
         CheckError(Next(endpoint.Path, DiagnosticOperation.OpenHid));
+        VerifyReportId(endpoint.RequiredInputReportId, endpoint.InputLength, endpoint.InputReportIds);
+        VerifyReportId(endpoint.RequiredOutputReportId, endpoint.OutputLength, endpoint.OutputReportIds);
+        VerifyReportId(endpoint.RequiredFeatureReportId, endpoint.FeatureLength, endpoint.FeatureReportIds);
         Interlocked.Increment(ref activeSessions);
         return new Session(this, endpoint.Path, endpoint);
+    }
+
+    private static void VerifyReportId(byte? required, ushort? length, string? ids)
+    {
+        if (required is not byte id)
+            return;
+        if (length == 0)
+            throw new TransportException(ReadIssue.IoError, "报告方向的长度为零");
+        // 旧报告可能没有记录 ID，或只记录前 16 个，不能用缺失的元数据否定一次成功的打开。
+        if (ids is null || ids.EndsWith(",...", StringComparison.Ordinal))
+            return;
+        if (id == 0 && ids == "00(raw)" || ids.Split(',').Contains($"{id:X2}", StringComparer.OrdinalIgnoreCase))
+            return;
+        throw new TransportException(ReadIssue.IoError, "描述符未声明所需报告 ID", nativeCode: TransportException.ReportIdNotFound);
     }
 
     public ISerialSession OpenSerial(UsbSerialPort endpoint, int baudRate, CancellationToken token)
@@ -98,6 +115,7 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         private async ValueTask Write(DiagnosticOperation op, byte[] buffer, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
+            VerifyBuffer(op, buffer);
             var step = owner.Next(path, op);
             var expected = Convert.FromHexString(step.Hex);
             recordedRequest = null;
@@ -134,6 +152,7 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
         private async ValueTask<int> Read(DiagnosticOperation op, byte[] buffer, CancellationToken token, int? arg = null)
         {
             token.ThrowIfCancellationRequested();
+            VerifyBuffer(op, buffer);
             var step = owner.Next(path, op, arg);
             await Apply(step, token);
             var data = step.Hex == "-" ? [] : Convert.FromHexString(step.Hex);
@@ -164,6 +183,28 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             }
             data.CopyTo(buffer, 0);
             return data.Length;
+        }
+
+        private void VerifyBuffer(DiagnosticOperation op, byte[] buffer)
+        {
+            if (hid is null)
+                return;
+            if (hid.InputOnly)
+                Assert.DoesNotContain(op, new[] { DiagnosticOperation.HidOutput, DiagnosticOperation.SetFeature });
+            if (hid.FeatureOnly)
+                Assert.DoesNotContain(op, new[] { DiagnosticOperation.HidInput, DiagnosticOperation.HidOutput });
+            ushort? expected = op switch
+            {
+                DiagnosticOperation.HidInput => hid.InputLength,
+                DiagnosticOperation.HidOutput => hid.OutputLength,
+                DiagnosticOperation.GetFeature or DiagnosticOperation.SetFeature => hid.FeatureLength,
+                _ => null
+            };
+            if (expected is ushort length)
+            {
+                Assert.NotEqual(0, (int)length);
+                Assert.Equal((int)length, buffer.Length);
+            }
         }
 
         private static async ValueTask Apply(ReceiverStep step, CancellationToken token)
@@ -201,6 +242,14 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
                         BluetoothHid = fields[11].EndsWith(" · HID++ BLE", StringComparison.Ordinal)
                     });
                     steps.Add(fields[1], []);
+                    break;
+                case "适配线索" when fields.Length == 8 && fields[4].StartsWith("固件=", StringComparison.Ordinal) &&
+                        ushort.TryParse(fields[4].AsSpan(3), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out ushort firmware):
+                    // 报告的固件字段来自该组首个接口，其他接口没有单独记录的版本。
+                    int primary = hid.FindIndex(item => item.ReceiverId == fields[1] &&
+                        $"{item.VendorId:X4}:{item.ProductId:X4}" == fields[2]);
+                    if (primary >= 0)
+                        hid[primary] = hid[primary] with { FirmwareVersion = firmware };
                     break;
                 case "报告ID" when fields.Length == 6 && hid.FindIndex(item => item.Path == fields[1]) is int index && index >= 0:
                     hid[index] = hid[index] with

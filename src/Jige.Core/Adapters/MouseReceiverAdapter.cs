@@ -127,8 +127,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
 
             // Compx-OUT 允许被动只读监听同接收器的其他厂商输入集合（如 FF05、FF06），以排查和接收跨集合回复。
             HidInterface[] siblings = selectedRow.Family == MouseFamily.CompxOut && !selectedRow.ExactCollectionOnly
-                ? groupHids.Where(hid => hid != selectedEndpoint &&
-                    hid.MetadataIssue == ReadIssue.None && hid.UsagePage is >= 0xFF00 && hid.InputLength is > 0).ToArray()
+                ? groupHids.Where(hid => IsSiblingInput(selectedEndpoint, hid)).ToArray()
                 : [];
 
             var source = selectedRow.IsGeneric ? AdaptationSource.Generic : AdaptationSource.Catalog;
@@ -165,6 +164,13 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         return targets;
     }
 
+    private static bool IsSiblingInput(HidInterface main, HidInterface hid) =>
+        hid is { MetadataIssue: ReadIssue.None, UsagePage: >= 0xFF00, InputLength: > 0 } &&
+        hid.VendorId == main.VendorId && hid.ProductId == main.ProductId &&
+        string.Equals(hid.ReceiverId, main.ReceiverId, StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(hid.Path, main.Path, StringComparison.OrdinalIgnoreCase) &&
+        !DeviceCatalog.IsDisabledPath(hid, out _);
+
     internal static MouseReceiver? AllowedRoute(HidInterface endpoint)
     {
         if (DeviceCatalog.IsDisabledPath(endpoint, out _))
@@ -193,16 +199,16 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
 
-        using var session = transport.OpenHid(QueryEndpoint(endpoint, route), cancellationToken);
+        using var session = OpenQuerySession(transport, endpoint, route, target.SiblingInputHids, cancellationToken);
         // 主集合已稳定返回电量后，日常轮询跳过永远超时的旁路输入集合；诊断导出时始终完整监听。
-        IReadOnlyList<HidInterface> siblings = trace is null && IsPrimaryConfirmed(endpoint.Path)
+        IReadOnlyList<HidInterface> siblings = session is SplitInputSession || trace is null && IsPrimaryConfirmed(endpoint.Path)
             ? []
             : target.SiblingInputHids;
         var result = await QueryAsync(session, endpoint, route, false, siblings, transport, trace, cancellationToken)
             .ConfigureAwait(false);
         if (result.Level.HasValue)
         {
-            if (result.FromPrimary)
+            if (result.FromPrimary && session is not SplitInputSession)
                 ConfirmPrimary(endpoint.Path);
             else
                 ConfirmProtocol(endpoint.Path);
@@ -211,7 +217,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         {
             ConfirmProtocol(endpoint.Path);
         }
-        else if (result.Issue == ReadIssue.InvalidResponse)
+        else if (result.Issue is ReadIssue.InvalidResponse or ReadIssue.Timeout)
             ClearPrimary(endpoint.Path);
         if (result.Asleep)
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow);
@@ -254,7 +260,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             AllowedRoute(endpoint) is not { } route || gates?.IsBlocked(endpoint, out _) == true)
             return null;
 
-        using var session = transport.OpenHid(QueryEndpoint(endpoint, route), cancellationToken);
+        using var session = OpenQuerySession(transport, endpoint, route, target.SiblingInputHids, cancellationToken);
         if (route.Family == MouseFamily.CompxOut)
         {
             // R1：优先发轻量的 Compx 0x03 在线查询：
@@ -267,17 +273,18 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 ConfirmProtocol(endpoint.Path);
                 return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Asleep);
             }
-            IReadOnlyList<HidInterface> siblings = IsPrimaryConfirmed(endpoint.Path) ? [] : target.SiblingInputHids;
+            IReadOnlyList<HidInterface> siblings = session is SplitInputSession || IsPrimaryConfirmed(endpoint.Path)
+                ? [] : target.SiblingInputHids;
             var battery = await QueryAsync(session, endpoint, route, false, siblings, transport, null, cancellationToken)
                 .ConfigureAwait(false);
             if (battery.Level.HasValue)
             {
-                if (battery.FromPrimary)
+                if (battery.FromPrimary && session is not SplitInputSession)
                     ConfirmPrimary(endpoint.Path);
                 else
                     ConfirmProtocol(endpoint.Path);
             }
-            else if (battery.Issue == ReadIssue.InvalidResponse)
+            else if (battery.Issue is ReadIssue.InvalidResponse or ReadIssue.Timeout)
                 ClearPrimary(endpoint.Path);
             if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric && !IsProtocolConfirmed(endpoint.Path))
                 gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
@@ -301,15 +308,96 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         return new(endpoint.ReceiverId, null, target.Device.Id, link, result.Level.HasValue ? ReadIssue.None : result.Issue);
     }
 
-    private static HidInterface QueryEndpoint(HidInterface endpoint, MouseReceiver route)
+    private static IHidSession OpenQuerySession(IReceiverTransport transport, HidInterface endpoint, MouseReceiver route,
+        IReadOnlyList<HidInterface> siblings, CancellationToken token)
     {
-        return route.Shape!.Channel == MouseChannel.Feature
-            ? endpoint with { FeatureOnly = true, RequiredFeatureReportId = route.Shape.ReportId }
-            : endpoint with { RequiredInputReportId = route.Shape.ReportId, RequiredOutputReportId = route.Shape.ReportId };
+        var shape = route.Shape!;
+        var command = shape.QueryEndpoint(endpoint);
+        try
+        {
+            return transport.OpenHid(command, token);
+        }
+        catch (TransportException error) when (error is { Issue: ReadIssue.IoError, NativeCode: TransportException.ReportIdNotFound } &&
+            route.Family == MouseFamily.CompxOut && !route.ExactCollectionOnly && siblings.Count > 0)
+        {
+            var split = TryOpenSplitInput(transport, command, siblings, shape, token);
+            if (split is null)
+                throw;
+            return split;
+        }
+    }
+
+    private static IHidSession? TryOpenSplitInput(IReceiverTransport transport, HidInterface command,
+        IReadOnlyList<HidInterface> siblings, MouseProtocolShape shape, CancellationToken token)
+    {
+        // 既有 Compx 跨集合协议（docs/protocols.md）：实时确认唯一回复集合，再对命令集合单独校验输出 08。
+        IHidSession? input = null;
+        try
+        {
+            int inputLength = 0;
+            foreach (var sibling in siblings)
+            {
+                if (!IsSiblingInput(command, sibling) || sibling.InputLength is not ushort length || length < shape.Length)
+                    continue;
+                IHidSession candidate;
+                try
+                {
+                    candidate = transport.OpenHid(sibling with { InputOnly = true, RequiredInputReportId = shape.ReportId }, token);
+                }
+                catch (TransportException unavailable) when (unavailable.NativeCode == TransportException.ReportIdNotFound)
+                {
+                    continue;
+                }
+                if (input is not null)
+                {
+                    candidate.Dispose();
+                    throw new TransportException(ReadIssue.IoError, "多个厂商输入集合均声明 Compx 回复编号");
+                }
+                input = candidate;
+                inputLength = length;
+            }
+            if (input is null)
+                return null;
+            var output = transport.OpenHid(command with { RequiredInputReportId = null }, token);
+            var split = new SplitInputSession(output, input, inputLength);
+            input = null; // 两个句柄由 split 一起释放。
+            return split;
+        }
+        finally
+        {
+            input?.Dispose();
+        }
+    }
+
+    private sealed class SplitInputSession(IHidSession output, IHidSession input, int inputLength) : IHidSession
+    {
+        private readonly byte[] inputBuffer = new byte[inputLength];
+
+        public ValueTask WriteOutputAsync(byte[] report, CancellationToken token) => output.WriteOutputAsync(report, token);
+
+        public async ValueTask<int> ReadInputAsync(byte[] report, CancellationToken token)
+        {
+            // Windows 需要完整集合长度；既有 Compx 解码器只消费报告前 17 字节。
+            int count = Math.Min(report.Length, await input.ReadInputAsync(inputBuffer, token).ConfigureAwait(false));
+            inputBuffer.AsSpan(0, count).CopyTo(report);
+            return count;
+        }
+
+        public ValueTask WriteFeatureAsync(byte[] report, CancellationToken token) => throw new NotSupportedException();
+        public ValueTask ReadFeatureAsync(byte[] report, CancellationToken token) => throw new NotSupportedException();
+        public void Dispose()
+        {
+            input.Dispose();
+            output.Dispose();
+        }
     }
 
     private readonly record struct Reply(
         int? Level, ChargingState Charging, ReadIssue Issue = ReadIssue.None, bool Asleep = false, bool FromPrimary = true);
+
+    // 共享输入集合还会上报其他 ID、命令（例如 DPI 通知）。只把本次查询的 ID 和命令计入回复次数及协议校验。
+    private static bool IsOtherSplitReport(IHidSession session, ReadOnlySpan<byte> frame, byte[] request) =>
+        session is SplitInputSession && !frame.StartsWith(request.AsSpan(0, 2));
 
     private static async ValueTask<bool?> QueryCompxOnlineAsync(
         IHidSession session, HidInterface endpoint, CancellationToken cancellationToken)
@@ -336,7 +424,13 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     ? await session.ReadInputAsync(report, token).ConfigureAwait(false)
                     : await pending.ConfigureAwait(false);
                 pending = null;
-                if (MouseBatteryProtocol.TryCompxOnline(report.AsSpan(0, count), out bool online))
+                var frame = report.AsSpan(0, count);
+                if (IsOtherSplitReport(session, frame, request))
+                {
+                    attempt--;
+                    continue;
+                }
+                if (MouseBatteryProtocol.TryCompxOnline(frame, out bool online))
                     return online;
             }
         }
@@ -380,8 +474,14 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     ? await session.ReadInputAsync(report, token).ConfigureAwait(false)
                     : await pending.ConfigureAwait(false);
                 pending = null;
-                trace?.Invoke(FrameDirection.Received, report.AsSpan(0, count));
-                if (MouseBatteryProtocol.TryCompxCidMid(report.AsSpan(0, count), out byte cid, out byte mid))
+                var frame = report.AsSpan(0, count);
+                trace?.Invoke(FrameDirection.Received, frame);
+                if (IsOtherSplitReport(session, frame, request))
+                {
+                    attempt--;
+                    continue;
+                }
+                if (MouseBatteryProtocol.TryCompxCidMid(frame, out byte cid, out byte mid))
                     return MouseReceiverCatalog.LookupAtkModel(cid, mid);
             }
         }
@@ -493,6 +593,11 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     pending = null;
                     var span = report.AsSpan(0, count);
                     trace?.Invoke(FrameDirection.Received, span);
+                    if (IsOtherSplitReport(session, span, request))
+                    {
+                        attempt--;
+                        continue;
+                    }
                     if (route.Family == MouseFamily.BitMouse && MouseBatteryProtocol.IsBitMousePush(span))
                         continue;
                     sawReply = true;

@@ -333,6 +333,8 @@ internal sealed class CorsairAdapter(SafetyGateStore? gates = null) : IDeviceAda
             return new(target.Device, level, false, ChargingState.Charging, LinkState.Online, DateTimeOffset.UtcNow);
 
         var chgReq = CorsairProtocol.EncodeBragiBare(outLen, route, 0x10);
+        if (!CorsairProtocol.AllowsRequest(chgReq))
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, "报文未通过只读白名单");
         var chgFrame = await HidQuery.OutputAsync(session, session, chgReq, inLen,
             p => CorsairProtocol.TryDecodeBragiCharge(p, source, out _), trace, token, milliseconds: 700).ConfigureAwait(false);
         var charging = chgFrame is not null && CorsairProtocol.TryDecodeBragiCharge(chgFrame, source, out var state)

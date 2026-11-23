@@ -155,7 +155,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
     private static bool IsShort(HidInterface hid) => hid is
     {
         VendorId: 0x046D, UsagePage: 0xFF00, Usage: 1,
-        InputLength: LogitechHidppProtocol.ShortLength, OutputLength: LogitechHidppProtocol.ShortLength,
+        InputLength: LogitechHidppProtocol.ShortLength, OutputLength: 0 or LogitechHidppProtocol.ShortLength,
         MetadataIssue: ReadIssue.None
     };
 
@@ -186,8 +186,12 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
             if (safety.IsBlocked(endpoint, out _) || (!bluetooth && !usbCollection && headset is null))
                 continue;
 
-            var shortHid = HidQuery.UniqueCollections(inventory.Hid.Where(hid => IsShort(hid) &&
-                hid.ProductId == endpoint.ProductId && SameReceiver(hid, endpoint))).SingleOrDefault();
+            var shortCandidates = inventory.Hid.Where(hid => IsShort(hid) &&
+                hid.ProductId == endpoint.ProductId && SameReceiver(hid, endpoint));
+            var shortHid = HidQuery.UniqueCollections(shortCandidates.Where(hid =>
+                hid.OutputLength == LogitechHidppProtocol.ShortLength)).SingleOrDefault();
+            if (receiver && shortHid is null)
+                shortHid = HidQuery.UniqueCollections(shortCandidates).SingleOrDefault();
             bool cable = usbCollection && !receiver && shortHid is not null;
             if (!bluetooth && !receiver && !cable && headset is null)
                 continue;
@@ -252,9 +256,10 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
             return;
 
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
-        var listeners = new List<Task> { ListenAsync(endpoint, 0x11) };
+        var longListener = ListenAsync(endpoint, 0x11);
+        var listeners = new List<Task> { longListener };
         if (target.ShortHid is { } shortHid)
-            listeners.Add(ListenAsync(shortHid, 0x10));
+            listeners.Add(ListenShortAsync(shortHid));
 
         try
         {
@@ -264,6 +269,19 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         {
             await lifetime.CancelAsync().ConfigureAwait(false);
             await Task.WhenAll(listeners).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+        }
+
+        async Task ListenShortAsync(HidInterface input)
+        {
+            try
+            {
+                await ListenAsync(input, 0x10).ConfigureAwait(false);
+            }
+            catch (TransportException error) when (OptionalChannelUnavailable(error))
+            {
+                // 短集合不可用时，保留可用的长集合推送监听，直到取消或拔出。
+                await longListener.ConfigureAwait(false);
+            }
         }
 
         async Task ListenAsync(HidInterface input, byte reportId)
@@ -366,7 +384,9 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         try
         {
             using var session = transport.OpenHid(endpoint with { RequiredInputReportId = 0x11, RequiredOutputReportId = 0x11 }, scanToken);
-            using var shortSession = OpenShort();
+            using var shortOutput = OpenShort(inputOnly: false);
+            using var shortInputOnly = shortOutput is null ? OpenShort(inputOnly: true) : null;
+            var shortSession = shortOutput ?? shortInputOnly;
             bool guarded = (UsesReceiverName(endpoint) || target.Device.Source == AdaptationSource.Generic) &&
                 !Volatile.Read(ref state.Confirmed);
             bool invalidPing = false;
@@ -621,15 +641,19 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 }
             }
 
-            IHidSession? OpenShort()
+            IHidSession? OpenShort(bool inputOnly)
             {
-                if (target.ShortHid is not { } hid || !IsShort(hid) || hid.ProductId != endpoint.ProductId || !SameReceiver(endpoint, hid))
+                if (target.ShortHid is not { } hid || !IsShort(hid) || hid.ProductId != endpoint.ProductId || !SameReceiver(endpoint, hid) ||
+                    !inputOnly && hid.OutputLength != LogitechHidppProtocol.ShortLength)
                     return null;
                 try
                 {
-                    return transport.OpenHid(hid with { RequiredInputReportId = 0x10, RequiredOutputReportId = 0x10 }, scanToken);
+                    return transport.OpenHid(hid with
+                    {
+                        InputOnly = inputOnly, RequiredInputReportId = 0x10, RequiredOutputReportId = inputOnly ? null : (byte)0x10
+                    }, scanToken);
                 }
-                catch (TransportException error) when (error.Issue is ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.IoError)
+                catch (TransportException error) when (OptionalChannelUnavailable(error))
                 {
                     return null;
                 }
@@ -638,11 +662,11 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
             async ValueTask<byte[]?> QueryAsync(byte[] request, int timeoutMs = ReplyTimeoutMs)
             {
                 bool register = request[0] == 0x10;
-                if (register && shortSession is null)
+                if (register && shortOutput is null)
                     return null;
                 bool ping = LogitechHidppProtocol.IsPing(request);
                 bool malformed = false;
-                var response = await QueryCollectionsAsync(register ? shortSession! : session, session, shortSession, request, frame =>
+                var response = await QueryCollectionsAsync(register ? shortOutput! : session, session, shortSession, request, frame =>
                 {
                     if (LogitechHidppProtocol.Matches(frame, request))
                         return true;
@@ -706,6 +730,9 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 endpoints.Remove(endpoint.Path);
         }
     }
+
+    private static bool OptionalChannelUnavailable(TransportException error) =>
+        error.Issue is ReadIssue.Busy or ReadIssue.AccessDenied or ReadIssue.IoError;
 
     private static async ValueTask<byte[]?> QueryCollectionsAsync(IHidSession output, IHidSession longInput,
         IHidSession? shortInput, byte[] request, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token,

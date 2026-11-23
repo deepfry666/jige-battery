@@ -7,6 +7,13 @@ internal enum BitMouseReply { WithoutChecksum, WithChecksum, Auto }
 
 internal sealed record MouseProtocolShape(ushort UsagePage, ushort? Usage, ushort Length, byte ReportId, MouseChannel Channel)
 {
+    public HidInterface QueryEndpoint(HidInterface endpoint) => Channel switch
+    {
+        MouseChannel.Feature => endpoint with { FeatureOnly = true, RequiredFeatureReportId = ReportId },
+        MouseChannel.FeatureInput => endpoint with { RequiredFeatureReportId = ReportId, RequiredInputReportId = ReportId },
+        _ => endpoint with { RequiredOutputReportId = ReportId, RequiredInputReportId = ReportId }
+    };
+
     public bool Matches(HidInterface hid) =>
         hid.MetadataIssue == ReadIssue.None && hid.UsagePage == UsagePage && hid.Usage.HasValue &&
         (!Usage.HasValue || hid.Usage == Usage) &&

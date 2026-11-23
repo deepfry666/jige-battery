@@ -11,6 +11,25 @@ public sealed class DiagnosticTests
     private static readonly UsbSerialPort Sony = new("sony", "sony", "COM7", [@"USB\VID_054C&PID_0E53&REV_0100&MI_06"]);
 
     [Fact]
+    public void ReplayChecksRequiredIdsAgainstTheRecordedUlxFirmwareAndDescriptor()
+    {
+        var report = string.Join('\n', DiagnosticReport.Header,
+            "HID|H6|R6|361D|0100|FF00|0001|64|64|0||ULX",
+            "适配线索|R6|361D:0100|厂商=Finalmouse|固件=0303|连接=USB|角色=鼠标|状态=已匹配适配器",
+            "报告ID|H6|FF00:0001|in=03,05|out=03,05|feat=-",
+            "OP|H6|OpenHid|0|None|-|-|-|0", "OP|H6|OpenHid|0|None|-|-|-|0");
+        var (inventory, transport, _) = FakeReceiverTransport.FromReport(report);
+        var endpoint = Assert.Single(inventory.Hid);
+        Assert.True(FinalmouseAdapter.Has0303Layout(endpoint));
+
+        var error = Assert.Throws<TransportException>(() =>
+            transport.OpenHid(endpoint with { RequiredOutputReportId = 0x04 }, CancellationToken.None));
+        Assert.Equal(TransportException.ReportIdNotFound, error.NativeCode);
+        using (transport.OpenHid(endpoint with { RequiredInputReportId = 5, RequiredOutputReportId = 5 }, CancellationToken.None)) { }
+        transport.AssertComplete();
+    }
+
+    [Fact]
     public async Task DisplayLocationAndFallbackReasonAppearInSettingsSummary()
     {
         var settings = new DiagnosticSettingsSummary("自定义", 15, 60, 300, 8, 30, true, 0, true, 0)

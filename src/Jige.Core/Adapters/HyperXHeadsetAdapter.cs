@@ -49,6 +49,11 @@ internal static class HyperXHeadsetProtocol
     public static HyperXModel? Find(ushort? vid, ushort? pid) =>
         vid is ushort v && pid is ushort p ? Array.Find(Models, m => m.VendorId == v && m.Pid == p) : null;
 
+    internal static bool IsCloud3SOutputCandidate(ushort? vid, ushort? pid, ushort? usagePage,
+        byte? interfaceNumber, ushort? outputLength) =>
+        vid == HpVendorId && Find(vid, pid)?.Protocol == HyperXProtocolKind.Cloud3S &&
+        usagePage is >= 0xFF00 && interfaceNumber is null or 3 && outputLength is >= 64;
+
     public static byte[] EncodeCloud2Hp(int length, byte cmd)
     {
         var frame = new byte[length];
@@ -330,8 +335,8 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
             HyperXProtocolKind.CloudAlpha => hid is { UsagePage: 0xFF43, Usage: 0x0202, OutputLength: >= 31, InputLength: >= 4 } ? model : null,
             HyperXProtocolKind.Cloud3 => hid is { UsagePage: 0xFF13, Usage: 0x0001, InputLength: >= 5 } &&
                 (hid.OutputLength >= 62 || hid.FeatureLength >= 62) ? model : null,
-            HyperXProtocolKind.Cloud3S => hid is { UsagePage: >= 0xFF00, OutputLength: >= 64 } &&
-                (hid.InterfaceNumber is null or 3) &&
+            HyperXProtocolKind.Cloud3S => HyperXHeadsetProtocol.IsCloud3SOutputCandidate(
+                hid.VendorId, hid.ProductId, hid.UsagePage, hid.InterfaceNumber, hid.OutputLength) &&
                 (hid.OutputReportIds is null || hid.OutputReportIds.Split(',').Contains("0C", StringComparer.OrdinalIgnoreCase)) ? model : null,
             _ => null
         };
@@ -342,16 +347,22 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
         foreach (var group in inventory.Hid.Where(hid => HyperXHeadsetProtocol.Find(hid.VendorId, hid.ProductId) is not null)
             .GroupBy(hid => hid.ReceiverId, StringComparer.OrdinalIgnoreCase))
         {
-            var matched = group.Select(hid => (Hid: hid, Model: Match(hid))).Where(item => item.Model is not null).ToArray();
-            if (matched.Length == 0)
+            var preferred = group.Select(hid => (Hid: hid, Model: Match(hid))).Where(item => item.Model is not null)
+                .GroupBy(item => (Declared: item.Model!.Protocol == HyperXProtocolKind.Cloud3S && item.Hid.OutputReportIds is not null,
+                    Interface3: item.Hid.InterfaceNumber == 3))
+                .OrderByDescending(rank => rank.Key.Declared)
+                .ThenByDescending(rank => rank.Key.Interface3)
+                .FirstOrDefault();
+            if (preferred is null)
                 continue;
-            var (endpoint, model) = matched.OrderBy(item => item.Hid.InterfaceNumber == 3 ? 0 : 1).First();
-            if (gates?.IsBlocked(endpoint, out _) == true)
+            var (endpoint, model) = preferred.First();
+            bool cloud3S = model!.Protocol == HyperXProtocolKind.Cloud3S;
+            if ((cloud3S && preferred.Skip(1).Any()) || gates?.IsBlocked(endpoint, out _) == true)
                 continue;
 
-            HidInterface[] related = model!.Protocol == HyperXProtocolKind.Cloud3S
-                ? group.Where(hid => hid != endpoint && hid.MetadataIssue == ReadIssue.None &&
-                    hid.UsagePage is >= 0xFF00 && hid.InputLength is >= 7).ToArray()
+            HidInterface[] related = cloud3S
+                ? group.Where(hid => hid != endpoint && hid.VendorId == endpoint.VendorId && hid.ProductId == endpoint.ProductId &&
+                    hid.MetadataIssue == ReadIssue.None && hid.UsagePage is >= 0xFF00 && hid.InputLength is >= 6).ToArray()
                 : [];
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"hyperx:{endpoint.ReceiverId}", model.Name, DeviceKind.Headset,
@@ -475,17 +486,8 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
     private static async ValueTask<BatteryReading> ReadCloud3Async(
         DeviceTarget target, HidInterface endpoint, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
     {
-        bool preferOutput = endpoint.OutputLength is >= 62;
-        int sendLen = preferOutput ? endpoint.OutputLength!.Value : endpoint.FeatureLength!.Value;
-        using var session = transport.OpenHid(endpoint with
-        {
-            RequiredInputReportId = 0x66,
-            RequiredOutputReportId = preferOutput ? (byte)0x66 : null,
-            RequiredFeatureReportId = preferOutput ? null : (byte)0x66
-        }, token);
-
-        var levelReq = HyperXHeadsetProtocol.EncodeCloud3(sendLen, 0x89);
-        var levelFrame = await SendAndReadCloud3Async(session, endpoint, levelReq, preferOutput,
+        using var channel = new Cloud3Channel(endpoint, transport);
+        var levelFrame = await channel.QueryAsync(0x89,
             p => HyperXHeadsetProtocol.TryDecodeCloud3Level(p, out _, out _), trace, token).ConfigureAwait(false);
         if (levelFrame is null || !HyperXHeadsetProtocol.TryDecodeCloud3Level(levelFrame, out bool noReading, out int level))
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, ReadIssue.Timeout);
@@ -493,60 +495,78 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Offline, DateTimeOffset.UtcNow,
                 Detail: "HyperX 接收器尚未收到耳机电量（可能已关机）");
 
-        var chgReq = HyperXHeadsetProtocol.EncodeCloud3(sendLen, 0x8A);
-        var chgFrame = await SendAndReadCloud3Async(session, endpoint, chgReq, preferOutput,
+        var chgFrame = await channel.QueryAsync(0x8A,
             p => HyperXHeadsetProtocol.TryDecodeCloud3Charging(p, out _), trace, token).ConfigureAwait(false);
         var charging = chgFrame is not null && HyperXHeadsetProtocol.TryDecodeCloud3Charging(chgFrame, out var state)
             ? state : ChargingState.Unknown;
         return new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow);
     }
 
-    private static async ValueTask<byte[]?> SendAndReadCloud3Async(
-        IHidSession session, HidInterface endpoint, byte[] request, bool preferOutput,
-        Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
+    private sealed class Cloud3Channel(HidInterface endpoint, IReceiverTransport transport) : IDisposable
     {
-        if (!HyperXHeadsetProtocol.AllowsRequest(request))
-            throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(900);
-        var dt = deadline.Token;
-        var report = new byte[endpoint.InputLength!.Value];
-        try
+        private IHidSession? session;
+        private bool useOutput = endpoint.OutputLength is >= 62;
+
+        public async ValueTask<byte[]?> QueryAsync(byte command, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
         {
-            if (preferOutput)
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(900);
+            var dt = deadline.Token;
+            try
             {
-                try
+                if (useOutput)
                 {
-                    await session.WriteOutputAsync(request, dt).ConfigureAwait(false);
+                    var request = Encode(command, endpoint.OutputLength!.Value);
+                    try
+                    {
+                        session ??= transport.OpenHid(endpoint with { RequiredInputReportId = 0x66, RequiredOutputReportId = 0x66 }, dt);
+                        await session.WriteOutputAsync(request, dt).ConfigureAwait(false);
+                        trace?.Invoke(FrameDirection.Sent, request);
+                    }
+                    catch (TransportException error) when (endpoint.FeatureLength is >= 62 && error.Issue == ReadIssue.IoError &&
+                        (session is not null || error.NativeCode == TransportException.ReportIdNotFound))
+                    {
+                        session?.Dispose();
+                        session = null;
+                        useOutput = false;
+                    }
+                }
+                if (!useOutput)
+                {
+                    session ??= transport.OpenHid(endpoint with { RequiredInputReportId = 0x66, RequiredFeatureReportId = 0x66 }, dt);
+                    var request = Encode(command, endpoint.FeatureLength!.Value);
+                    await session.WriteFeatureAsync(request, dt).ConfigureAwait(false);
                     trace?.Invoke(FrameDirection.Sent, request);
                 }
-                catch (TransportException error) when (error.Issue == ReadIssue.IoError && endpoint.FeatureLength is >= 62)
+
+                var report = new byte[endpoint.InputLength!.Value];
+                while (true)
                 {
-                    var featReq = HyperXHeadsetProtocol.EncodeCloud3(endpoint.FeatureLength.Value, request[1]);
-                    await session.WriteFeatureAsync(featReq, dt).ConfigureAwait(false);
-                    trace?.Invoke(FrameDirection.Sent, featReq);
+                    dt.ThrowIfCancellationRequested();
+                    int count = await session!.ReadInputAsync(report, dt).ConfigureAwait(false);
+                    if (count == 0)
+                        throw new TransportException(ReadIssue.Disconnected, "HID 输入通道已关闭");
+                    trace?.Invoke(FrameDirection.Received, report.AsSpan(0, count));
+                    var frame = count == report.Length ? report : report[..count];
+                    if (matches(frame))
+                        return frame;
                 }
             }
-            else
+            catch (OperationCanceledException) when (!token.IsCancellationRequested)
             {
-                await session.WriteFeatureAsync(request, dt).ConfigureAwait(false);
-                trace?.Invoke(FrameDirection.Sent, request);
+                return null;
             }
+        }
 
-            while (true)
-            {
-                dt.ThrowIfCancellationRequested();
-                int count = await session.ReadInputAsync(report, dt).ConfigureAwait(false);
-                trace?.Invoke(FrameDirection.Received, report.AsSpan(0, count));
-                var frame = count == report.Length ? report : report[..count];
-                if (matches(frame))
-                    return frame;
-            }
-        }
-        catch (OperationCanceledException) when (!token.IsCancellationRequested)
+        private static byte[] Encode(byte command, int length)
         {
-            return null;
+            var request = HyperXHeadsetProtocol.EncodeCloud3(length, command);
+            if (!HyperXHeadsetProtocol.AllowsRequest(request))
+                throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
+            return request;
         }
+
+        public void Dispose() => session?.Dispose();
     }
 
     private static async ValueTask<BatteryReading> ReadCloud3SAsync(
@@ -580,14 +600,14 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
         List<(IHidSession Session, bool Owned, byte[] Buffer, Task<int> Read)> listeners = [];
         try
         {
-            if (endpoint.InputLength is >= 7)
+            if (endpoint.InputLength is >= 6)
             {
                 var buf = new byte[endpoint.InputLength.Value];
                 listeners.Add((primary, false, buf, primary.ReadInputAsync(buf, dt).AsTask()));
             }
             foreach (var sib in related)
             {
-                if (sib.InputLength is not >= 7)
+                if (sib.InputLength is not >= 6)
                     continue;
                 IHidSession? opened = null;
                 try
@@ -626,8 +646,10 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
                     trace?.Invoke(FrameDirection.Received, frame);
                     if (matches(frame))
                         return frame.ToArray();
-                    listeners[idx] = (item.Session, item.Owned, item.Buffer,
-                        item.Session.ReadInputAsync(item.Buffer, dt).AsTask());
+                    // 本集合仍有排队通报时，先处理其他集合已经到达的应答。
+                    var next = item.Session.ReadInputAsync(item.Buffer, dt).AsTask();
+                    listeners.RemoveAt(idx);
+                    listeners.Add((item.Session, item.Owned, item.Buffer, next));
                 }
                 catch (TransportException)
                 {

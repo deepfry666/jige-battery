@@ -85,6 +85,10 @@ internal sealed class SplitCompxAdapter(SafetyGateStore? gates = null) : IDevice
     private static bool IsReplyCollection(HidInterface hid) =>
         hid is { UsagePage: 0xFF01, Usage: 0x0000, InputLength: SplitCompxProtocol.FrameLength, MetadataIssue: ReadIssue.None };
 
+    private static bool SameReceiver(HidInterface cmd, HidInterface reply) =>
+        cmd.VendorId == reply.VendorId && cmd.ProductId == reply.ProductId &&
+        string.Equals(cmd.ReceiverId, reply.ReceiverId, StringComparison.OrdinalIgnoreCase);
+
     public IEnumerable<DeviceTarget> Detect(DeviceInventory inventory)
     {
         foreach (var group in inventory.Hid
@@ -97,7 +101,7 @@ internal sealed class SplitCompxAdapter(SafetyGateStore? gates = null) : IDevice
                 continue;
             var cmd = commands[0];
             var reply = replies[0];
-            if (gates?.IsBlocked(cmd, out _) == true)
+            if (!SameReceiver(cmd, reply) || gates?.IsBlocked(cmd, out _) == true)
                 continue;
             var model = SplitCompxProtocol.Find(cmd.VendorId, cmd.ProductId)!;
             var tier = DeviceCatalog.VerificationFor(cmd.VendorId, cmd.ProductId);
@@ -116,7 +120,7 @@ internal sealed class SplitCompxAdapter(SafetyGateStore? gates = null) : IDevice
         DeviceTarget target, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
     {
         if (target.Endpoint is not HidInterface cmd || target.RelatedHids is not [var reply] ||
-            !IsCommandCollection(cmd) || !IsReplyCollection(reply))
+            !IsCommandCollection(cmd) || !IsReplyCollection(reply) || !SameReceiver(cmd, reply))
             return AdapterRegistry.Failure(target, ReadIssue.IoError, "分集合 Compx 接口不匹配");
         if (gates?.IsBlocked(cmd, out var blockedReason) == true)
             return AdapterRegistry.Failure(target, ReadIssue.IoError, $"安全门已拦截：{blockedReason}");
