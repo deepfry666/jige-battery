@@ -152,8 +152,8 @@ begin
     if (Attempt = 1) or (Attempt mod 10 = 0) then
     begin
       Host := FindWindowByClassName('Jige.Tray.Host');
-      if Host <> 0 then
-        PostMessage(Host, $0010, 0, 0); // WM_CLOSE，等待托盘保存状态并退出。
+      if (Host <> 0) and (not PostMessage(Host, $0010, 0, 0)) then
+        Exit; // UIPI 拒绝或窗口句柄已失效，交给 AppMutex 提示用户关闭。
     end;
     Sleep(100);
   end;
@@ -274,9 +274,29 @@ begin
   end;
 end;
 
+function ShouldRestoreAutostartFromConfig(const ConfigText: AnsiString): Boolean;
+var
+  Lower, Compact: String;
+  I: Integer;
+  Ch: Char;
+begin
+  Lower := Lowercase(String(ConfigText));
+  Compact := '';
+  for I := 1 to Length(Lower) do
+  begin
+    Ch := Lower[I];
+    if (Ch <> ' ') and (Ch <> #9) and (Ch <> #10) and (Ch <> #13) then
+      Compact := Compact + Ch;
+  end;
+  // 仅当 config.json 至少是有效 JSON 对象且未显式关闭 startWithWindows 时，才在重装时补回自启项。
+  Result := (Length(Compact) >= 2) and (Compact[1] = '{') and
+    (Pos('"startwithwindows":false', Compact) = 0);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Folder, Config, AutoStart, ExistingRun: String;
+  ConfigText: AnsiString;
 begin
   if CurStep <> ssPostInstall then
     Exit;
@@ -285,8 +305,12 @@ begin
 
   if not InitialConfig then
   begin
-    // 若用户更换了安装目录且此前已启用开机自启，同步更新自启路径。
+    // 若用户更换了安装目录且此前已启用开机自启，同步更新自启路径；
+    // 若是卸载保留配置后重装且原配置未关闭开机自启，也补回自启项。
     if RegQueryStringValue(HKCU, '{#RunKey}', '{#RunName}', ExistingRun) and (Trim(ExistingRun) <> '') then
+      RegWriteStringValue(HKCU, '{#RunKey}', '{#RunName}', '"' + ExpandConstant('{app}\Jige.exe') + '"')
+    else if LoadStringFromFile(ExpandConstant('{#DataDir}\config.json'), ConfigText) and
+      ShouldRestoreAutostartFromConfig(ConfigText) then
       RegWriteStringValue(HKCU, '{#RunKey}', '{#RunName}', '"' + ExpandConstant('{app}\Jige.exe') + '"');
     Exit;
   end;
@@ -321,12 +345,13 @@ var
   RestoreDir: String;
 begin
   // 必须先释放安装锁，再按需拉回托盘；且仅当本实例持有锁、未完成安装且安装前托盘在运行时恢复。
+  // 早期中止时 {app} 尚未初始化，绝不直接调用 ExpandConstant('{app}')，改用默认安装目录兜底。
   EndOperation;
   if OperationOwned and (not SetupCompleted) and TrayWasRunning then
   begin
     RestoreDir := Trim(PreviousInstallDir);
     if RestoreDir = '' then
-      RestoreDir := ExpandConstant('{app}');
+      RestoreDir := ExpandConstant('{#InstallDir}');
     TryRestoreTray(RestoreDir);
   end;
 end;

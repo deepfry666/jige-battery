@@ -73,8 +73,8 @@ internal static class TrayMenuModel
     }
 
     public static Bounds Place(Bounds anchor, Bounds monitor, Bounds work, int widthPx, int heightPx,
-        int gapPx = 10, int edgeMarginPx = 8) =>
-        HoverCardPlacement.Place(anchor, monitor, work, widthPx, heightPx, gapPx, edgeMarginPx);
+        int gapPx = 10, int edgeMarginPx = 8, TaskbarEdge? taskbarEdge = null) =>
+        HoverCardPlacement.Place(anchor, monitor, work, widthPx, heightPx, gapPx, edgeMarginPx, taskbarEdge);
 
     private static float ItemTop(int targetIndex)
     {

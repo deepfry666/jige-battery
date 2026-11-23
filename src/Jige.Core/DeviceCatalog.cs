@@ -279,7 +279,49 @@ public static class DeviceCatalog
 
         // === 仅按资料：MCHOSE 迈从无线键盘（FF02:0002 20B 命令 13 4A） ===
         new(MchoseKbProtocol.VendorId, MchoseKbProtocol.K87ReceiverPid, "MCHOSE K87", "MCHOSE 20B", DeviceKind.Keyboard,
-            VerificationTier.DocsOnly, "mchose-kb:", "HaloBattery mchose_kb.py（MIT）")
+            VerificationTier.DocsOnly, "mchose-kb:", "HaloBattery mchose_kb.py（MIT）"),
+
+        // === 仅按资料：ASUS ROG / TUF 无线鼠标、OMNI 接收器与 ROG Strix Go 2.4 耳机 ===
+        .. AsusHidProtocol.AllMice.Select(model => new DeviceCatalogEntry(
+            AsusHidProtocol.VendorId, model.Pid, model.Name,
+            model.ReportId == 0x03 ? "ASUS ROG 64B (RID 03)" : "ASUS ROG 65B (12 07)",
+            DeviceKind.Mouse, VerificationTier.DocsOnly, "asus-mouse:", "G-Helper / HaloBattery（MIT）")),
+        .. AsusHidProtocol.AllHeadsets.Select(model => new DeviceCatalogEntry(
+            AsusHidProtocol.VendorId, model.Pid, model.Name, "ASUS Strix Go Feature FF",
+            DeviceKind.Headset, VerificationTier.DocsOnly, "asus-headset:", "G-Helper / HaloBattery（MIT）")),
+        new(AsusHidProtocol.VendorId, AsusHidProtocol.OmniReceiverPid, "ASUS ROG OMNI 接收器", "ASUS ROG OMNI",
+            DeviceKind.Other, VerificationTier.DocsOnly, "asus-omni:", "G-Helper / HaloBattery（MIT）"),
+
+        // === 仅按资料：复用 Compx-OUT / XVI-NEW 的跨品牌鼠标（Pulsar / Hitscan / Cougar / Redragon / Corsair / Glorious） ===
+        .. MouseReceiverCatalog.BrandModels.Select(model => new DeviceCatalogEntry(
+            model.Receiver.VendorId, model.Receiver.ProductId!.Value, model.Receiver.Model,
+            model.Receiver.Family == MouseFamily.CompxOut ? "Compx-OUT" : "XVI-NEW", DeviceKind.Mouse,
+            VerificationTier.DocsOnly, "mouse:", model.Source)),
+
+        // === 仅按资料：SteelSeries 赛睿无线耳机与鼠标 ===
+        .. SteelSeriesProtocol.AllModels.Select(model => new DeviceCatalogEntry(
+            SteelSeriesProtocol.VendorId, model.Pid, model.Name, SteelSeriesProtocol.FamilyName(model.Protocol),
+            model.Kind, VerificationTier.DocsOnly, "steelseries:", "HeadsetControl / rivalcfg / alloyctl / HaloBattery（MIT）")),
+
+        // === 仅按资料：HyperX 极度未知无线耳机 ===
+        .. HyperXHeadsetProtocol.AllModels.Select(model => new DeviceCatalogEntry(
+            model.VendorId, model.Pid, model.Name, HyperXHeadsetProtocol.FamilyName(model.Protocol),
+            DeviceKind.Headset, VerificationTier.DocsOnly, "hyperx:", "HeadsetControl / HyperHeadset / HaloBattery（MIT）")),
+
+        // === 仅按资料：Corsair 海盗船无线耳机、鼠标与键盘 ===
+        .. CorsairProtocol.AllModels.Select(model => new DeviceCatalogEntry(
+            CorsairProtocol.VendorId, model.Pid, model.Name, CorsairProtocol.FamilyName(model.Protocol),
+            model.Kind, VerificationTier.DocsOnly, "corsair:", "HeadsetControl / ckb-next / OpenLinkHub / HaloBattery（MIT）")),
+
+        // === 仅按资料：分集合 Compx（Endgame Gear XM2we / DAREU 达尔优 A950） ===
+        .. SplitCompxProtocol.AllModels.Select(model => new DeviceCatalogEntry(
+            model.VendorId, model.ProductId, model.Name, "Compx 分集合 (FF02→FF01)",
+            DeviceKind.Mouse, VerificationTier.DocsOnly, "split-compx:", model.Source)),
+
+        // === 仅按资料：扩展品牌协议（Pulsar Sonix / EWEADN / AJAZZ / MCHOSE V3 / AULA / Keychron / Audeze） ===
+        .. ExtendedPeripheralProtocol.AllModels.Select(model => new DeviceCatalogEntry(
+            model.VendorId, model.ProductId, model.Name, ExtendedPeripheralProtocol.FamilyName(model.Protocol),
+            model.Kind, VerificationTier.DocsOnly, "ext:", model.Source))
     ];
 
     /// <summary>
@@ -344,23 +386,34 @@ public static class DeviceCatalog
         // ASTRO A50 X（046D:0B0B）：集合与查询未核实。
         new(0x046D, 0x0B0B, "ASTRO A50 X", "Logitech 耳机候选",
             "HID 集合与只读电量查询尚未核实",
-            "docs/protocols.md / HeadsetControl")
+            "docs/protocols.md / HeadsetControl"),
+
+        // Endgame Gear 4K HS Dongle（3367:1970）：社区实机测试当前 4K 协议无响应，待新抓包确认。
+        new(0x3367, 0x1970, "Endgame Gear 4K 接收器", "Endgame Gear 4K 候选",
+            "当前 4K 接收器电量报文实机未跑通，暂保持禁用等待抓包确认",
+            "HaloBattery providers/endgame_4k.py（MIT，#321/#324）")
     ];
+
+    private static readonly System.Collections.Frozen.FrozenDictionary<(ushort Vid, ushort Pid), DeviceCatalogEntry> EntryIndex =
+        BuildFirstIndex(Entries, entry => (entry.VendorId, entry.ProductId));
+
+    private static readonly System.Collections.Frozen.FrozenDictionary<(ushort Vid, ushort Pid), DisabledDevicePath> DisabledIndex =
+        BuildFirstIndex(DisabledPaths, entry => (entry.VendorId, entry.ProductId));
+
+    private static System.Collections.Frozen.FrozenDictionary<TKey, TValue> BuildFirstIndex<TKey, TValue>(
+        IReadOnlyList<TValue> items, Func<TValue, TKey> keySelector) where TKey : notnull
+    {
+        var map = new Dictionary<TKey, TValue>(items.Count);
+        for (int i = 0; i < items.Count; i++)
+            map.TryAdd(keySelector(items[i]), items[i]);
+        return System.Collections.Frozen.FrozenDictionary.ToFrozenDictionary(map);
+    }
 
     public static IEnumerable<DeviceCatalogEntry> HardwareVerified =>
         Entries.Where(entry => entry.Verification == VerificationTier.HardwareVerified);
 
-    public static DeviceCatalogEntry? FindEntry(ushort? vid, ushort? pid)
-    {
-        if (vid is not ushort v || pid is not ushort p)
-            return null;
-        for (int i = 0; i < Entries.Count; i++)
-        {
-            if (Entries[i].VendorId == v && Entries[i].ProductId == p)
-                return Entries[i];
-        }
-        return null;
-    }
+    public static DeviceCatalogEntry? FindEntry(ushort? vid, ushort? pid) =>
+        vid is ushort v && pid is ushort p && EntryIndex.TryGetValue((v, p), out var entry) ? entry : null;
 
     public static VerificationTier VerificationFor(ushort? vid, ushort? pid) =>
         FindEntry(vid, pid)?.Verification ?? VerificationTier.DocsOnly;
@@ -384,17 +437,8 @@ public static class DeviceCatalog
         return VerificationTier.DocsOnly;
     }
 
-    public static DisabledDevicePath? FindDisabledPath(ushort? vid, ushort? pid)
-    {
-        if (vid is not ushort v || pid is not ushort p)
-            return null;
-        for (int i = 0; i < DisabledPaths.Count; i++)
-        {
-            if (DisabledPaths[i].VendorId == v && DisabledPaths[i].ProductId == p)
-                return DisabledPaths[i];
-        }
-        return null;
-    }
+    public static DisabledDevicePath? FindDisabledPath(ushort? vid, ushort? pid) =>
+        vid is ushort v && pid is ushort p && DisabledIndex.TryGetValue((v, p), out var entry) ? entry : null;
 
     public static bool IsDisabledPath(HidInterface endpoint, out DisabledDevicePath? disabled)
     {

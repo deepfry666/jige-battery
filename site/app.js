@@ -240,10 +240,13 @@
     }
   }
 
+  var pointerMoved = false;
+
   if (finePointer) {
     window.addEventListener("pointermove", function (ev) {
       targetX = ev.clientX;
       targetY = ev.clientY;
+      pointerMoved = true;
       if (!pointerActive) {
         pointerActive = true;
         curX = targetX;
@@ -256,6 +259,8 @@
 
   var bgRaf = 0;
   var prevTs = 0;
+  var lastDrawTs = 0;
+  var lastPointerTs = 0;
 
   function drawKineticDial(ts) {
     if (document.hidden) {
@@ -263,7 +268,17 @@
       prevTs = 0;
       return;
     }
-    var dt = prevTs ? Math.min(0.05, (ts - prevTs) / 1000) : 0.016;
+    if (pointerMoved) {
+      lastPointerTs = ts;
+      pointerMoved = false;
+    }
+    var idle = !pointerActive || (ts - lastPointerTs > 1500);
+    if (!reduceMotion && idle && lastDrawTs && (ts - lastDrawTs < 80)) {
+      bgRaf = requestAnimationFrame(drawKineticDial);
+      return;
+    }
+    lastDrawTs = ts;
+    var dt = prevTs ? Math.min(0.1, (ts - prevTs) / 1000) : 0.016;
     prevTs = ts;
     var t = ts * 0.001;
 
@@ -470,10 +485,11 @@
   function animateHeroNumber(el, fromVal, toVal) {
     if (pctAnimRaf) cancelAnimationFrame(pctAnimRaf);
     if (reduceMotion || fromVal === toVal) { el.textContent = String(toVal); return; }
-    var start = performance.now();
+    var start = 0;
     var dur = 320;
     function tickNum(now) {
-      var p = Math.min(1, (now - start) / dur);
+      if (!start) start = now;
+      var p = Math.max(0, Math.min(1, (now - start) / dur));
       var eased = 1 - Math.pow(1 - p, 3);
       el.textContent = String(Math.round(fromVal + (toVal - fromVal) * eased));
       if (p < 1) pctAnimRaf = requestAnimationFrame(tickNum);
@@ -833,19 +849,27 @@
         if (resetTimer) clearTimeout(resetTimer);
         resetTimer = setTimeout(function () { btn.textContent = "复制"; }, 2000);
       };
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        navigator.clipboard.writeText(text).then(done, function () {});
-      } else {
+      var fallbackCopy = function () {
         var area = document.createElement("textarea");
         area.value = text;
         area.setAttribute("readonly", "");
-        area.className = "skip";
+        area.className = "copy-sr";
         document.body.appendChild(area);
+        try {
+          area.focus({ preventScroll: true });
+        } catch (_) {
+          area.focus();
+        }
         area.select();
         try {
           if (document.execCommand("copy")) done();
         } catch (_) {}
         document.body.removeChild(area);
+      };
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        navigator.clipboard.writeText(text).then(done, fallbackCopy);
+      } else {
+        fallbackCopy();
       }
     });
   });

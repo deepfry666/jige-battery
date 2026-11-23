@@ -28,7 +28,7 @@ internal readonly record struct TaskbarStripDevice(
     {
         var tone = Presentation.Tone(device, threshold);
         bool showBolt = tone == BatteryTone.Charging;
-        // A short sleep keeps the last reading's ink, including a green reading.
+        // A short sleep keeps the last reading's tone; charging without bolt renders with foreground ink.
         // Only a current charging/full observation gets a lightning bolt.
         if ((device.Link == LinkState.Asleep || device is { Link: LinkState.Online, PendingRefresh: true }) &&
             device.Last is { WasChargingOrFull: true } or { Percentage: 100 })
@@ -146,11 +146,20 @@ internal static class TaskbarColorMath
     public static uint AbgrToRgb(uint abgr) =>
         ((abgr & 255) << 16) | (abgr & 0xff00u) | ((abgr >> 16) & 255);
 
-    private static double Linearize(uint channel)
+    private static readonly double[] LinearTable = BuildLinearTable();
+
+    private static double[] BuildLinearTable()
     {
-        double value = channel / 255.0;
-        return value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        var table = new double[256];
+        for (int i = 0; i < 256; i++)
+        {
+            double value = i / 255.0;
+            table[i] = value <= 0.04045 ? value / 12.92 : Math.Pow((value + 0.055) / 1.055, 2.4);
+        }
+        return table;
     }
+
+    private static double Linearize(uint channel) => LinearTable[channel & 255];
 
     private static (double L, double A, double B) ToOkLab(uint rgb)
     {
@@ -279,7 +288,19 @@ internal readonly record struct TaskbarBackdropSamplePlan(Bounds? Above, Bounds?
         if (above is not null || below is not null)
             return new(above, below, null, null);
 
-        // 极窄任务栏上下没有余量时，退而采样直读条左右两侧的间隙列。
+        var (left, right) = ComputeSides(bar, strip, s);
+        return new(null, null, left, right);
+    }
+
+    /// <summary>当上下采样条被窗口遮挡或任务栏过窄时，计算直读条左右两侧的兜底采样列。</summary>
+    public static (Bounds? Left, Bounds? Right) ComputeSides(Bounds bar, Bounds strip, int scale)
+    {
+        int s = Math.Max(1, scale);
+        if (bar.Width <= 0 || bar.Height <= 0 || strip.Width <= 0 || strip.Height <= 0)
+            return default;
+        int topMargin = Math.Max(2, s * 2);
+        int bottomMargin = s;
+        int clearance = s;
         int topY = Math.Max(bar.Top + topMargin, strip.Top);
         int bottomY = Math.Min(bar.Bottom - bottomMargin, strip.Bottom);
         if (bottomY <= topY)
@@ -295,7 +316,7 @@ internal readonly record struct TaskbarBackdropSamplePlan(Bounds? Above, Bounds?
         if (rx + 1 <= bar.Right - s)
             right = new(rx, topY, rx + 1, bottomY);
 
-        return new(null, null, left, right);
+        return (left, right);
     }
 }
 
@@ -308,7 +329,8 @@ internal readonly record struct TaskbarStripPalette(
     Color? Plate = null,
     Color? PlateBorder = null,
     TaskbarStripStyle Style = TaskbarStripStyle.Auto,
-    bool IsMonochrome = false)
+    bool IsMonochrome = false,
+    bool IsHighContrast = false)
 {
     private const double DefaultMinContrast = 4.5;
     private const double HighContrastMinContrast = 5.5;
@@ -340,13 +362,13 @@ internal readonly record struct TaskbarStripPalette(
         0xf6f7fau, new(0x000000, 28), DefaultMinContrast, false);
 
     private static readonly SchemeInks HighContrastDark = new(
-        new(new(0xffffff), new(0xfff040), new(0xff8c94), new(0x52ff96), new(0xffffff, 72)),
-        new(new(0xffffff), new(0xfff566), new(0xffa3aa), new(0x78ffa8), new(0xffffff, 84)),
+        new(new(0xffffff), new(0xfff040), new(0xff8c94), new(0x52ff96), new(0xffffff, 72), IsHighContrast: true),
+        new(new(0xffffff), new(0xfff566), new(0xffa3aa), new(0x78ffa8), new(0xffffff, 84), IsHighContrast: true),
         0x0b0d12u, new(0xffffff, 44), HighContrastMinContrast, false);
 
     private static readonly SchemeInks HighContrastLight = new(
-        new(new(0x000000), new(0x703800), new(0xa30000), new(0x005922), new(0x000000, 64)),
-        new(new(0x000000), new(0x5e2e00), new(0x8c0000), new(0x004a1c), new(0x000000, 72)),
+        new(new(0x000000), new(0x703800), new(0xa30000), new(0x005922), new(0x000000, 64), IsHighContrast: true),
+        new(new(0x000000), new(0x5e2e00), new(0x8c0000), new(0x004a1c), new(0x000000, 72), IsHighContrast: true),
         0xffffffu, new(0x000000, 42), HighContrastMinContrast, false);
 
     private static readonly SchemeInks MonochromeDark = new(
@@ -504,7 +526,7 @@ internal readonly record struct TaskbarStripPalette(
         _ => (Foreground, Foreground)
     };
 
-    /// <summary>分块徽章样式下，按设备状态返回该徽章的底衬与边框色（纯色方案与休眠无闪电保持中性）。</summary>
+    /// <summary>分块徽章样式下，按设备状态返回该徽章的底衬与边框色（纯色方案与休眠无闪电保持中性；高对比度保持中性高反差底衬）。</summary>
     public (Color Fill, Color Border) BadgeSurface(BatteryTone tone, bool showBolt)
     {
         var baseFill = Plate ?? new Color(UsesLightInk ? 0x12151cu : 0xf6f7fau, MinForcedDarkPlateAlpha);
@@ -513,19 +535,23 @@ internal readonly record struct TaskbarStripPalette(
             return (baseFill, baseBorder);
 
         bool dark = UsesLightInk;
-        uint tint = tone switch
-        {
-            BatteryTone.Low => dark ? 0x3b161bu : 0xfce6e8u,
-            BatteryTone.Warning => dark ? 0x362b12u : 0xfcf2d9u,
-            _ => dark ? 0x13301fu : 0xe3f7eau
-        };
         Color accent = tone switch
         {
             BatteryTone.Low => Low,
             BatteryTone.Warning => Warning,
             _ => Charging
         };
-        byte fillAlpha = (byte)Math.Min(232, baseFill.Alpha + 16);
+        if (IsHighContrast)
+            return (baseFill, accent.WithAlpha(dark ? (byte)180 : (byte)160));
+
+        // 选用高反差低亮/高亮着色底衬，确保与状态文字叠加后的对比度仍不低于 WCAG 4.5。
+        uint tint = tone switch
+        {
+            BatteryTone.Low => dark ? 0x260d11u : 0xfdf0f1u,
+            BatteryTone.Warning => dark ? 0x241c0bu : 0xfef7e6u,
+            _ => dark ? (Charging.Rgb == 0x4df5ffu || Charging.Rgb == 0x7af8ffu ? 0x0c2026u : 0x0d2116u) : 0xebf8f0u
+        };
+        byte fillAlpha = (byte)Math.Clamp(baseFill.Alpha + 16, dark ? 192 : 208, 240);
         return (new Color(tint, fillAlpha), accent.WithAlpha(dark ? (byte)110 : (byte)96));
     }
 
@@ -735,6 +761,7 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
 
         bool sawTaskList = sawModernTaskList || useLegacyTaskList;
         int? occupied = sawTaskList ? right
+            : sawFrame && right > bar.Left ? right
             : taskbarFrameRight > bar.Left ? Math.Max(right, taskbarFrameRight)
             : sawFrame ? right
             : null;
@@ -754,7 +781,7 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             rect.Top < bar.Bottom && rect.Bottom > bar.Top;
 
         bool FitsNotificationArea(Bounds rect) =>
-            InsideBar(rect) && rect.Left > bar.CenterX;
+            InsideBar(rect) && rect.Left > bar.Left + bar.Width / 3;
     }
 }
 

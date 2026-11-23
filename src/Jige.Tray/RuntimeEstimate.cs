@@ -101,7 +101,8 @@ internal static class RuntimeEstimator
         var segment = saved.Segment;
         if (segment is not null && (segment.Level is < 0 or > 100 || segment.EdgePercent is < 0 or > 100 ||
             !Finite(segment.Hours) || !Finite(segment.EdgeHours) || !Finite(segment.ChunkPercent) ||
-            !Finite(segment.ChunkHours) || segment.Hours < 0 || segment.ChunkPercent < 0 || segment.ChunkHours < 0))
+            !Finite(segment.ChunkHours) || segment.Hours < 0 || segment.EdgeHours < 0 ||
+            segment.EdgeHours > segment.Hours || segment.ChunkPercent < 0 || segment.ChunkHours < 0))
             segment = null;
         return ChargeEstimator.Restore(saved with { Segment = segment is null ? null : segment with { Paused = true } });
     }
@@ -142,7 +143,9 @@ internal static class RuntimeEstimator
         if (segment.LastOnlineAt is { } previousAt)
         {
             var gap = now - previousAt;
-            if (segment.Paused)
+            if (gap < -TimeSpan.FromSeconds(5))
+                longGap = true;
+            else if (segment.Paused)
                 longGap |= gap > ShortPause;
             else if (gap > gapLimit)
                 longGap = true;
@@ -151,11 +154,27 @@ internal static class RuntimeEstimator
         }
 
         double hours = segment.Hours + delta;
-        var next = segment with { Hours = hours, LastOnlineAt = now, Paused = false, LongGap = false };
+        var next = segment with
+        {
+            Hours = hours,
+            LastOnlineAt = now,
+            Paused = false,
+            LongGap = false,
+            EdgePercent = longGap ? null : segment.EdgePercent
+        };
         state = AddUsage(state, delta, now, zone);
 
-        if (estimated && segment.SettleUntil is { } settle && now < settle)
-            return (state with { Segment = next with { Level = percent, EdgePercent = null, PendingRise = false } }, delta);
+        if (estimated && next.SettleUntil is { } settle)
+        {
+            // 时钟回拨导致 SettleUntil 落在未来窗口外时，重新夹紧到当前起算的 VoltageSettle，避免永久冻结学习。
+            if (settle - now > VoltageSettle)
+            {
+                settle = now + VoltageSettle;
+                next = next with { SettleUntil = settle };
+            }
+            if (now < settle)
+                return (state with { Segment = next with { Level = percent, EdgePercent = null, PendingRise = false } }, delta);
+        }
 
         int level = segment.Level;
         if (percent < level)
@@ -196,7 +215,14 @@ internal static class RuntimeEstimator
             int rise = percent - level;
             bool charged = estimated ? rise >= 5 : IsCoarse(state) || rise >= 3 || segment.PendingRise;
             if (charged)
-                return (state with { Segment = Start(percent, estimated, status.Device.Connection, now), LastChargeAt = now }, delta);
+            {
+                bool markChargeTime = status.Charging != ChargingState.NotCharging || rise >= 3 || IsCoarse(state);
+                return (state with
+                {
+                    Segment = Start(percent, estimated, status.Device.Connection, now),
+                    LastChargeAt = markChargeTime ? now : state.LastChargeAt
+                }, delta);
+            }
             return (state with { Segment = next with { PendingRise = !estimated } }, delta);
         }
 
@@ -236,7 +262,7 @@ internal static class RuntimeEstimator
             int sign = ratio > ShiftRatio ? 1 : ratio < 1 / ShiftRatio ? -1 : 0;
             bool pending = state.ShiftPercent > 0 && state.ShiftHours > 0;
             if (sign != 0 && !(pending && sign == state.ShiftDirection))
-                return state with { ShiftDirection = sign, ShiftPercent = percent, ShiftHours = hours, LearnedAt = now };
+                return state with { ShiftDirection = sign, ShiftPercent = percent, ShiftHours = hours };
             if (sign != 0)
             {
                 // 连续两段同向偏离（如 1K→8K 回报率、开启 RGB 或 ANC）：旧证据只留 25%，快速收敛到新功耗。
@@ -273,18 +299,19 @@ internal static class RuntimeEstimator
 
     private static SavedRuntimeEstimate AddUsage(SavedRuntimeEstimate state, double hours, DateTimeOffset now, TimeZoneInfo zone)
     {
+        double clampedHours = Math.Clamp(hours, 0, 24);
         string day = TimeZoneInfo.ConvertTime(now, zone).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         if (state.UsageDay == day)
-            return hours > 0 ? state with { UsageTodayHours = Math.Min(24, state.UsageTodayHours + hours) } : state;
-        if (state.UsageDay is null || state.UsageTodayHours <= 0)
-            return state with { UsageDay = day, UsageTodayHours = hours };
+            return clampedHours > 0 ? state with { UsageTodayHours = Math.Min(24, state.UsageTodayHours + clampedHours) } : state;
+        if (state.UsageDay is null || state.UsageTodayHours <= 0 || string.CompareOrdinal(day, state.UsageDay) < 0)
+            return state with { UsageDay = day, UsageTodayHours = clampedHours };
         double daily = state.UsageDays == 0
-            ? state.UsageTodayHours
-            : state.UsageDailyHours * (1 - UsageSmoothing) + state.UsageTodayHours * UsageSmoothing;
+            ? Math.Min(24, state.UsageTodayHours)
+            : Math.Min(24, state.UsageDailyHours * (1 - UsageSmoothing) + Math.Min(24, state.UsageTodayHours) * UsageSmoothing);
         return state with
         {
             UsageDay = day,
-            UsageTodayHours = hours,
+            UsageTodayHours = clampedHours,
             UsageDailyHours = daily,
             UsageDays = state.UsageDays + 1
         };
@@ -335,9 +362,12 @@ internal static class RuntimeEstimator
         if (state.Segment is { EdgePercent: int edge } segment && edge == percent)
         {
             double stay = Math.Max(0, segment.Hours - segment.EdgeHours);
-            // 停滞修正：在当前台阶停留已超过按速率推算的时间，说明实际速率更慢。
+            // 停滞修正：在当前台阶停留已超过按速率推算的时间时，把停滞证据与历史证据加权混合，避免单次短暂停留覆盖全部历史速率。
             if (stay > 0 && r * stay > step)
-                r = step / stay;
+            {
+                var (evPercent, evHours) = Evidence(state, now);
+                r = Math.Clamp((evPercent + step) / (evHours + stay), MinRatePerHour, MaxRatePerHour);
+            }
             effective = Math.Max(percent - step, percent - r * stay);
         }
         else if (coarse)
@@ -373,7 +403,7 @@ internal static class RuntimeEstimator
             return Math.Round(hours * 6, MidpointRounding.AwayFromZero) / 6;
         if (hours < 10)
             return Math.Round(hours, MidpointRounding.AwayFromZero);
-        if (hours < 48)
+        if (hours < 50)
             return Math.Round(hours / 2, MidpointRounding.AwayFromZero) * 2;
         if (hours < 100)
             return Math.Round(hours / 5, MidpointRounding.AwayFromZero) * 5;
@@ -387,7 +417,7 @@ internal static class RuntimeEstimator
             return "不到 10 分钟";
         if (rounded < 1)
             return $"约 {Math.Round(rounded * 60)} 分钟";
-        if (hours >= 995)
+        if (rounded >= 999)
             return "超过 999 小时";
         return $"约 {rounded:0} 小时";
     }

@@ -13,6 +13,7 @@ internal sealed class DevicePoll
     private readonly WindowsReceiverTransport transport = new();
     private readonly DeviceTopologyCache topology;
     private readonly BluetoothScanThrottle bluetoothThrottle = new();
+    private long lastBluetoothHeartbeatMs = long.MinValue / 2;
 
     public DevicePoll(SafetyGateStore gates, IReadOnlyDictionary<string, DeviceIdentity> savedLogitechSlots)
     {
@@ -87,6 +88,11 @@ internal sealed class DevicePoll
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException)
                 {
                     Desktop.Log("读取设备电量失败", error);
+                    if (device.IsMultiDevice)
+                    {
+                        incompleteReceivers ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        incompleteReceivers.Add(device.Target.Device.Id);
+                    }
                     readings.Add(new(device.Target.Device, null, false, ChargingState.Unknown,
                         LinkState.Unknown, DateTimeOffset.UtcNow, ReadIssue.IoError));
                 }
@@ -198,24 +204,31 @@ internal sealed class DevicePoll
             foreach (var device in snapshot.Detected)
             {
                 token.ThrowIfCancellationRequested();
-                if (device.PresenceKind == PresenceProbeKind.PushListener && onlyDeviceIds is not null &&
-                    (showBluetooth || device.Target.Device.Connection != DeviceConnection.Bluetooth))
+                try
                 {
-                    var readings = await registry.RefreshSleepingLogitechAsync(device, transport, onlyDeviceIds, token)
-                        .ConfigureAwait(false);
-                    hidpp.AddRange(readings);
-                    disconnected |= readings.Any(item => item.Issue == ReadIssue.Disconnected);
+                    if (device.PresenceKind == PresenceProbeKind.PushListener && onlyDeviceIds is not null &&
+                        (showBluetooth || device.Target.Device.Connection != DeviceConnection.Bluetooth))
+                    {
+                        var readings = await registry.RefreshSleepingLogitechAsync(device, transport, onlyDeviceIds, token)
+                            .ConfigureAwait(false);
+                        hidpp.AddRange(readings);
+                        disconnected |= readings.Any(item => item.Issue == ReadIssue.Disconnected);
+                    }
+                    if (device.PresenceKind != PresenceProbeKind.Heartbeat)
+                        continue;
+                    if (onlyDeviceIds is not null && !onlyDeviceIds.Contains(device.Target.Device.Id))
+                        continue;
+                    var update = await registry.CheckPresenceAsync(device, transport, token).ConfigureAwait(false);
+                    if (update is not null)
+                    {
+                        updates.Add(update);
+                        if (update.Issue == ReadIssue.Disconnected)
+                            disconnected = true;
+                    }
                 }
-                if (device.PresenceKind != PresenceProbeKind.Heartbeat)
-                    continue;
-                if (onlyDeviceIds is not null && !onlyDeviceIds.Contains(device.Target.Device.Id))
-                    continue;
-                var update = await registry.CheckPresenceAsync(device, transport, token).ConfigureAwait(false);
-                if (update is not null)
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or TransportException)
                 {
-                    updates.Add(update);
-                    if (update.Issue == ReadIssue.Disconnected)
-                        disconnected = true;
+                    Desktop.Log("在线心跳单台设备查询失败", error);
                 }
             }
             if (disconnected)
@@ -224,8 +237,11 @@ internal sealed class DevicePoll
             if (onlyDeviceIds is not null)
             {
                 IReadOnlyList<BluetoothDevice> bluetooth = [];
-                if (showBluetooth && onlyDeviceIds.Any(id => id.StartsWith("bluetooth:", StringComparison.OrdinalIgnoreCase)))
+                long nowTick = Environment.TickCount64;
+                if (showBluetooth && nowTick - Volatile.Read(ref lastBluetoothHeartbeatMs) >= 15_000 &&
+                    onlyDeviceIds.Any(id => id.StartsWith("bluetooth:", StringComparison.OrdinalIgnoreCase)))
                 {
+                    Volatile.Write(ref lastBluetoothHeartbeatMs, nowTick);
                     try
                     {
                         var properties = await WindowsDeviceDiscovery.ScanBluetoothAsync(token).ConfigureAwait(false);
@@ -237,7 +253,8 @@ internal sealed class DevicePoll
                 foreach (var reading in BluetoothBattery.Merge(hidpp, bluetooth, DateTimeOffset.UtcNow))
                 {
                     bool isBluetooth = reading.Device.Connection == DeviceConnection.Bluetooth;
-                    if (!isBluetooth || onlyDeviceIds.Contains(reading.Device.Id))
+                    if (!isBluetooth || onlyDeviceIds.Contains(reading.Device.Id) ||
+                        (reading.Device.BluetoothContainerKey is { } key && onlyDeviceIds.Contains(key)))
                         updates.Add(new("", null, reading.Device.Id, reading.Link, reading.Issue) { Battery = reading });
                 }
             }

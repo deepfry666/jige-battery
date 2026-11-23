@@ -21,7 +21,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
     private Composition.Layer? surface;
     private HMONITOR monitor;
     private float scale;
-    private bool animations, acrylic, darkTheme, shown, tracking, reclaimed;
+    private bool animations, acrylic, darkTheme, shown, tracking, reclaimed, reclaimPending, captured;
     private long shownAt;
     private Palette colors = null!;
     private Bounds? position;
@@ -33,6 +33,8 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
 
     public HWND Handle { get; private set; } = hwnd;
     public bool Closing { get; private set; }
+    // 与悬停卡片保持一致：DWM 亚克力背板不受 DComp 透明度影响，仅纯色背景才淡入淡出，避免闪灰块。
+    private bool Fades => animations && !acrylic;
 
     public void Show(RECT menuAnchor)
     {
@@ -41,7 +43,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         Render(reset: false);
         if (!shown)
         {
-            if (animations && composition is not null)
+            if (Fades && composition is not null)
             {
                 composition.Root.FadeIn(FadeInMs / 1000.0);
                 composition.Commit();
@@ -64,19 +66,33 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
     /// <summary>显示后 400 ms 内的第一次失焦视为任务栏收回前台，重新激活而不是立刻关闭。</summary>
     public bool TryReclaimFocus()
     {
+        if (reclaimPending)
+            return true;
         if (reclaimed || Environment.TickCount64 - shownAt > 400)
             return false;
         reclaimed = true;
-        PInvoke.PostMessage(Handle, 0x8010, default, default);
+        reclaimPending = true;
+        if (!PInvoke.PostMessage(Handle, 0x8010, default, default))
+        {
+            reclaimPending = false;
+            return false;
+        }
         return true;
     }
+
+    public void CompleteReclaim() => reclaimPending = false;
 
     public bool BeginClose()
     {
         if (Closing)
-            return animations;
+            return Fades;
         Closing = true;
-        if (!shown || !animations || composition is null)
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
+        }
+        if (!shown || !Fades || composition is null)
             return false;
         composition.Root.FadeOut(FadeOutMs / 1000.0);
         composition.Commit();
@@ -127,6 +143,17 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         }
     }
 
+    public void CaptureChanged()
+    {
+        captured = false;
+        if (downIndex != -1 || pressedIndex != -1)
+        {
+            downIndex = -1;
+            pressedIndex = -1;
+            RedrawAndCommit();
+        }
+    }
+
     public TrayMenuCommand PointerButton(LPARAM lParam, bool pressed)
     {
         var (x, y) = ClientPoint(lParam);
@@ -137,10 +164,20 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
             downIndex = hit;
             pressedIndex = hit;
             focusIndex = -1;
+            if (hit >= 0)
+            {
+                PInvoke.SetCapture(Handle);
+                captured = true;
+            }
             RedrawAndCommit();
             return TrayMenuCommand.None;
         }
 
+        if (captured)
+        {
+            captured = false;
+            PInvoke.ReleaseCapture();
+        }
         int target = hit >= 0 && hit == downIndex ? hit : -1;
         downIndex = -1;
         pressedIndex = -1;
@@ -154,6 +191,9 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         {
             case 0x1B: // VK_ESCAPE
                 return (TrayMenuCommand.None, true);
+            case 0x09: // VK_TAB
+                MoveSelection(PInvoke.GetKeyState(0x10) < 0 ? -1 : 1);
+                return (TrayMenuCommand.None, false);
             case 0x26: // VK_UP
                 MoveSelection(-1);
                 return (TrayMenuCommand.None, false);
@@ -193,7 +233,8 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
     private void Render(bool reset)
     {
         var screen = PInvoke.MonitorFromRect(in anchor, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        var info = Desktop.Monitor(screen);
+        if (!Desktop.TryGetMonitor(screen, out var info))
+            throw new InvalidOperationException("找不到菜单显示器");
         var work = new Bounds(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         var screenBounds = new Bounds(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         var iconBounds = new Bounds(anchor.left, anchor.top, anchor.right, anchor.bottom);
@@ -225,7 +266,7 @@ internal sealed unsafe class TrayMenuWindow(HWND hwnd, TrayModel model) : IDispo
         Redraw();
 
         var next = TrayMenuModel.Place(iconBounds, screenBounds, work,
-            Pixels(dipWidth), Pixels(dipHeight), Pixels(10), Pixels(8));
+            Pixels(dipWidth), Pixels(dipHeight), Pixels(10), Pixels(8), TaskbarStripShell.ReadTaskbarEdge());
         if (position != next)
         {
             if (!PInvoke.SetWindowPos(Handle, default, next.Left, next.Top, next.Width, next.Height,

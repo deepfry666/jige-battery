@@ -94,7 +94,7 @@ internal static class LogitechHeadsetProtocol
                 level = frame[12];
                 charging = LegacyCharging(frame[13]);
                 break;
-            case 0x0AF7 when frame[0] == 0x51 && frame[1] == 0x0B && frame[8] == 4:
+            case 0x0AF7 when frame.StartsWith<byte>([0x51, 0x0B, 0x00, 0x03, 0x10, 0x00, 0x06, 0x00, 0x04, 0x0A]):
                 level = frame[10];
                 charging = LegacyCharging(frame[12]);
                 break;

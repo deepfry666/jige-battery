@@ -14,7 +14,7 @@ internal static class InstallPaths
         if (string.IsNullOrWhiteSpace(registeredInstallDirectory))
             return InstalledExecutable(localAppData);
 
-        string directory = TrimDirectorySeparators(registeredInstallDirectory.Trim());
+        string directory = TrimDirectorySeparators(Unquote(registeredInstallDirectory));
         return directory.Length == 0
             ? InstalledExecutable(localAppData)
             : Path.Combine(directory, Executable);
@@ -37,6 +37,8 @@ internal static class InstallPaths
         ? current is not null
         : current is not string command || !string.Equals(command, desired, StringComparison.OrdinalIgnoreCase);
 
+    private static string Unquote(string path) => path.Trim().Trim('"').Trim();
+
     private static string TrimDirectorySeparators(string path)
     {
         string trimmed = path.TrimEnd('\\', '/');
@@ -47,7 +49,13 @@ internal static class InstallPaths
 
     private static string NormalizeForComparison(string path)
     {
-        string normalized = path.Trim().Replace('/', '\\');
+        string normalized = Unquote(path);
+        if (OperatingSystem.IsWindows() && Path.IsPathRooted(normalized))
+        {
+            try { normalized = Path.GetFullPath(normalized); }
+            catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException) { }
+        }
+        normalized = normalized.Replace('/', '\\');
         while (normalized.Length > 3 && normalized.EndsWith('\\'))
             normalized = normalized[..^1];
         return normalized;

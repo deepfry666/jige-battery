@@ -73,7 +73,8 @@ public static class DiagnosticReport
         try
         {
             // 用零访问句柄读取全部 HID 描述符，只为找出未收录接收器的厂商集合与声明报告 ID；不打开任何报告通道。
-            inventory = await WindowsDeviceDiscovery.ScanAsync(cancellationToken, includeBluetooth: true, includeReportIds: true).ConfigureAwait(false);
+            inventory = await WindowsDeviceDiscovery.ScanAsync(
+                cancellationToken, includeUnknownHid: true, includeBluetooth: true, includeReportIds: true).ConfigureAwait(false);
         }
         catch (TimeoutException)
         {
@@ -139,7 +140,7 @@ public static class DiagnosticReport
         }
 
         int serialIndex = 0;
-        foreach (var endpoint in inventory.Serial.Distinct())
+        foreach (var endpoint in inventory.Serial.DistinctBy(item => item.Path, StringComparer.OrdinalIgnoreCase))
         {
             var hardwareIds = endpoint.HardwareIds.Select(DiagnosticPrivacy.UsbId).OfType<string>()
                 .Distinct(StringComparer.OrdinalIgnoreCase);
@@ -168,7 +169,15 @@ public static class DiagnosticReport
                 }
 
                 string label = endpoint is HidInterface mouse && MouseReceiverAdapter.AllowedRoute(mouse) is { } route
-                    ? FamilyName(route.Family) : name;
+                    ? FamilyName(route.Family)
+                    : adapter is AsusHidAdapter
+                        ? device.Target.Device.Kind switch
+                        {
+                            DeviceKind.Keyboard => "ASUS ROG 键盘",
+                            DeviceKind.Headset => "ASUS ROG 耳机",
+                            _ => "ASUS ROG / TUF 鼠标"
+                        }
+                        : name;
                 string genericTag = device.Target.Device.Source == AdaptationSource.Generic ? "（通用适配）" : "";
                 string verificationTag = $" 验证={DeviceCatalog.TierLabel(DeviceCatalog.GetVerification(device.Target.Device))}";
                 if (device.Target.ShortHid is { } shortHid && ids.TryGetValue(shortHid, out var shortId))
@@ -439,10 +448,12 @@ public static class DiagnosticReport
             .AppendLine("USB 列为接口｜接收器｜硬件 ID。OP 列格式见 PRIVACY.md。");
     }
 
-    // 罗技 G535 使用 Consumer 集合；雷蛇 90B 在 Windows 上也可能直接挂在标准鼠标/键盘页的 91 字节特征集合上。
+    // 罗技 G535 使用 Consumer 集合；雷蛇 90B 在 Windows 上也可能直接挂在标准鼠标/键盘页的 91 字节特征集合上；华硕 Strix Go 2.4 使用 >= 64B 特征集合。
     private static bool IsRelevantHid(HidInterface hid) =>
         hid.UsagePage is >= 0xFF00 || DomesticMouseStatus.Match(hid) is not null ||
-        LogitechHidppAdapter.IsHeadset(hid) || RazerFeatureAdapter.IsFeatureCollection(hid);
+        LogitechHidppAdapter.IsHeadset(hid) || RazerFeatureAdapter.IsFeatureCollection(hid) ||
+        (hid.VendorId == AsusHidProtocol.VendorId && AsusHidProtocol.FindHeadset(hid.ProductId) is not null &&
+         hid.FeatureLength >= AsusHidProtocol.HeadsetMinLength);
 
     private static ReceiverEndpoint NormalizeEndpoint(ReceiverEndpoint endpoint) =>
         endpoint is HidInterface hid ? hid with
@@ -499,10 +510,17 @@ public static class DiagnosticReport
         LogitechHeadsetAdapter => "Logitech 耳机",
         RazerFeatureAdapter => "Razer 90B",
         RazerHeadsetAdapter => "Razer 耳机",
-        AsusHidAdapter => "ASUS ROG 键盘",
+        AsusHidAdapter => "ASUS ROG 键盘 / 鼠 / 耳机",
+        AsusOmniAdapter => "ASUS ROG OMNI",
         MchoseKbAdapter => "MCHOSE 键盘",
+        MchoseMouseAdapter => "MCHOSE 鼠标",
         PassiveMouseAdapter => "国产鼠标被动上报",
         RapooVt9Adapter => "雷柏 VT9 Pro",
+        SteelSeriesAdapter => "SteelSeries 赛睿",
+        HyperXHeadsetAdapter => "HyperX 无线耳机",
+        CorsairAdapter => "Corsair 海盗船",
+        SplitCompxAdapter => "Endgame Gear / DAREU",
+        ExtendedPeripheralsAdapter => "扩展品牌外设",
         _ => adapter.GetType().Name
     };
 

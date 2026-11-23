@@ -82,6 +82,7 @@ internal sealed partial class PopupScene : IDisposable
     private ThumbMotion? gameMotion, autostartMotion, autoUpdateMotion, runtimeMotion;
     private string? error;
     private string? displayLocationFallback;
+    private bool darkTaskbar;
     private DiagnosticStatus diagnosticStatus;
     private bool diagnosticPreviewPending;
     private UpdateViewState updateState = UpdateViewState.Idle("", false);
@@ -169,11 +170,12 @@ internal sealed partial class PopupScene : IDisposable
 
     public void Render(DateTimeOffset time, bool running, string? settingsError, string? editing,
         DiagnosticStatus diagnostics, bool previewPending, bool showOfflineExpanded, UpdateViewState update,
-        string? stripFallback = null)
+        string? stripFallback = null, bool darkTaskbar = true)
     {
         offlineExpanded = showOfflineExpanded;
         updateState = update;
         displayLocationFallback = stripFallback;
+        this.darkTaskbar = darkTaskbar;
         if (update.Phase != UpdatePhase.Available || update.Available?.Version != lastUpdateNotesVersion)
         {
             updateNotesScroll = 0;
@@ -258,16 +260,27 @@ internal sealed partial class PopupScene : IDisposable
         if (Page != PanelPage.Main)
             return;
         mainButtons.Clear();
-        mainButtons.AddRange(PanelButtons);
         if (diagnosticPreviewPending)
             mainButtons.Add(new(PopupAction.OpenDiagnostics, 80, 12, 172, 32));
-        if (updateState.IsReady)
-            mainButtons.Add(new(PopupAction.InstallUpdate, 6, 0, 254, 37));
+        mainButtons.Add(PanelButtons[0]); // Refresh
+        mainButtons.Add(PanelButtons[1]); // Settings
         for (int i = 0; i < rows.Length; i++)
         {
             if (offset + i < mainEntries.Length && mainEntries[offset + i].IsOfflineToggle)
                 mainButtons.Add(new(PopupAction.ToggleOffline, 4, RowTop + i * RowHeight, Width - 8, RowHeight));
         }
+        if (updateState.IsReady)
+            mainButtons.Add(new(PopupAction.InstallUpdate, 6, 0, 254, 37));
+        mainButtons.Add(PanelButtons[2]); // Manage
+        if (!mainButtons.Any(button => button.Target == focused))
+            focused = default;
+    }
+
+    public void ClearPointer()
+    {
+        hover = default;
+        pressed = default;
+        hoverRow = -1;
     }
 
     public void Open()

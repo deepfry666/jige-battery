@@ -111,6 +111,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         new(new(PopupAction.FullChargeReminder), "充满时提醒拔线")
     ];
 
+    private static readonly SettingChoice[] ThresholdRowChoices = [.. ThresholdChoices, .. ReminderToggleChoices];
+
     public static readonly SettingChoice[] PollChoices = TraySettings.PollIntervals.Select(seconds =>
         new SettingChoice(new(PopupAction.PollInterval, seconds),
             Presentation.Interval(seconds) + (seconds == 60 ? "（默认）" : ""))).ToArray();
@@ -157,7 +159,7 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         SettingRow.TaskbarStyle => TaskbarStyleChoices,
         SettingRow.TaskbarColor => TaskbarColorChoices,
         SettingRow.Theme => ThemeChoices,
-        SettingRow.Threshold => [.. ThresholdChoices, .. ReminderToggleChoices],
+        SettingRow.Threshold => ThresholdRowChoices,
         SettingRow.PollInterval => PollChoices,
         _ => []
     };

@@ -52,7 +52,8 @@ internal static class ChargeEstimator
             state = state with { ChargePercent = null, ChargeHours = null, ChargeLearnedAt = null };
         var segment = state.ChargeSegment;
         if (segment is not null && (segment.Level is < 0 or > 100 || segment.EdgePercent is < 0 or > 100 ||
-            !double.IsFinite(segment.Hours) || !double.IsFinite(segment.EdgeHours) || segment.Hours < 0))
+            !double.IsFinite(segment.Hours) || !double.IsFinite(segment.EdgeHours) || segment.Hours < 0 ||
+            segment.EdgeHours < 0 || segment.EdgeHours > segment.Hours))
             segment = null;
         return state with { ChargeSegment = segment is null ? null : segment with { Paused = true, EdgePercent = null } };
     }
@@ -73,7 +74,7 @@ internal static class ChargeEstimator
         int percent = last.Percentage;
         if (segment is null)
         {
-            if (status.Charging == ChargingState.Full)
+            if (status.Charging == ChargingState.Full || percent >= 100)
                 return (state, 0);
             return (state with { ChargeSegment = new() { Level = percent, LastOnlineAt = now } }, 0);
         }
@@ -83,7 +84,7 @@ internal static class ChargeEstimator
         if (!broken && segment.LastOnlineAt is { } previousAt)
         {
             var gap = now - previousAt;
-            if (gap > gapLimit)
+            if (gap < -TimeSpan.FromSeconds(5) || gap > gapLimit)
                 broken = true;
             else if (gap > TimeSpan.Zero)
                 delta = gap.TotalHours;
@@ -103,7 +104,7 @@ internal static class ChargeEstimator
             next = next with { Level = percent, EdgePercent = percent, EdgeHours = hours };
         }
 
-        if (status.Charging == ChargingState.Full)
+        if (status.Charging == ChargingState.Full || percent >= 100)
             return (state with { ChargeSegment = null }, delta);
         return (state with { ChargeSegment = next }, delta);
     }
@@ -148,7 +149,11 @@ internal static class ChargeEstimator
         for (int band = 0; band < 4; band++)
         {
             if (percent[band] >= Math.Min(MinBandPercent, Width(band)) && hours[band] >= MinBandHours)
-                rates[band] = percent[band] / hours[band];
+            {
+                double rate = percent[band] / hours[band];
+                if (rate is >= MinRatePerHour and <= MaxRatePerHour)
+                    rates[band] = rate;
+            }
         }
         return rates;
     }
@@ -159,11 +164,12 @@ internal static class ChargeEstimator
             return own;
         for (int distance = 1; distance < 4; distance++)
         {
-            foreach (int other in new[] { band - distance, band + distance })
-            {
-                if (other is >= 0 and < 4 && rates[other] is { } near)
-                    return near * Shape[band] / Shape[other];
-            }
+            int left = band - distance;
+            if (left >= 0 && rates[left] is { } nearLeft)
+                return nearLeft * Shape[band] / Shape[left];
+            int right = band + distance;
+            if (right < 4 && rates[right] is { } nearRight)
+                return nearRight * Shape[band] / Shape[right];
         }
         return null;
     }
@@ -187,7 +193,7 @@ internal static class ChargeEstimator
         {
             int step = Math.Max(1, state.MinStep);
             double stay = Math.Max(0, segment.Hours - segment.EdgeHours);
-            effective = Math.Min(percent + step * .9, percent + current * stay);
+            effective = Math.Min(99.5, Math.Min(percent + step * .9, percent + current * stay));
         }
 
         double remaining = 0;

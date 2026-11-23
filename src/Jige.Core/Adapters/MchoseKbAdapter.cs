@@ -8,8 +8,9 @@ internal static class MchoseKbProtocol
     public const byte ReportId = 0x13;
     public const byte Command = 0x4A;
 
-    /// <summary>迈从 K87 2.4G 接收器（41E4:2001）纯只读电量查询（来源：HaloBattery mchose_kb.py MIT / M HUB）。</summary>
-    public static byte[] EncodeBattery()
+    private static readonly byte[] BatteryRequestTemplate = BuildBatteryRequest();
+
+    private static byte[] BuildBatteryRequest()
     {
         var frame = new byte[ReportLength];
         frame[0] = ReportId;
@@ -18,6 +19,9 @@ internal static class MchoseKbProtocol
         frame[5] = 0x02;
         return frame;
     }
+
+    /// <summary>迈从 K87 2.4G 接收器（41E4:2001）纯只读电量查询（来源：HaloBattery mchose_kb.py MIT / M HUB）。</summary>
+    public static byte[] EncodeBattery() => [.. BatteryRequestTemplate];
 
     public static byte Checksum(ReadOnlySpan<byte> data)
     {
@@ -32,7 +36,12 @@ internal static class MchoseKbProtocol
         level = 0;
         if (frame.Length != ReportLength || frame[0] != ReportId || frame[1] != Command || frame[5] > 100)
             return false;
+        // 拒绝自身请求回显（13 4A 01 00 00 02 ... 00）与未就绪全零载荷，避免误报 2%/0% 在线。
+        if (frame.SequenceEqual(BatteryRequestTemplate) || !frame[2..].ContainsAnyExcept((byte)0))
+            return false;
         if (frame[19] != 0 && Checksum(frame[..19]) != frame[19])
+            return false;
+        if (frame[19] == 0 && frame[5] == 0 && frame[6] == 0)
             return false;
         level = frame[5];
         return true;
@@ -58,11 +67,8 @@ internal sealed class MchoseKbAdapter(SafetyGateStore? gates = null) : IDeviceAd
     {
         foreach (var endpoint in HidQuery.UniqueCollections(inventory.Hid.Where(Matches)))
         {
-            if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
-            {
-                gates.RecordRejection(endpoint, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(endpoint, out _) == true)
                 continue;
-            }
             var tier = DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             yield return new(new($"mchose-kb:{endpoint.ReceiverId}", "MCHOSE K87", DeviceKind.Keyboard,
                 AdaptationSource.Catalog, tier)

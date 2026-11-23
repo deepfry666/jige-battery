@@ -107,7 +107,7 @@ internal static class Probe
     private static async Task<int> RunWindowsAsync(bool list, bool raw, int baud, CancellationToken token)
     {
         var inventory = await WindowsDeviceDiscovery.ScanAsync(token,
-            list ? null : AdapterRegistry.IsKnownHidReceiver);
+            list ? null : AdapterRegistry.IsKnownHidReceiver, includeUnknownHid: list);
         foreach (var warning in inventory.Warnings)
             Console.Error.WriteLine($"枚举警告  {warning}");
         if (list)
@@ -204,6 +204,7 @@ internal static class Probe
         var charging = reading.Charging switch
         {
             ChargingState.Charging => "充电中",
+            ChargingState.Full => "已充满",
             ChargingState.NotCharging => "未充电",
             _ => "充电状态未知"
         };

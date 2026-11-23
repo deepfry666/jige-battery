@@ -5,6 +5,8 @@ public sealed record DeviceTarget(DeviceIdentity Device, ReceiverEndpoint Endpoi
     internal HidInterface? ShortHid { get; init; }
     // 同一接收器上的其他厂商输入集合，仅用于只读被动监听回复（不向其发送任何命令）。
     internal IReadOnlyList<HidInterface> SiblingInputHids { get; init; } = [];
+    // 同一物理接收器上的关联厂商集合（用于跨集合只读协议：如 XM2we/达尔优分集合、ROG OMNI 多设备、HyperX Cloud III S）。
+    internal IReadOnlyList<HidInterface> RelatedHids { get; init; } = [];
 }
 
 public interface IDeviceAdapter

@@ -47,7 +47,8 @@ public static class BluetoothBattery
             for (int i = 0; i < properties.Count; i++)
             {
                 var device = properties[i];
-                if (StringComparer.OrdinalIgnoreCase.Equals(device.Container, reading.BluetoothContainer) ||
+                if (!string.IsNullOrEmpty(reading.BluetoothContainer) &&
+                        StringComparer.OrdinalIgnoreCase.Equals(device.Container, reading.BluetoothContainer) ||
                     reading.BluetoothAddress is ulong address && device.Address == address)
                 {
                     match = i;
@@ -83,12 +84,21 @@ public static class BluetoothBattery
             if (!used.Contains(i))
                 result.Add(FromProperty(properties[i], now));
         }
-        return result.Where(reading => reading.Device.Connection != DeviceConnection.Bluetooth)
-            .Concat(result.Where(reading => reading.Device.Connection == DeviceConnection.Bluetooth)
-                .GroupBy(reading => reading.Device.Id, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.OrderByDescending(reading => reading.Percentage.HasValue)
-                    .ThenByDescending(reading => reading.Link == LinkState.Offline).First()))
-            .ToArray();
+        var nonBluetooth = result.Where(reading => reading.Device.Connection != DeviceConnection.Bluetooth);
+        var bluetooth = result.Where(reading => reading.Device.Connection == DeviceConnection.Bluetooth)
+            .GroupBy(reading => reading.Device.Id, StringComparer.OrdinalIgnoreCase)
+            .Select(PickBest)
+            .GroupBy(reading => !string.IsNullOrEmpty(reading.Device.BluetoothContainerKey)
+                ? $"c:{reading.Device.BluetoothContainerKey}"
+                : $"id:{reading.Device.Id}", StringComparer.OrdinalIgnoreCase)
+            .Select(PickBest);
+        return nonBluetooth.Concat(bluetooth).ToArray();
+
+        static BatteryReading PickBest(IEnumerable<BatteryReading> group) => group
+            .OrderByDescending(reading => reading.Percentage.HasValue)
+            .ThenByDescending(reading => reading.Link == LinkState.Online)
+            .ThenByDescending(reading => reading.Link == LinkState.Offline)
+            .First();
     }
 
     private static BatteryReading WithoutWindowsReading(BatteryReading reading) =>

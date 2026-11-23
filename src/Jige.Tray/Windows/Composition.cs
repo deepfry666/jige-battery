@@ -110,6 +110,7 @@ internal sealed unsafe class Composition : IDisposable
         private readonly Composition composition;
         private readonly Layer? parent;
         private readonly int baseY;
+        private bool attached;
         private IDCompositionSurface* surface;
         private IDCompositionEffectGroup* opacity;
         public IDCompositionVisual2* Visual { get; private set; }
@@ -141,7 +142,10 @@ internal sealed unsafe class Composition : IDisposable
                 // 参考图层为 null 时，insertAbove=true 会把新图层放到同级最底层（DirectComposition 的约定），
                 // 0.1.2 因此把设备行和刷新按钮压在半透明面板背景下面，整行发灰。false 才是放到最顶层。
                 if (parent is not null)
+                {
                     parent.Visual->AddVisual((IDCompositionVisual*)Visual, false, null);
+                    attached = true;
+                }
             }
             catch
             {
@@ -344,9 +348,9 @@ internal sealed unsafe class Composition : IDisposable
 
         public void Dispose()
         {
-            if (Visual == null)
+            if (Visual == null && surface == null && opacity == null)
                 return;
-            if (parent is not null && parent.Visual != null)
+            if (attached && parent is not null && parent.Visual != null && Visual != null)
             {
                 try
                 {
@@ -357,8 +361,11 @@ internal sealed unsafe class Composition : IDisposable
                     Desktop.Log("释放图层失败", error);
                 }
             }
+            attached = false;
             Graphics.Release(opacity);
+            opacity = null;
             Graphics.Release(surface);
+            surface = null;
             Graphics.Release(Visual);
             Visual = null;
         }

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Jige.Core.Adapters;
 
@@ -7,9 +8,13 @@ public sealed record SafetyGateRejection(
     string Signature, ushort? VendorId, ushort? ProductId, ushort? UsagePage, ushort? Usage, int Gate, string Reason);
 
 /// <summary>管理通用协议识别的三道安全门状态与持久化拦截列表。</summary>
-public sealed class SafetyGateStore
+public sealed partial class SafetyGateStore
 {
     public const int MaxBlockedEntries = 64;
+
+    [GeneratedRegex(@"^[0-9A-F]{4}:[0-9A-F]{4}:[0-9A-F]{4}:[0-9A-F]{4}:\d{1,5}:\d{1,5}:\d{1,5}$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex ValidSignaturePattern();
 
     private readonly object gate = new();
     private readonly Dictionary<string, (string Reason, long Order)> blocked = new(StringComparer.OrdinalIgnoreCase);
@@ -29,6 +34,9 @@ public sealed class SafetyGateStore
     public static string Signature(HidInterface hid) => string.Create(CultureInfo.InvariantCulture,
         $"{hid.VendorId:X4}:{hid.ProductId:X4}:{hid.UsagePage:X4}:{hid.Usage:X4}:{hid.InputLength ?? 0}:{hid.OutputLength ?? 0}:{hid.FeatureLength ?? 0}");
 
+    public static bool IsValidSignature(string? signature) =>
+        !string.IsNullOrWhiteSpace(signature) && ValidSignaturePattern().IsMatch(signature.Trim());
+
     public bool IsBlocked(HidInterface hid, out string? reason) => IsBlocked(Signature(hid), out reason);
 
     public bool IsBlocked(string signature, out string? reason)
@@ -37,6 +45,8 @@ public sealed class SafetyGateStore
         {
             if (blocked.TryGetValue(signature, out var entry))
             {
+                // 命中时刷新 LRU 序号，避免仍在位的外设被后续新记录顶出上限。
+                blocked[signature] = (entry.Reason, ++nextOrder);
                 reason = entry.Reason;
                 return true;
             }
@@ -64,7 +74,7 @@ public sealed class SafetyGateStore
         }
     }
 
-    /// <summary>第三道安全门：记录回复不符合协议的接收器，内存中持续生效，持久化按最新序号保留上限条数。</summary>
+    /// <summary>第三道安全门：记录回复不符合协议的接收器。内存保留本次运行全部记录，持久化按 LRU 保留最近 64 条。</summary>
     public bool Block(HidInterface hid, string reason)
     {
         string signature = Signature(hid);
@@ -105,8 +115,8 @@ public sealed class SafetyGateStore
             {
                 if (blocked.Count >= MaxBlockedEntries)
                     break;
-                if (!string.IsNullOrWhiteSpace(signature) && !string.IsNullOrWhiteSpace(reason))
-                    blocked[signature.Trim()] = (reason.Trim(), ++nextOrder);
+                if (IsValidSignature(signature) && !string.IsNullOrWhiteSpace(reason))
+                    blocked[signature.Trim().ToUpperInvariant()] = (reason.Trim(), ++nextOrder);
             }
         }
     }

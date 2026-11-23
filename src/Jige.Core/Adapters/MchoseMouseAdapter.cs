@@ -53,8 +53,8 @@ internal static class MchoseMouseProtocol
 
     public static bool IsIdleReply(ReadOnlySpan<byte> frame) =>
         Allows(frame) || !frame.ContainsAnyExcept((byte)0) ||
-        (frame[1] is 0 or 0x06 or 0xF9 && !frame[2..].ContainsAnyExcept((byte)0)) ||
-        (frame[1] == 0xF9 && !frame[2..].ContainsAnyExcept((byte)0xFF));
+        (frame.Length >= 2 && frame[1] is 0 or 0x06 or 0xF9 && !frame[2..].ContainsAnyExcept((byte)0)) ||
+        (frame.Length >= 2 && frame[1] == 0xF9 && !frame[2..].ContainsAnyExcept((byte)0xFF));
 }
 
 internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null, TimeSpan? replyDelay = null) : IDeviceAdapter
@@ -99,11 +99,8 @@ internal sealed class MchoseMouseAdapter(SafetyGateStore? gates = null, TimeSpan
                 gates?.RecordRejection(endpoint, 1, "迈从鼠标命中多个候选 Feature 集合");
                 continue;
             }
-            if (gates?.IsBlocked(endpoint, out var blockedReason) == true)
-            {
-                gates.RecordRejection(endpoint, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(endpoint, out _) == true)
                 continue;
-            }
 
             yield return new(new(Prefix + endpoint.ReceiverId, model!.Model, DeviceKind.Mouse,
                 AdaptationSource.Catalog, model.Verification)

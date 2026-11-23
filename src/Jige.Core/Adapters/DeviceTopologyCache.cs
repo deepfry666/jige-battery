@@ -41,12 +41,14 @@ public sealed partial class DeviceTopologyCache(
 
     /// <summary>
     /// 已知不带电池、只用于灯效或设置的外接 HID，不计入未识别设备。
-    /// ITE IT5702 / IT5711 / IT8297：技嘉 RGB Fusion 2 主板灯控，见
-    /// <see href="https://gitlab.com/CalcProgrammer1/OpenRGB/-/tree/master/Controllers/GigabyteRGBFusion2USBController">OpenRGB 设备表</see>。
+    /// ITE IT5702 / IT5711 / IT8297（技嘉 RGB Fusion 2）、ASUS Aura 主板灯控（0B05:18F3/1939）、
+    /// ASRock Polychrome（26CE:01A2），来源均见 OpenRGB 设备表。
     /// </summary>
     private static readonly HashSet<(ushort Vid, ushort Pid)> KnownNonBattery =
     [
-        (0x048D, 0x5702), (0x048D, 0x5711), (0x048D, 0x8297)
+        (0x048D, 0x5702), (0x048D, 0x5711), (0x048D, 0x8297),
+        (0x0B05, 0x18F3), (0x0B05, 0x1939),
+        (0x26CE, 0x01A2)
     ];
 
     public static bool IsKnownNonBattery(HidInterface hid) =>
@@ -81,7 +83,8 @@ public sealed partial class DeviceTopologyCache(
             HashSet<string> unknownReceivers = new(StringComparer.OrdinalIgnoreCase);
             foreach (var hid in inventory.Hid)
             {
-                if (!IsUnknownReceiverCandidate(hid) || matchedReceivers.Contains(hid.ReceiverId))
+                if (!IsUnknownReceiverCandidate(hid) || matchedReceivers.Contains(hid.ReceiverId) ||
+                    DeviceCatalog.IsDisabledPath(hid, out _))
                     continue;
                 unknownReceivers.Add(hid.ReceiverId);
                 unknowns.Add(new(
@@ -89,9 +92,18 @@ public sealed partial class DeviceTopologyCache(
                     hid.InputLength ?? 0, hid.OutputLength ?? 0, hid.FeatureLength ?? 0));
             }
 
-            var currentReceivers = CollectReceivers(inventory);
-            var changes = DiffReceivers(lastReceivers, currentReceivers);
-            lastReceivers = currentReceivers;
+            ReceiverChange[] changes;
+            if (inventory.Warnings.Count == 0)
+            {
+                var currentReceivers = CollectReceivers(inventory, detected);
+                changes = DiffReceivers(lastReceivers, currentReceivers);
+                lastReceivers = currentReceivers;
+            }
+            else
+            {
+                // 枚举不完整时不覆盖在位基线，避免误报整批接收器拔出/重新插入。
+                changes = [];
+            }
 
             cachedInventory = inventory;
             cachedDetected = detected;
@@ -108,15 +120,29 @@ public sealed partial class DeviceTopologyCache(
         }
     }
 
-    private static Dictionary<string, (ushort? Vid, ushort? Pid, int Count)> CollectReceivers(DeviceInventory inventory)
+    private static Dictionary<string, (ushort? Vid, ushort? Pid, int Count)> CollectReceivers(
+        DeviceInventory inventory, IReadOnlyList<DetectedDevice> detected)
     {
         var map = new Dictionary<string, (ushort? Vid, ushort? Pid, int Count)>(StringComparer.OrdinalIgnoreCase);
+        var seenHidPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var hid in inventory.Hid.Where(IsUnknownReceiverCandidate))
         {
+            seenHidPaths.Add(hid.Path);
             if (map.TryGetValue(hid.ReceiverId, out var existing))
                 map[hid.ReceiverId] = (existing.Vid ?? hid.VendorId, existing.Pid ?? hid.ProductId, existing.Count + 1);
             else
                 map[hid.ReceiverId] = (hid.VendorId, hid.ProductId, 1);
+        }
+        // 纳入已支持的非 FF00+ HID 端点（如雷蛇 90B 0001、罗技 G535 000C、Beken 000A），确保其插拔也能被拓扑追踪。
+        foreach (var item in detected)
+        {
+            if (item.Target.Endpoint is HidInterface hid && seenHidPaths.Add(hid.Path))
+            {
+                if (map.TryGetValue(hid.ReceiverId, out var existing))
+                    map[hid.ReceiverId] = (existing.Vid ?? hid.VendorId, existing.Pid ?? hid.ProductId, existing.Count + 1);
+                else
+                    map[hid.ReceiverId] = (hid.VendorId, hid.ProductId, 1);
+            }
         }
         foreach (var serial in inventory.Serial)
         {

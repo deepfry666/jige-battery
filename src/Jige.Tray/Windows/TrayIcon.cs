@@ -284,35 +284,52 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
 
     private static void DrawScalable(Span<byte> pixels, int size, IconAppearance icon)
     {
-        sharedFactories ??= new ScalableFactories();
-        sharedFactories.AcquireSurface(size, out var image, out var render, out var canvas);
-        try
+        for (int attempt = 0; ; attempt++)
         {
-            render->BeginDraw();
+            sharedFactories ??= new ScalableFactories();
+            sharedFactories.AcquireSurface(size, out var image, out var render, out var canvas);
             try
             {
-                render->Clear((D2D1_COLOR_F*)null);
-                if (icon.Kind is { } kind)
+                render->BeginDraw();
+                bool threw = false;
+                try
                 {
-                    var layout = TrayIconLayout.Compute(size, kind, icon.Percentage);
-                    canvas.TrayDeviceGlyph(sharedFactories.D2D, kind, layout, icon);
+                    render->Clear((D2D1_COLOR_F*)null);
+                    if (icon.Kind is { } kind)
+                    {
+                        var layout = TrayIconLayout.Compute(size, kind, icon.Percentage);
+                        canvas.TrayDeviceGlyph(sharedFactories.D2D, kind, layout, icon);
+                    }
+                    else
+                    {
+                        canvas.Text("–", 0, -size * .07f, size, size * 1.06f, size * .90f, icon.FillInk,
+                            700, true, DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+                    }
                 }
-                else
+                catch
                 {
-                    canvas.Text("–", 0, -size * .07f, size, size * 1.06f, size * .90f, icon.FillInk,
-                        700, true, DWRITE_TEXT_ALIGNMENT.DWRITE_TEXT_ALIGNMENT_CENTER);
+                    threw = true;
+                    throw;
                 }
+                finally
+                {
+                    var end = render->EndDraw();
+                    if (!threw)
+                        Graphics.Check(end, "绘制托盘图标");
+                }
+                image->CopyPixels(null, (uint)(size * 4), pixels);
+                return;
             }
-            finally
+            catch (Exception error)
             {
-                Graphics.Check(render->EndDraw(), "绘制托盘图标");
+                sharedFactories.InvalidateSurface();
+                if (attempt == 0 && Graphics.IsDeviceLost(error))
+                {
+                    DisposeSharedRenderer();
+                    continue;
+                }
+                throw;
             }
-            image->CopyPixels(null, (uint)(size * 4), pixels);
-        }
-        catch
-        {
-            sharedFactories.InvalidateSurface();
-            throw;
         }
     }
 

@@ -2,20 +2,33 @@
 """生成 Inno Setup 现代浅色/深色向导位图（多 DPI PNG）。需要 Node.js、npx 和 Pillow。"""
 
 from pathlib import Path
-import re
+import os
+import shutil
 import subprocess
 import tempfile
+import xml.etree.ElementTree as ET
 
 from PIL import Image
 
 
+def resolve_npx() -> str:
+    npx = shutil.which("npx.cmd") or shutil.which("npx")
+    if not npx:
+        raise RuntimeError("未找到 npx，请先安装 Node.js")
+    return npx
+
+
+def extract_mark_path(svg_path: Path) -> str:
+    tree = ET.parse(svg_path)
+    for elem in tree.getroot().iter():
+        if elem.tag.endswith("path") and elem.attrib.get("d"):
+            return elem.attrib["d"]
+    raise RuntimeError(f"未能从 {svg_path} 提取标志路径")
+
+
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "assets" / "installer"
-MARK_SVG = (ROOT / "design" / "brand" / "fourj-mark.svg").read_text(encoding="utf-8")
-MARK_PATH_MATCH = re.search(r'<path\s+d="([^"]+)"', MARK_SVG)
-if not MARK_PATH_MATCH:
-    raise RuntimeError("未能从 design/brand/fourj-mark.svg 提取标志路径")
-MARK_PATH = MARK_PATH_MATCH.group(1)
+MARK_PATH = extract_mark_path(ROOT / "design" / "brand" / "fourj-mark.svg")
 
 
 def sidebar_svg(dark: bool) -> str:
@@ -131,7 +144,7 @@ def render_svg_variants(svg_text: str, targets: list[tuple[str, int, int]]) -> N
         hi_png = tmp_path / "hi.png"
         subprocess.run(
             [
-                "npx", "-y", "@resvg/resvg-js-cli@2.6.2-beta.1",
+                resolve_npx(), "-y", "@resvg/resvg-js-cli@2.6.2-beta.1",
                 str(svg_file),
                 str(hi_png),
             ],
@@ -141,7 +154,10 @@ def render_svg_variants(svg_text: str, targets: list[tuple[str, int, int]]) -> N
             rgba = img.convert("RGBA")
             for filename, width, height in targets:
                 resized = rgba.resize((width, height), Image.Resampling.LANCZOS)
-                resized.save(OUT_DIR / filename, optimize=True)
+                out_file = OUT_DIR / filename
+                tmp_file = out_file.with_suffix(".png.tmp")
+                resized.save(tmp_file, format="PNG", optimize=True)
+                os.replace(tmp_file, out_file)
 
 
 def main() -> None:

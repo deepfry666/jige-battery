@@ -70,11 +70,15 @@ internal sealed class TrayModel
     private readonly Dictionary<string, string> blockedReceivers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, DateTimeOffset> asleepSince = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> mergedRazerIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<(string Name, DeviceKind Kind)> dualOnlineRazerModels = new(RazerModelKeyComparer.Instance);
+    private readonly Dictionary<string, string> activeRouteIds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, SavedRuntimeEstimate> runtime = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> runtimeShown = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> chargeShown = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>本轮放电已弹过「进游戏电量低」横幅的设备；充电或开新放电段后清除。</summary>
     private readonly HashSet<string> gameWarned = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ReminderKind[] ReminderOrder =
+        [ReminderKind.LowBattery, ReminderKind.Predicted, ReminderKind.FullCharge];
     private double unsavedRuntimeHours;
     private bool hasSavedOnce;
 
@@ -98,6 +102,9 @@ internal sealed class TrayModel
             if (reminder is null || string.IsNullOrEmpty(key))
                 continue;
             var (kind, id) = ReminderKeys.Parse(key);
+            if (kind == ReminderKind.FullCharge && !settings.FullChargeReminder ||
+                kind == ReminderKind.Predicted && !settings.ShowRuntimeEstimate)
+                continue;
             if (devices.TryGetValue(id, out var device) &&
                 (kind != ReminderKind.LowBattery || device.Percentage <= ThresholdFor(id)))
                 reminders[key] = reminder;
@@ -135,12 +142,16 @@ internal sealed class TrayModel
         LatestLogitechSlots().ToDictionary(pair => pair.Key, pair => pair.Value.Device, StringComparer.OrdinalIgnoreCase);
 
     private Dictionary<string, DeviceStatus> LatestLogitechSlots() => devices.Values
-        .Where(item => LogitechReceiverSlot(item.Device.Id) is not null && item.Last is not null)
-        .OrderByDescending(item => item.Last!.ReadAt)
-        .ThenByDescending(item => history.GetValueOrDefault(item.Device.Id)?.LastOnline)
-        .ThenBy(item => item.Device.Id, StringComparer.OrdinalIgnoreCase)
-        .DistinctBy(item => LogitechReceiverSlot(item.Device.Id), StringComparer.OrdinalIgnoreCase)
-        .ToDictionary(item => LogitechReceiverSlot(item.Device.Id)!, StringComparer.OrdinalIgnoreCase);
+        .Select(item => (Item: item, Slot: LogitechReceiverSlot(ActiveRouteId(item.Device.Id)) ?? LogitechReceiverSlot(item.Device.Id)))
+        .Where(pair => pair.Slot is not null && pair.Item.Last is not null)
+        .OrderByDescending(pair => pair.Item.Last!.ReadAt)
+        .ThenByDescending(pair => history.GetValueOrDefault(pair.Item.Device.Id)?.LastOnline)
+        .ThenBy(pair => pair.Item.Device.Id, StringComparer.OrdinalIgnoreCase)
+        .DistinctBy(pair => pair.Slot, StringComparer.OrdinalIgnoreCase)
+        .ToDictionary(pair => pair.Slot!, pair => pair.Item, StringComparer.OrdinalIgnoreCase);
+
+    private string ActiveRouteId(string canonicalId) =>
+        activeRouteIds.TryGetValue(canonicalId, out var route) ? route : canonicalId;
 
     private static string? LogitechReceiverSlot(string id)
     {
@@ -171,18 +182,30 @@ internal sealed class TrayModel
         return changed;
     }
 
-    public bool HasAsleepDevices => devices.Values.Any(item => item.Link == LinkState.Asleep && IsShown(item.Device));
+    public bool HasAsleepDevices => devices.Values.Any(item =>
+        item.Link == LinkState.Asleep && !item.Device.UsesPassiveBatteryReports && IsShown(item.Device));
 
     public bool HasAsleepLogitechOrBluetoothDevices => devices.Values.Any(item =>
-        item.Link == LinkState.Asleep && IsShown(item.Device) &&
+        item.Link == LinkState.Asleep && !item.Device.UsesPassiveBatteryReports && IsShown(item.Device) &&
         (item.Device.Connection == DeviceConnection.Bluetooth ||
+            ActiveRouteId(item.Device.Id).StartsWith("logitech-hidpp", StringComparison.OrdinalIgnoreCase) ||
             item.Device.Id.StartsWith("logitech-hidpp", StringComparison.OrdinalIgnoreCase)));
 
-    public HashSet<string> AsleepDeviceIds() => devices.Values
-        .Where(item => item.Link == LinkState.Asleep && IsShown(item.Device))
-        .SelectMany(item => item.Device.BluetoothContainerKey is { } container
-            ? new[] { item.Device.Id, container } : [item.Device.Id])
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+    public HashSet<string> AsleepDeviceIds()
+    {
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var item in devices.Values)
+        {
+            if (item.Link != LinkState.Asleep || item.Device.UsesPassiveBatteryReports || !IsShown(item.Device))
+                continue;
+            ids.Add(item.Device.Id);
+            if (activeRouteIds.TryGetValue(item.Device.Id, out var route))
+                ids.Add(route);
+            if (item.Device.BluetoothContainerKey is { } container)
+                ids.Add(container);
+        }
+        return ids;
+    }
 
     /// <summary>R2：返回最早一台休眠设备达到 10 分钟离线阈值的时间点，供主循环安排定时器唤醒。</summary>
     public DateTimeOffset? NextSleepTimeout(DateTimeOffset now)
@@ -210,11 +233,14 @@ internal sealed class TrayModel
         foreach (var id in devices.Keys.ToArray())
         {
             var device = devices[id];
-            if (device.Link != LinkState.Asleep || device.Device.UsesPassiveBatteryReports)
+            if (device.Device.UsesPassiveBatteryReports ||
+                device.Link is not (LinkState.Asleep or LinkState.Busy or LinkState.Unknown))
             {
                 asleepSince.Remove(id);
                 continue;
             }
+            if (device.Link != LinkState.Asleep)
+                continue;
             if (!asleepSince.TryGetValue(id, out var since) || now < since)
             {
                 asleepSince[id] = now;
@@ -251,6 +277,9 @@ internal sealed class TrayModel
             runtimeShown.Remove(id);
             chargeShown.Remove(id);
             asleepSince.Remove(id);
+            activeRouteIds.Remove(id);
+            foreach (var pair in mergedRazerIds.Where(p => StringComparer.OrdinalIgnoreCase.Equals(p.Value, id)).ToArray())
+                mergedRazerIds.Remove(pair.Key);
             removedOffline.Add(id);
         }
     }
@@ -409,6 +438,22 @@ internal sealed class TrayModel
         {
             var reading = input.ReadAt > maxAllowedReadAt ? input with { ReadAt = now } : input;
             var device = reading.Device;
+            if (!mergeChannels && !devices.ContainsKey(device.Id))
+            {
+                if (mergedRazerIds.TryGetValue(device.Id, out var razerCanonical) && devices.ContainsKey(razerCanonical))
+                {
+                    activeRouteIds[razerCanonical] = device.Id;
+                    device = device with { Id = razerCanonical };
+                    reading = reading with { Device = device };
+                }
+                else if (LogitechUnit(device.Id) is { } unit &&
+                    devices.Values.FirstOrDefault(item => StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), unit)) is { } logiKnown)
+                {
+                    activeRouteIds[logiKnown.Device.Id] = device.Id;
+                    device = device with { Id = logiKnown.Device.Id };
+                    reading = reading with { Device = device };
+                }
+            }
             if (!IsShown(device) || device.Id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
                 !device.Id.Contains('/') && reading.Percentage is null)
                 continue;
@@ -447,8 +492,18 @@ internal sealed class TrayModel
                     continue;
             }
             var previous = devices.GetValueOrDefault(device.Id);
-            if (device.UsesPassiveBatteryReports && previous is not null && reading.Link != LinkState.Online)
+            if (device.UsesPassiveBatteryReports && previous is not null && reading.Link == LinkState.Asleep)
+            {
+                // 被动推送鼠标在 60s 常规全量轮询期间若 350ms 窗口未收到帧，不得覆盖刚推送到达且仍在有效期内的在线读数；
+                // 但明确上报 Offline 时不得吞掉，确保拔出或离线及时生效。
+                if (previous is { Fresh: true, Link: LinkState.Online, Last: { } prevPassive } &&
+                    !IsExpired(prevPassive, now, inGameMode))
+                {
+                    seen.Add(device.Id);
+                    continue;
+                }
                 device = previous.Device;
+            }
             // 休眠、超时等没读到电量的回复不会带上协议细化出的型号名（如 ATK 读 CID/MID 后的具体型号），
             // 沿用上次的名称，避免同一设备在面板和日志里来回换名。
             if (previous is not null && reading.Percentage is null && reading.Link != LinkState.Online &&
@@ -473,7 +528,12 @@ internal sealed class TrayModel
             }
             var resolvedLink = ResolveLinkForSleep(device, previous?.Link, reading.Link, now);
             var last = previous?.Last;
-            bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null;
+            bool staleHeld = previous?.Last is { } prevLast &&
+                prevLast.ReadAt <= now + FutureClockSkew &&
+                reading.ReadAt < prevLast.ReadAt;
+            bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null && !staleHeld;
+            var resolvedCharging = reading.Charging;
+            var resolvedIssue = reading.Issue;
             if (fresh)
             {
                 anyFresh = true;
@@ -487,37 +547,55 @@ internal sealed class TrayModel
                     meaningfulChange = true;
                 last = nextLast;
             }
+            else if (staleHeld && resolvedLink == LinkState.Online && previous is { Last: { } keptLast })
+            {
+                // 适配器返还旧读数（如 HoldOnline）或乱序旧轮询到达时，保留较新的电量、充电态与错误态，避免回退污染历史与提醒。
+                fresh = !IsExpired(keptLast, now, inGameMode);
+                resolvedCharging = previous.Charging;
+                resolvedIssue = previous.Issue;
+                if (previous.Link != resolvedLink || previous.Device != device || previous.Fresh != fresh)
+                    meaningfulChange = true;
+            }
             else if (previous is null || previous.Link != resolvedLink || previous.Device != device ||
                 previous.Charging != reading.Charging && device.UsesPassiveBatteryReports)
             {
                 meaningfulChange = true;
             }
 
-            var status = new DeviceStatus(device, resolvedLink, reading.Issue, reading.Charging, last, fresh);
+            var status = new DeviceStatus(device, resolvedLink, resolvedIssue, resolvedCharging, last, fresh);
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
-            ObserveRuntime(device.Id, status, now);
+            // 仅当旧读数仍保持在线态时跳过续航更新；若已转为休眠/离线必须通知续航模型暂停计时。
+            if (!staleHeld || resolvedLink != LinkState.Online)
+                ObserveRuntime(device.Id, status, now);
             if (fresh && UpdateReminder(status, now))
                 meaningfulChange = true;
         }
 
         var missing = sweepMissing
             ? devices.Keys.Where(id => !seen.Contains(id) &&
-                (incompleteReceivers is null || !incompleteReceivers.Contains(id.Split('/', 2)[0]))).ToArray()
+                (incompleteReceivers is null ||
+                    (!incompleteReceivers.Contains(id.Split('/', 2)[0]) &&
+                     !incompleteReceivers.Contains(ActiveRouteId(id).Split('/', 2)[0])))).ToArray()
             : [];
         var latestSlots = liveTargets is not null && missing.Length > 0 ? LatestLogitechSlots() : null;
         var seenSlots = latestSlots is { Count: > 0 } ?
-            seen.Select(LogitechReceiverSlot).ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
+            seen.SelectMany(id => new[] { LogitechReceiverSlot(id), LogitechReceiverSlot(ActiveRouteId(id)) })
+                .Where(slot => slot is not null)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase) : null;
         foreach (var id in missing)
         {
             var previous = devices[id];
             if (!IsShown(previous.Device))
                 continue;
             // R1：接收器被拔出（非枚举失败且不在设备列表中）→ 立即离线。
-            bool receiverStillPresent = id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) &&
-                liveTargets?.Contains(id.Split('/', 2)[0]) == true;
-            if (receiverStillPresent && LogitechReceiverSlot(id) is { } slot)
+            string routeId = ActiveRouteId(id);
+            string? logiRouteId = routeId.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) ? routeId
+                : id.StartsWith("logitech-hidpp:", StringComparison.OrdinalIgnoreCase) ? id : null;
+            bool receiverStillPresent = logiRouteId is not null &&
+                liveTargets?.Contains(logiRouteId.Split('/', 2)[0]) == true;
+            if (receiverStillPresent && LogitechReceiverSlot(logiRouteId!) is { } slot)
                 receiverStillPresent = seenSlots?.Contains(slot) == false && latestSlots?.GetValueOrDefault(slot) == previous;
             var missingLink = previous.Device.Connection == DeviceConnection.Bluetooth ? LinkState.Asleep :
                 scanFailed ? LinkState.Unknown : receiverStillPresent ? LinkState.Asleep : LinkState.Offline;
@@ -576,12 +654,14 @@ internal sealed class TrayModel
                 .ThenByDescending(item => item.Device.Connection == DeviceConnection.UsbCable)
                 .First();
             string id = known.FirstOrDefault()?.Device.Id ?? winner.Device.Id;
+            activeRouteIds[id] = winner.Device.Id;
             merged.Add(winner with { Device = winner.Device with { Id = id } });
             foreach (var duplicate in known.Skip(1))
             {
                 string redundantId = duplicate.Device.Id;
                 changed |= devices.Remove(redundantId);
                 asleepSince.Remove(redundantId);
+                activeRouteIds.Remove(redundantId);
                 RemoveReminders(redundantId);
                 history.Remove(redundantId);
                 MoveRuntime(redundantId, id);
@@ -613,11 +693,25 @@ internal sealed class TrayModel
         foreach (var group in razerGroups)
         {
             var items = group.ToArray();
-            // 两台同型号设备同时在线（例如两只 Viper V3 Pro），各自独立保留。
+            // 两台同型号设备同时在线（例如两只 Viper V3 Pro），各自独立保留并记住此型号为双机配置，避免其中一台离线时误合并销毁。
             if (items.Count(item => item.Link == LinkState.Online) >= 2)
             {
-                foreach (var item in items)
-                    mergedRazerIds.Remove(item.Device.Id);
+                dualOnlineRazerModels.Add(group.Key);
+                var modelIds = new HashSet<string>(
+                    items.Select(item => item.Device.Id)
+                        .Concat(devices.Values
+                            .Where(item => IsMergeableRazer90B(item.Device) &&
+                                item.Device.Kind == group.Key.Kind &&
+                                StringComparer.OrdinalIgnoreCase.Equals(item.Device.Name, group.Key.Name))
+                            .Select(item => item.Device.Id)),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var id in modelIds)
+                {
+                    mergedRazerIds.Remove(id);
+                    activeRouteIds.Remove(id);
+                }
+                foreach (var pair in mergedRazerIds.Where(p => modelIds.Contains(p.Value)).ToArray())
+                    mergedRazerIds.Remove(pair.Key);
                 merged.AddRange(items);
                 continue;
             }
@@ -631,11 +725,34 @@ internal sealed class TrayModel
                 .OrderByDescending(item => item.Last is not null)
                 .ToArray();
 
-            bool singleSwitch = items.Length == 1 && !devices.ContainsKey(items[0].Device.Id) &&
-                known.Length == 1 && known[0].Device.Connection != items[0].Device.Connection;
-            if (!hasBothConnections && !singleSwitch)
+            if (dualOnlineRazerModels.Contains(group.Key) && known.Length >= 2)
             {
                 merged.AddRange(items);
+                continue;
+            }
+
+            bool alreadyMapped = items.Length == 1 &&
+                mergedRazerIds.TryGetValue(items[0].Device.Id, out var mappedCanonical) &&
+                devices.ContainsKey(mappedCanonical);
+            // 单通道切换或跨重启/换口后原主 ID 离线：只要不是双机型号且只有唯一已知建档，就继续合并到原主 ID 保留别名与历史。
+            bool singleSwitch = items.Length == 1 && !devices.ContainsKey(items[0].Device.Id) &&
+                known.Length == 1 &&
+                (known[0].Device.Connection != items[0].Device.Connection || alreadyMapped || !known[0].IsOnline);
+            if (!hasBothConnections && !singleSwitch)
+            {
+                if (alreadyMapped)
+                {
+                    string targetId = mergedRazerIds[items[0].Device.Id];
+                    activeRouteIds[targetId] = items[0].Device.Id;
+                    merged.Add(items[0] with { Device = items[0].Device with { Id = targetId } });
+                }
+                else
+                {
+                    // 已回到原主 ID 单路工作，清除旧的合并路由映射避免残留指向已拔出的有线/接收器路径。
+                    if (items.Length == 1 && devices.ContainsKey(items[0].Device.Id))
+                        activeRouteIds.Remove(items[0].Device.Id);
+                    merged.AddRange(items);
+                }
                 continue;
             }
 
@@ -646,6 +763,7 @@ internal sealed class TrayModel
                 .ThenByDescending(item => item.Device.Connection == DeviceConnection.UsbCable)
                 .First();
             string canonicalId = known.FirstOrDefault()?.Device.Id ?? winner.Device.Id;
+            activeRouteIds[canonicalId] = winner.Device.Id;
             foreach (var item in items)
             {
                 if (!StringComparer.OrdinalIgnoreCase.Equals(item.Device.Id, canonicalId))
@@ -657,6 +775,7 @@ internal sealed class TrayModel
                 string redundantId = duplicate.Device.Id;
                 changed |= devices.Remove(redundantId);
                 asleepSince.Remove(redundantId);
+                activeRouteIds.Remove(redundantId);
                 RemoveReminders(redundantId);
                 history.Remove(redundantId);
                 MoveRuntime(redundantId, canonicalId);
@@ -705,14 +824,17 @@ internal sealed class TrayModel
             if (update.Battery is { } battery)
             {
                 var known = FindKnownDevice(battery.Device);
+                if (known is null && mergedRazerIds.TryGetValue(battery.Device.Id, out var razerCanonical))
+                    devices.TryGetValue(razerCanonical, out known);
                 if (known is null && LogitechUnit(battery.Device.Id) is { } unit)
                     known = devices.Values.FirstOrDefault(item =>
                         StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), unit));
                 if (known is not null)
                 {
-                    // 当线缆和接收器同时工作时，低优先级通道的推送不能覆盖线缆读数。
+                    // 当线缆和接收器同时工作时，低优先级通道的推送不能覆盖线缆读数；
+                    // 若原读数因时钟回拨落在未来窗口外，不阻止新推送恢复更新。
                     if (known.Device.Connection != battery.Device.Connection || !IsShown(known.Device) ||
-                        known.Last is { } last && last.ReadAt > battery.ReadAt)
+                        known.Last is { } last && last.ReadAt <= now + FutureClockSkew && last.ReadAt > battery.ReadAt)
                         continue;
                     if (battery.Device.Connection != DeviceConnection.Bluetooth && !battery.Device.UsesPassiveBatteryReports)
                         battery = battery with { Device = known.Device };
@@ -759,6 +881,8 @@ internal sealed class TrayModel
                 {
                     refreshIds ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     refreshIds.Add(id);
+                    if (activeRouteIds.TryGetValue(id, out var routeId))
+                        refreshIds.Add(routeId);
                     UpdateHistory(id, next, now);
                 }
                 onLinkChanged?.Invoke(previous.Device, previous.Link, next.Link);
@@ -800,6 +924,16 @@ internal sealed class TrayModel
                 return LinkState.Offline;
             }
             return LinkState.Asleep;
+        }
+
+        if (incoming is LinkState.Busy or LinkState.Unknown)
+        {
+            // R1：已离线设备不因瞬时 Busy/Unknown 复活；休眠设备遇瞬时或连续异常时保留原 asleepSince，避免重置 10 分钟离线计时。
+            if (previousLink == LinkState.Offline)
+                return LinkState.Offline;
+            if (previousLink != LinkState.Asleep && !asleepSince.ContainsKey(id))
+                asleepSince.Remove(id);
+            return incoming;
         }
 
         asleepSince.Remove(id);
@@ -995,11 +1129,14 @@ internal sealed class TrayModel
         string fullKey = ReminderKeys.For(ReminderKind.FullCharge, id);
         if (Settings.FullChargeReminder && IsChargedFull(device))
             changed |= reminders.TryAdd(fullKey, new(now));
-        else if (!Settings.FullChargeReminder || device.Fresh && device.Charging == ChargingState.NotCharging)
+        else if (!Settings.FullChargeReminder ||
+            device.Fresh && (device.Charging == ChargingState.NotCharging ||
+                device.Charging != ChargingState.Full && device.Percentage < 98))
             changed |= reminders.Remove(fullKey);
 
         string predictKey = ReminderKeys.For(ReminderKind.Predicted, id);
-        if (device.IsCharging || device.IsFull || !Settings.ShowRuntimeEstimate)
+        if (device.IsCharging || device.IsFull || !Settings.ShowRuntimeEstimate ||
+            device.Percentage <= ThresholdFor(id))
             changed |= reminders.Remove(predictKey);
         else if (PredictsShortfall(device, now))
             changed |= reminders.TryAdd(predictKey, new(now));
@@ -1037,7 +1174,7 @@ internal sealed class TrayModel
         if (blocked)
             return null;
         var ordered = OrderedDevices();
-        foreach (var kind in new[] { ReminderKind.LowBattery, ReminderKind.Predicted, ReminderKind.FullCharge })
+        foreach (var kind in ReminderOrder)
         {
             foreach (var device in ordered)
             {
@@ -1058,13 +1195,14 @@ internal sealed class TrayModel
     private bool CanRemind(string key, DateTimeOffset now)
     {
         var (kind, id) = ReminderKeys.Parse(key);
-        if (!devices.TryGetValue(id, out var device) ||
+        if (!devices.TryGetValue(id, out var device) || !IsShown(device.Device) ||
             device is not { Fresh: true, Link: LinkState.Online, Last: { } last } || IsExpired(last, now, inGameMode))
             return false;
         return kind switch
         {
             ReminderKind.FullCharge => Settings.FullChargeReminder && IsChargedFull(device),
-            ReminderKind.Predicted => Settings.ShowRuntimeEstimate && !device.IsCharging && !device.IsFull,
+            ReminderKind.Predicted => Settings.ShowRuntimeEstimate && !device.IsCharging && !device.IsFull &&
+                last.Percentage > ThresholdFor(id) && PredictsShortfall(device, now),
             _ => !device.IsCharging && !device.IsFull && last.Percentage <= ThresholdFor(id)
         };
     }

@@ -89,6 +89,84 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
 
     internal static Native.HidCaps ReadCaps(SafeFileHandle handle, HidInterface? endpoint = null)
     {
+        var (caps, _, _, _) = ReadCapsInternal(handle, endpoint, false);
+        return caps;
+    }
+
+    internal static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsAndReportIds(
+        SafeFileHandle handle, bool includeReportIds)
+    {
+        return ReadCapsInternal(handle, null, includeReportIds);
+    }
+
+    /// <summary>单次读取 HID 描述符，按需检查目标国产鼠标报告 ID 或枚举全部声明报告 ID，避免重复调用 GetPreparsedData。</summary>
+    internal static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds, bool MatchedDomesticReportId)
+        ReadCapsForDiscovery(
+            SafeFileHandle handle,
+            DomesticMouseStatus? domesticRoute,
+            byte? interfaceNumber,
+            ushort? vid,
+            bool includeUnknownHid,
+            bool includeReportIds)
+    {
+        if (Native.GetPreparsedData(handle, out var data) == 0)
+            throw WindowsErrors.Last("读取 HID 描述符");
+        try
+        {
+            int status = Native.GetHidCaps(data, out var caps);
+            if (status != 0x00110000)
+                throw new TransportException(ReadIssue.IoError, $"解析 HID 描述符失败（0x{status:X8}）", nativeCode: status);
+
+            bool domesticMatched = domesticRoute is not null &&
+                domesticRoute.MatchesCollection(caps.UsagePage, caps.Usage, interfaceNumber, caps.InputLength, caps.FeatureLength);
+            bool declaredDomestic = false;
+            if (domesticMatched)
+            {
+                int type = domesticRoute!.Feature ? 2 : 0;
+                ushort length = domesticRoute.Feature ? caps.FeatureLength : caps.InputLength;
+                declaredDomestic = DeclaresReportId(data, type, domesticRoute.ReportId, length);
+            }
+
+            if (domesticRoute is not null && !includeUnknownHid && !includeReportIds)
+            {
+                if (!domesticMatched || !declaredDomestic)
+                    return (caps, null, null, null, false);
+                string declared = $"{domesticRoute.ReportId:X2}";
+                return domesticRoute.Feature
+                    ? (caps, null, null, declared, true)
+                    : (caps, declared, null, null, true);
+            }
+
+            string? inputIds = null, outputIds = null, featureIds = null;
+            if (includeReportIds &&
+                (caps.UsagePage >= 0xFF00 || vid == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
+                 domesticRoute is not null))
+            {
+                inputIds = ScanReportIds(data, 0, caps.InputLength);
+                outputIds = ScanReportIds(data, 1, caps.OutputLength);
+                featureIds = ScanReportIds(data, 2, caps.FeatureLength);
+            }
+
+            if (domesticMatched)
+            {
+                // 明确区分「已验证未声明目标报告 ID（""）」与「旧诊断样本缺元数据（null）」，防止下游误放行匹配。
+                if (domesticRoute!.Feature)
+                    featureIds ??= declaredDomestic ? $"{domesticRoute.ReportId:X2}" : "";
+                else
+                    inputIds ??= declaredDomestic ? $"{domesticRoute.ReportId:X2}" : "";
+            }
+
+            return (caps, inputIds, outputIds, featureIds, domesticMatched && declaredDomestic);
+        }
+        finally
+        {
+            Native.FreePreparsedData(data);
+        }
+    }
+
+    private static (Native.HidCaps Caps, string? InputIds, string? OutputIds, string? FeatureIds) ReadCapsInternal(
+        SafeFileHandle handle, HidInterface? endpoint, bool includeReportIds)
+    {
         if (Native.GetPreparsedData(handle, out var data) == 0)
             throw WindowsErrors.Last("读取 HID 描述符");
         try
@@ -102,7 +180,14 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
                 VerifyReportId(data, 1, endpoint.RequiredOutputReportId, caps.OutputLength);
                 VerifyReportId(data, 2, endpoint.RequiredFeatureReportId, caps.FeatureLength);
             }
-            return caps;
+            if (!includeReportIds)
+                return (caps, null, null, null);
+            return (
+                caps,
+                ScanReportIds(data, 0, caps.InputLength),
+                ScanReportIds(data, 1, caps.OutputLength),
+                ScanReportIds(data, 2, caps.FeatureLength)
+            );
         }
         finally
         {
@@ -215,6 +300,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
 
     private static unsafe void ConfigureSerial(SafeFileHandle handle, int baudRate)
     {
+        Native.SetupComm(handle, 4096, 4096);
         var settings = new Native.Dcb { Length = (uint)sizeof(Native.Dcb) };
         if (Native.GetCommState(handle, ref settings) == 0)
             throw WindowsErrors.Last("读取串口参数");
@@ -222,6 +308,7 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         settings.BaudRate = checked((uint)baudRate);
         // 8N1、二进制模式、关闭流控，DTR 和 RTS 置位，只配置本次串口连接。
         settings.Flags = 0x1011;
+        settings.Reserved = 0;
         settings.ByteSize = 8;
         settings.Parity = 0;
         settings.StopBits = 0;
@@ -239,6 +326,10 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
         };
         if (Native.SetCommTimeouts(handle, in timeouts) == 0)
             throw WindowsErrors.Last("设置串口超时");
+
+        // 清空历史错误标志与驱动 RX/TX 残留字节，避免旧帧或切波特率垃圾污染首包解析。
+        Native.ClearCommError(handle, out _, 0);
+        Native.PurgeComm(handle, 0x000Fu);
     }
 
     private sealed class SerialSession(OverlappedDevice io) : ISerialSession

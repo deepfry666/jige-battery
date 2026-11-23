@@ -101,7 +101,8 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
     private void Render(HoverCardContent content, RECT anchor, bool reset)
     {
         var screen = PInvoke.MonitorFromRect(in anchor, MONITOR_FROM_FLAGS.MONITOR_DEFAULTTONEAREST);
-        var info = Desktop.Monitor(screen);
+        if (!Desktop.TryGetMonitor(screen, out var info))
+            throw new InvalidOperationException("找不到悬停卡片显示器");
         var work = new Bounds(info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom);
         var screenBounds = new Bounds(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         var iconBounds = new Bounds(anchor.left, anchor.top, anchor.right, anchor.bottom);
@@ -131,6 +132,8 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
         if (surface is null || surfaceHeight != dipHeight)
         {
             surface?.Dispose();
+            surface = null;
+            surfaceHeight = 0;
             surface = new(composition!, composition!.Root, 0, 0, dipWidth, dipHeight);
             surfaceHeight = dipHeight;
         }
@@ -144,7 +147,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
         }
 
         var next = HoverCardPlacement.Place(iconBounds, screenBounds, work,
-            Pixels(dipWidth), Pixels(dipHeight), Pixels(12), Pixels(8));
+            Pixels(dipWidth), Pixels(dipHeight), Pixels(12), Pixels(8), TaskbarStripShell.ReadTaskbarEdge());
         if (position != next)
         {
             if (!PInvoke.SetWindowPos(Handle, default, next.Left, next.Top, next.Width, next.Height,
@@ -254,18 +257,18 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
                 idle ? colors.Chip : colors.AccentSoft,
                 idle ? colors.Muted : colors.Accent);
 
-            canvas.Text(row.Name, 45, rowTop + 5, 106, 17, 12.5f,
+            canvas.Text(row.Name, 45, rowTop + 5, 100, 17, 12.5f,
                 idle ? colors.Muted : colors.Ink, 500, ellipsis: true);
 
             var statusColor = row.Tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging
                 ? colors.Status(row.Tone) : colors.Muted;
-            canvas.Text(row.StatusText, 45, rowTop + 22, 106, 15, 11, statusColor, ellipsis: true);
+            canvas.Text(row.StatusText, 45, rowTop + 22, 100, 15, 11, statusColor, ellipsis: true);
 
             // 5 格小电量条
             const int miniCount = 5;
             const float miniW = 5;
             const float miniGap = 2;
-            float miniX = 157;
+            float miniX = 150;
             float miniY = rowTop + 16.5f;
             var barInk = colors.Status(row.Tone);
             for (int c = 0; c < miniCount; c++)
@@ -278,7 +281,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
                 canvas.Fill(miniX + c * (miniW + miniGap), miniY, miniW, 9, 1.5f, fill);
             }
 
-            canvas.Text(row.ValueText, 194, rowTop, 40, HoverCardContent.ListRowHeight, 13,
+            canvas.Text(row.ValueText, 186, rowTop, 48, HoverCardContent.ListRowHeight, 13,
                 NumberColor(row.Tone), 600, true, DWRITE_TEXT_ALIGNMENT_TRAILING);
         }
 

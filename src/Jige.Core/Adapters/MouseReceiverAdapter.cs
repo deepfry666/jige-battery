@@ -4,13 +4,17 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
 {
     private readonly Lock primaryLock = new();
     private readonly HashSet<string> confirmedPrimaryPaths = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> confirmedProtocolPaths = new(StringComparer.OrdinalIgnoreCase);
 
     public PresenceProbeKind PresenceKind => PresenceProbeKind.Heartbeat;
 
     public void ResetPrimaryCache()
     {
         lock (primaryLock)
+        {
             confirmedPrimaryPaths.Clear();
+            confirmedProtocolPaths.Clear();
+        }
     }
 
     private bool IsPrimaryConfirmed(string path)
@@ -19,10 +23,25 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             return confirmedPrimaryPaths.Contains(path);
     }
 
+    private bool IsProtocolConfirmed(string path)
+    {
+        lock (primaryLock)
+            return confirmedProtocolPaths.Contains(path);
+    }
+
     private void ConfirmPrimary(string path)
     {
         lock (primaryLock)
+        {
             confirmedPrimaryPaths.Add(path);
+            confirmedProtocolPaths.Add(path);
+        }
+    }
+
+    private void ConfirmProtocol(string path)
+    {
+        lock (primaryLock)
+            confirmedProtocolPaths.Add(path);
     }
 
     private void ClearPrimary(string path)
@@ -103,11 +122,8 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 continue;
 
             // 安全门 ③：此前回复格式不符合协议家族的接收器不再发送任何命令。
-            if (gates?.IsBlocked(selectedEndpoint, out var blockedReason) == true)
-            {
-                gates.RecordRejection(selectedEndpoint, 3, $"已拦截（{blockedReason}）");
+            if (gates?.IsBlocked(selectedEndpoint, out _) == true)
                 continue;
-            }
 
             // Compx-OUT 允许被动只读监听同接收器的其他厂商输入集合（如 FF05、FF06），以排查和接收跨集合回复。
             HidInterface[] siblings = selectedRow.Family == MouseFamily.CompxOut && !selectedRow.ExactCollectionOnly
@@ -119,13 +135,15 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             var tier = source == AdaptationSource.Generic
                 ? VerificationTier.DocsOnly
                 : DeviceCatalog.VerificationFor(selectedEndpoint.VendorId, selectedEndpoint.ProductId);
-            string sourceLabel = selectedEndpoint.VendorId switch
-            {
-                0x33E4 => "游狼无线接收器",
-                0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
-                _ => "无线接收器"
-            };
-            targets.Add(new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier)
+            string sourceLabel = selectedRow.Connection == DeviceConnection.UsbCable
+                ? "USB 充电线"
+                : selectedEndpoint.VendorId switch
+                {
+                    0x33E4 => "游狼无线接收器",
+                    0x373B when !selectedRow.ExactCollectionOnly => "ATK 无线接收器",
+                    _ => "无线接收器"
+                };
+            targets.Add(new(new($"mouse:{group.Key}", selectedRow.Model, DeviceKind.Mouse, source, tier, selectedRow.Connection)
             {
                 SourceLabel = sourceLabel
             },
@@ -139,7 +157,10 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         {
             var live = targets.Select(target => target.Endpoint.Path).ToHashSet(StringComparer.OrdinalIgnoreCase);
             lock (primaryLock)
+            {
                 confirmedPrimaryPaths.RemoveWhere(path => !live.Contains(path));
+                confirmedProtocolPaths.RemoveWhere(path => !live.Contains(path));
+            }
         }
         return targets;
     }
@@ -179,8 +200,17 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             : target.SiblingInputHids;
         var result = await QueryAsync(session, endpoint, route, false, siblings, transport, trace, cancellationToken)
             .ConfigureAwait(false);
-        if (result.Level.HasValue && result.FromPrimary)
-            ConfirmPrimary(endpoint.Path);
+        if (result.Level.HasValue)
+        {
+            if (result.FromPrimary)
+                ConfirmPrimary(endpoint.Path);
+            else
+                ConfirmProtocol(endpoint.Path);
+        }
+        else if (result.Asleep)
+        {
+            ConfirmProtocol(endpoint.Path);
+        }
         else if (result.Issue == ReadIssue.InvalidResponse)
             ClearPrimary(endpoint.Path);
         if (result.Asleep)
@@ -191,8 +221,10 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             if (result.Issue == ReadIssue.Timeout)
                 return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep,
                     DateTimeOffset.UtcNow, ReadIssue.Timeout, "接收器查询超时，设备可能正在休眠");
-            // 安全门 ② / ③：首条无害状态查询收到格式不符的回复，立即停止并在通用模式下持久化拦截。
-            if (result.Issue == ReadIssue.InvalidResponse && (route.IsGeneric || target.Device.Source == AdaptationSource.Generic))
+            // 安全门 ② / ③：仅在尚未确认过协议的初始探测阶段收到格式不符的回复才持久化拦截，避免运行中偶发干扰永久封禁正常设备。
+            if (result.Issue == ReadIssue.InvalidResponse &&
+                (route.IsGeneric || target.Device.Source == AdaptationSource.Generic) &&
+                !IsProtocolConfirmed(endpoint.Path))
                 gates?.Block(endpoint, "首条状态查询回复格式不符合协议家族");
             return AdapterRegistry.Failure(target, result.Issue, "接收器未返回有效电量");
         }
@@ -231,15 +263,23 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             // 2) 无回复超时（如 Compx 静止几秒后不再应答，或固件不支持 0x03）→ 回退 0x04；若仍超时一律算休眠而非离线。
             var online = await QueryCompxOnlineAsync(session, endpoint, cancellationToken).ConfigureAwait(false);
             if (online is bool state)
+            {
+                ConfirmProtocol(endpoint.Path);
                 return new(endpoint.ReceiverId, null, target.Device.Id, state ? LinkState.Online : LinkState.Asleep);
+            }
             IReadOnlyList<HidInterface> siblings = IsPrimaryConfirmed(endpoint.Path) ? [] : target.SiblingInputHids;
             var battery = await QueryAsync(session, endpoint, route, false, siblings, transport, null, cancellationToken)
                 .ConfigureAwait(false);
-            if (battery.Level.HasValue && battery.FromPrimary)
-                ConfirmPrimary(endpoint.Path);
+            if (battery.Level.HasValue)
+            {
+                if (battery.FromPrimary)
+                    ConfirmPrimary(endpoint.Path);
+                else
+                    ConfirmProtocol(endpoint.Path);
+            }
             else if (battery.Issue == ReadIssue.InvalidResponse)
                 ClearPrimary(endpoint.Path);
-            if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric)
+            if (battery.Issue == ReadIssue.InvalidResponse && route.IsGeneric && !IsProtocolConfirmed(endpoint.Path))
                 gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
             var compxLink = battery.Level.HasValue ? LinkState.Online
                 : battery.Asleep || battery.Issue == ReadIssue.Timeout ? LinkState.Asleep
@@ -251,7 +291,9 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         // R1 / D4：BitMouse 与游狼（XVI-OLD / XVI-NEW）查询超时一律算休眠，不误判离线。
         var result = await QueryAsync(session, endpoint, route, false, [], transport, null, cancellationToken)
             .ConfigureAwait(false);
-        if (result.Issue == ReadIssue.InvalidResponse && route.IsGeneric)
+        if (result.Level.HasValue || result.Asleep)
+            ConfirmProtocol(endpoint.Path);
+        if (result.Issue == ReadIssue.InvalidResponse && route.IsGeneric && !IsProtocolConfirmed(endpoint.Path))
             gates?.Block(endpoint, "心跳查询回复格式不符合协议家族");
         var link = result.Level.HasValue ? LinkState.Online
             : result.Asleep || result.Issue == ReadIssue.Timeout ? LinkState.Asleep
@@ -261,8 +303,6 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
 
     private static HidInterface QueryEndpoint(HidInterface endpoint, MouseReceiver route)
     {
-        if (!route.ExactCollectionOnly)
-            return endpoint;
         return route.Shape!.Channel == MouseChannel.Feature
             ? endpoint with { FeatureOnly = true, RequiredFeatureReportId = route.Shape.ReportId }
             : endpoint with { RequiredInputReportId = route.Shape.ReportId, RequiredOutputReportId = route.Shape.ReportId };
@@ -394,16 +434,22 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     {
                         if (sibling.InputLength is not > 0 || sibling.FeatureOnly)
                             continue;
+                        IHidSession? siblingSession = null;
                         try
                         {
-                            var siblingSession = transport.OpenHid(sibling with { InputOnly = true }, token);
+                            siblingSession = transport.OpenHid(sibling with { InputOnly = true }, token);
                             var siblingBuffer = new byte[sibling.InputLength.Value];
                             var read = siblingSession.ReadInputAsync(siblingBuffer, token).AsTask();
                             siblingListeners.Add((siblingSession, siblingBuffer, read));
+                            siblingSession = null;
                         }
                         catch (TransportException)
                         {
                             // 附属集合无法打开或被占用时忽略，不干扰主集合查询。
+                        }
+                        finally
+                        {
+                            siblingSession?.Dispose();
                         }
                     }
                 }
@@ -425,8 +471,13 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 {
                     report[0] = shape.ReportId;
                     await session.ReadFeatureAsync(report, token).ConfigureAwait(false);
-                    sawReply = true;
                     trace?.Invoke(FrameDirection.Received, report);
+                    if (MouseBatteryProtocol.IsFeatureIdle(report, request, route.Family))
+                    {
+                        await Task.Delay(25, token).ConfigureAwait(false);
+                        continue;
+                    }
+                    sawReply = true;
                     var reply = Decode(report, route, charging);
                     if (reply.Level.HasValue || reply.Asleep)
                         return reply;
@@ -476,7 +527,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     try
                     {
                         int count = await listener.Read.ConfigureAwait(false);
-                        sawReply = true;
+                        // 旁路集合可能包含 DPI/按键等非电量事件帧，不置位 sawReply，避免主集合休眠超时时误判 InvalidResponse 并拉黑正常鼠标。
                         trace?.Invoke(FrameDirection.Received, listener.Buffer.AsSpan(0, count));
                         if (MouseBatteryProtocol.TryCompxFromCollection(listener.Buffer.AsSpan(0, count),
                             out int level, out var compxCharging))

@@ -37,15 +37,17 @@ public sealed class AdapterRegistry
         new(new FinalmouseAdapter(gates), new SonyInzoneAdapter(sonyBaudRate, isInzoneHubRunning),
             new MouseReceiverAdapter(gates), new LogitechHidppAdapter(gates, savedLogitechSlots), new LogitechHeadsetAdapter(),
             new RazerFeatureAdapter(), new RazerHeadsetAdapter(gates: gates),
-            new AsusHidAdapter(gates), new MchoseKbAdapter(gates), new MchoseMouseAdapter(gates),
-            passiveMouse ?? new PassiveMouseAdapter(), new RapooVt9Adapter());
+            new AsusHidAdapter(gates), new AsusOmniAdapter(gates), new MchoseKbAdapter(gates), new MchoseMouseAdapter(gates),
+            passiveMouse ?? new PassiveMouseAdapter(), new RapooVt9Adapter(),
+            new SteelSeriesAdapter(gates), new HyperXHeadsetAdapter(gates), new CorsairAdapter(gates),
+            new SplitCompxAdapter(gates), new ExtendedPeripheralsAdapter(gates));
 
     internal static AdapterRegistry CreateForDiagnostics(int sonyBaudRate, SafetyGateStore? gates, AdapterRegistry? liveRegistry) =>
         CreateDefault(sonyBaudRate, gates, null, null, liveRegistry?.adapters.OfType<PassiveMouseAdapter>().FirstOrDefault());
 
     internal IReadOnlyList<IDeviceAdapter> Adapters => adapters;
 
-    /// <summary>拓扑重建、系统恢复或用户主动刷新时重置适配器离线退避与旁路缓存。</summary>
+    /// <summary>拓扑重建、系统恢复或用户主动刷新时重置适配器离线退避、旁路与端点状态缓存。</summary>
     public void ResetPollingCaches()
     {
         foreach (var adapter in adapters)
@@ -54,6 +56,10 @@ public sealed class AdapterRegistry
                 sony.ResetBackoff();
             else if (adapter is MouseReceiverAdapter mouse)
                 mouse.ResetPrimaryCache();
+            else if (adapter is LogitechHidppAdapter logitech)
+                logitech.ResetCache();
+            else if (adapter is FinalmouseAdapter finalmouse)
+                finalmouse.ResetCache();
         }
     }
 
@@ -62,9 +68,14 @@ public sealed class AdapterRegistry
         vid == 0x361D || vid == 0x373B || MouseReceiverCatalog.IsListed(vid, pid) || vid == 0x046D ||
         vid == 0x1532 && (RazerFeatureProtocol.Find(pid) is not null ||
             pid is 0x0565 or 0x057A or 0x0577 or RazerHeadsetProtocol.BlackShark2020Pid) ||
-        vid == AsusHidProtocol.VendorId && AsusHidProtocol.FindKeyboard(pid) is not null ||
+        vid == AsusHidProtocol.VendorId && AsusHidProtocol.IsKnownPid(pid) ||
         vid == MchoseKbProtocol.VendorId && pid == MchoseKbProtocol.K87ReceiverPid ||
-        MchoseMouseAdapter.Find(vid, pid) is not null || DomesticMouseStatus.Find(vid, pid) is not null;
+        MchoseMouseAdapter.Find(vid, pid) is not null || DomesticMouseStatus.Find(vid, pid) is not null ||
+        vid == SteelSeriesProtocol.VendorId && SteelSeriesProtocol.Find(pid) is not null ||
+        HyperXHeadsetProtocol.Find(vid, pid) is not null ||
+        vid == CorsairProtocol.VendorId && CorsairProtocol.Find(pid) is not null ||
+        SplitCompxProtocol.Find(vid, pid) is not null ||
+        ExtendedPeripheralProtocol.Find(vid, pid) is not null;
 
     public IEnumerable<DetectedDevice> Detect(DeviceInventory inventory) =>
         adapters.SelectMany(adapter => adapter.Detect(inventory)
@@ -140,7 +151,7 @@ public sealed class AdapterRegistry
 
     public Task ListenPushAsync(
         DetectedDevice device, IReceiverTransport transport, Action<PresenceUpdate> onUpdate, CancellationToken cancellationToken) =>
-        device.Adapter is IPushPresenceAdapter push
+        device.Adapter is IPushPresenceAdapter push && !DeviceCatalog.IsDisabledPath(device.Target.Endpoint, out _)
             ? push.ListenPushAsync(device.Target, transport, onUpdate, cancellationToken)
             : Task.CompletedTask;
 

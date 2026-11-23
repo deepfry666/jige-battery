@@ -30,6 +30,7 @@ internal sealed class PollSchedule(long createdMs)
     private bool userRequested;
     private bool urgentRescan;
     private bool forceRescan = true;
+    private bool runningTargeted;
     private HashSet<string>? targetedDeviceIds;
 
     public bool Running { get; private set; }
@@ -47,7 +48,7 @@ internal sealed class PollSchedule(long createdMs)
             targetedDeviceIds = null;
             return;
         }
-        if (Running)
+        if (Running && !runningTargeted)
             return;
         requested = true;
         userRequested |= userInitiated;
@@ -57,7 +58,7 @@ internal sealed class PollSchedule(long createdMs)
     /// <summary>安排仅补查指定唤醒设备的轻量查询，避免单台设备从休眠恢复时牵连全量设备重查。</summary>
     public void RequestTargeted(IEnumerable<string> deviceIds)
     {
-        if (Running || requested || userRequested || urgentRescan)
+        if ((Running && !runningTargeted) || requested || userRequested || urgentRescan)
             return;
         foreach (string id in deviceIds)
         {
@@ -82,6 +83,14 @@ internal sealed class PollSchedule(long createdMs)
     {
         forceRescan = true;
         urgentRescan = true;
+        requested = true;
+        targetedDeviceIds = null;
+    }
+
+    /// <summary>通用设备节点变更（如 DBT_DEVNODES_CHANGED 0x0007）：仅失效缓存并在非游戏免打扰时尽快刷新，不打断游戏降频。</summary>
+    public void NotifyBackgroundDeviceChange()
+    {
+        forceRescan = true;
         requested = true;
         targetedDeviceIds = null;
     }
@@ -120,6 +129,7 @@ internal sealed class PollSchedule(long createdMs)
             return false;
 
         Running = true;
+        runningTargeted = true;
         StartedByUser = false;
         deviceIds = targetedDeviceIds;
         targetedDeviceIds = null;
@@ -129,20 +139,26 @@ internal sealed class PollSchedule(long createdMs)
     public bool Start(long nowMs, bool game)
     {
         Running = true;
+        runningTargeted = false;
         StartedByUser = userRequested;
         lastPollStartedMs = nowMs;
         lastHeartbeatStartedMs = nowMs;
         bool shouldRescan = forceRescan;
+        bool wasUrgent = urgentRescan;
         forceRescan = false;
         urgentRescan = false;
         targetedDeviceIds = null;
-        if (!game || userRequested)
+        if (!game || userRequested || wasUrgent)
             requested = false;
         userRequested = false;
         return shouldRescan;
     }
 
-    public void Complete() => Running = false;
+    public void Complete()
+    {
+        Running = false;
+        runningTargeted = false;
+    }
 
     public void StartHeartbeat(long nowMs, bool inputWake = false)
     {
@@ -170,6 +186,13 @@ internal sealed class PollSchedule(long createdMs)
     public long InputWakeCooldown =>
         Math.Min(InputWakeMaxCooldownMs, (long)InputWakeCooldownMs << Math.Clamp(inputWakeStreak - 1, 0, 8));
 
+    /// <summary>下一次输入检测的合理等待毫秒数：冷却中直接睡到冷却结束，避免退避期间每 500ms 空转唤醒。</summary>
+    public long InputCheckDelayMs(long nowMs)
+    {
+        long remaining = lastInputWakeMs + InputWakeCooldown - nowMs;
+        return Math.Max(InputCheckIntervalMs, remaining);
+    }
+
     /// <summary>
     /// R3：用户有新的键鼠输入（GetLastInputInfo 的 dwTime 发生变化）且存在休眠设备时，
     /// 立即允许补一次心跳（最多每 2 秒一次）；不安装钩子、不记录任何输入内容。
@@ -180,10 +203,15 @@ internal sealed class PollSchedule(long createdMs)
         if (currentInputTick is not uint tick)
             return false;
         bool inputChanged = lastObservedInputTick is uint previous && previous != tick;
-        lastObservedInputTick = tick;
-        if (!inputChanged || !hasAsleepHeartbeatDevices || game || Running || HeartbeatRunning)
+        if (!hasAsleepHeartbeatDevices || game || !inputChanged)
+        {
+            lastObservedInputTick = tick;
             return false;
-        return nowMs - lastInputWakeMs >= InputWakeCooldown;
+        }
+        if (Running || HeartbeatRunning || nowMs - lastInputWakeMs < InputWakeCooldown)
+            return false;
+        lastObservedInputTick = tick;
+        return true;
     }
 }
 

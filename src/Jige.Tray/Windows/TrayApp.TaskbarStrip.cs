@@ -14,7 +14,7 @@ internal sealed partial class TrayApp
 {
     private const string StripClass = "Jige.Tray.TaskbarStrip";
     private const uint StripGeometryMessage = 0x8009, StripAppBarMessage = 0x800A;
-    private const uint StripBackdropSettleMs = 450, StripBackdropPollMs = 3_000;
+    private const uint StripBackdropSettleMs = 450;
     private TaskbarStripAutomation? stripAutomation;
     private TaskbarStripWindow? stripWindow;
     private readonly TaskbarControlsStabilizer stripStabilizer = new();
@@ -70,7 +70,7 @@ internal sealed partial class TrayApp
         (stripOwner.IsNull || stripWindowUnavailable || stripDisplay.IsFallback ||
          stripGeometryPending || stripAutomation is not { Alive: true });
 
-    private void RefreshStripGeometry()
+    private void RefreshStripGeometry(bool forcePublish = false)
     {
         if (model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons)
         {
@@ -100,7 +100,7 @@ internal sealed partial class TrayApp
         if (!owner.IsNull && !appBarSubscribed)
             appBarSubscribed = TaskbarStripShell.Subscribe(host, StripAppBarMessage);
         if (stripAutomation is not null || !owner.IsNull)
-            EnsureStripAutomation()?.Request(owner, reset: retryWindow);
+            EnsureStripAutomation()?.Request(owner, reset: retryWindow, forcePublish: forcePublish);
     }
 
     private void RecoverStrip()
@@ -138,15 +138,17 @@ internal sealed partial class TrayApp
         stripZOrderPending = true;
         // An owned popup is not moved by its owner. Hide it at the first Shell
         // notification that its old screen rectangle no longer fits the live bar.
+        bool hidLocally = false;
         if (stripWindow?.VisibleBounds is { } bounds &&
             (!PInvoke.IsWindowVisible(stripOwner) || !PInvoke.GetWindowRect(stripOwner, out var live) ||
              bounds.Top < live.top || bounds.Bottom > live.bottom ||
              bounds.Left < live.left || bounds.Right > live.right))
         {
             stripGeometry = stripGeometry with { Visible = false };
+            hidLocally = true;
             RefreshIcon();
         }
-        RefreshStripGeometry();
+        RefreshStripGeometry(forcePublish: hidLocally);
     }
 
     private void CompleteStripGeometry()
@@ -215,7 +217,9 @@ internal sealed partial class TrayApp
                     stripWindow = new(window, stripGeometry.Owner);
                 }
                 int scale = TaskbarStripLayout.PixelScale(stripGeometry.Dpi);
-                if (!stripBackdropSampled && !stripBackdropDeferSample && !game.Game && !stripFullscreen &&
+                bool moving = stripWindow.VisibleBounds != next.Bounds;
+                if (!moving && !stripBackdropSampled && !stripBackdropDeferSample && !game.Game && !stripFullscreen &&
+                    Desktop.TransparencyEnabled &&
                     Desktop.TrySampleTaskbarBackdrop(stripGeometry.Owner, stripWindow.Handle, stripGeometry.Bar,
                         next.Bounds, scale, out var sampled))
                 {
@@ -226,6 +230,8 @@ internal sealed partial class TrayApp
                 }
                 bool raise = stripZOrderPending && popup is null && menu is null && hoverCard is null;
                 stripWindow.Update(rendered, layout, next.Bounds, stripPalette, scale, ensureTopmost: raise);
+                if (raise)
+                    stripZOrderPending = false;
             }
             catch (Exception error) when (error is ExternalException or InvalidOperationException or UnauthorizedAccessException)
             {
@@ -266,11 +272,12 @@ internal sealed partial class TrayApp
             if (hoverCard is not null && hoverIconId is null)
                 DestroyHoverCard();
         }
-        else if (!game.Game && !stripFullscreen)
+        else if (!game.Game && !stripFullscreen && Desktop.TransparencyEnabled)
         {
+            // 仅在首次显示、移动/缩放或尚未采样时安排一次性稳定采样，取消每 3 秒无条件 BitBlt 后台截屏。
             bool movedOrResized = !previous.ShowStrip || previous.Bounds != next.Bounds;
-            ScheduleStripBackdropSample(movedOrResized || !stripBackdropSampled
-                ? StripBackdropSettleMs : StripBackdropPollMs);
+            if (movedOrResized || !stripBackdropSampled)
+                ScheduleStripBackdropSample(StripBackdropSettleMs);
         }
 
         if (next.IsFallback && !StripGeometryPending)
@@ -341,7 +348,7 @@ internal sealed partial class TrayApp
 
     private void ApplyStripAppearanceSettings()
     {
-        stripPalette = ResolveStripPalette(taskbarBackdrop);
+        stripPalette = ResolveStripPalette(taskbarBackdrop, stripPalette);
     }
 
     private void RefreshTaskbarTheme(bool redraw = true)
@@ -403,7 +410,7 @@ internal sealed partial class TrayApp
     {
         stripBackdropDueMs = 0;
         stripBackdropDeferSample = false;
-        if (!stripDisplay.ShowStrip || game.Game || stripFullscreen ||
+        if (!stripDisplay.ShowStrip || game.Game || stripFullscreen || !Desktop.TransparencyEnabled ||
             stripWindow is not { VisibleBounds: { } bounds } window)
             return;
 
@@ -414,14 +421,13 @@ internal sealed partial class TrayApp
             taskbarBackdrop = sampled;
             var nextPalette = ResolveStripPalette(sampled, stripBackdropSampled ? stripPalette : null);
             stripBackdropSampled = true;
+            darkTaskbar = sampled.PrefersDarkPalette(darkTaskbar);
             if (nextPalette != stripPalette)
             {
                 stripPalette = nextPalette;
-                darkTaskbar = sampled.PrefersDarkPalette(darkTaskbar);
                 RefreshStrip();
             }
         }
-        ScheduleStripBackdropSample(StripBackdropPollMs);
     }
 
     private static RECT ToRect(Bounds bounds) =>
@@ -449,7 +455,8 @@ internal sealed partial class TrayApp
             }
             catch (Exception error)
             {
-                Desktop.Log("处理直读条交互失败", error);
+                try { Desktop.Log("处理直读条交互失败", error); }
+                catch { }
             }
         }
         return PInvoke.DefWindowProc(window, message, wParam, lParam);
@@ -463,6 +470,7 @@ internal sealed partial class TrayApp
                 strip.PointerMove();
                 return true;
             case 0x02A1: // WM_MOUSEHOVER
+                strip.PointerHover();
                 if (strip.VisibleBounds is { } bounds)
                     ShowHoverCard(null, null, ToRect(bounds));
                 return true;

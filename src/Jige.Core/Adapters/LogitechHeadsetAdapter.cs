@@ -12,7 +12,10 @@ internal sealed class LogitechHeadsetAdapter : IDeviceAdapter, IPresenceAdapter
             : reading.Issue == ReadIssue.Timeout ? LinkState.Asleep
             : reading.Issue == ReadIssue.Disconnected ? LinkState.Offline
             : reading.Link;
-        return new(target.Endpoint.ReceiverId, null, target.Device.Id, link, reading.Issue);
+        return new(target.Endpoint.ReceiverId, null, target.Device.Id, link, reading.Issue)
+        {
+            Battery = reading.Link == LinkState.Online && reading.Percentage.HasValue ? reading : null
+        };
     }
     private static string? Model(ushort? pid) => pid switch
     {

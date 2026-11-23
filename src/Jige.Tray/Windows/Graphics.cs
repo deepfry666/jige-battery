@@ -275,6 +275,8 @@ internal sealed unsafe class Canvas : IDisposable
     private void Bitmap(ReadOnlySpan<byte> source, uint width, uint height,
         float x, float y, float w, float h, D2D1_BITMAP_INTERPOLATION_MODE interpolation)
     {
+        if (width == 0 || height == 0 || (ulong)width * height * 4 > (ulong)source.Length)
+            throw new ArgumentException("位图缓冲长度不足", nameof(source));
         ID2D1Bitmap* bitmap = null;
         var format = new D2D1_BITMAP_PROPERTIES
         {

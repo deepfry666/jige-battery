@@ -81,7 +81,7 @@ internal static unsafe partial class Native
         public uint WriteConstant;
     }
 
-    [StructLayout(LayoutKind.Sequential)]
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct ProcessEntry32
     {
         public uint Size;
@@ -99,8 +99,9 @@ internal static unsafe partial class Native
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true)]
     internal static partial nint GetClassDevs(in Guid classGuid, nint enumerator, nint parent, uint flags);
 
-    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true)]
-    internal static partial nint GetAllClassDevs(nint classGuid, nint enumerator, nint parent, uint flags);
+    [LibraryImport("setupapi.dll", EntryPoint = "SetupDiGetClassDevsW", SetLastError = true,
+        StringMarshalling = StringMarshalling.Utf16)]
+    internal static partial nint GetAllClassDevs(nint classGuid, string? enumerator, nint parent, uint flags);
 
     [LibraryImport("setupapi.dll", EntryPoint = "SetupDiDestroyDeviceInfoList")]
     internal static partial int DestroyDeviceInfoList(nint set);
@@ -191,6 +192,15 @@ internal static unsafe partial class Native
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     internal static partial int SetCommTimeouts(SafeFileHandle file, in CommTimeouts timeouts);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial int SetupComm(SafeFileHandle file, uint inQueue, uint outQueue);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial int ClearCommError(SafeFileHandle file, out uint errors, nint stat);
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    internal static partial int PurgeComm(SafeFileHandle file, uint flags);
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     internal static partial nint CreateToolhelp32Snapshot(uint flags, uint processId);

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DisableRuntimeMarshalling>true</DisableRuntimeMarshalling>
     <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
@@ -12,6 +13,7 @@
       Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)BuildVersion.g.cs" />
+      <FileWrites Include="$(IntermediateOutputPath)BuildVersion.g.cs" />
     </ItemGroup>
   </Target>
 </Project>
