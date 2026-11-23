@@ -108,6 +108,10 @@ function CreateNamedMutex(Attributes: THandle; InitialOwner: Integer; Name: Stri
 function CloseHandle(Handle: THandle): Boolean;
   external 'CloseHandle@kernel32.dll stdcall';
 
+const
+  // TFileStream 模式：fmOpenReadWrite ($0002) or fmShareExclusive ($0010)，用于检测目标 Jige.exe 是否已释放进程占用。
+  FileLockReadWriteExclusive = $0012;
+
 var
   OperationGate: THandle;
   OperationOwned: Boolean;
@@ -333,11 +337,44 @@ begin
     SuppressibleMsgBox('几格无法保存开机启动选项。你可以在几格设置里重新选择。', mbError, MB_OK, IDOK);
 end;
 
+function CanLockFileForReplace(const FilePath: String): Boolean;
+var
+  Stream: TFileStream;
+begin
+  Result := True;
+  if not FileExists(FilePath) then
+    Exit;
+  try
+    Stream := TFileStream.Create(FilePath, FileLockReadWriteExclusive);
+    Stream.Free;
+  except
+    Result := False;
+  end;
+end;
+
+procedure WaitForExeUnlocked(const FilePath: String; MaxAttempts: Integer);
+var
+  Attempt: Integer;
+begin
+  for Attempt := 1 to MaxAttempts do
+  begin
+    if CanLockFileForReplace(FilePath) then
+      Exit;
+    Sleep(100);
+  end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 begin
   Result := '';
   if CheckForMutexes('{#TrayMutex}') then
+  begin
     Result := '几格仍在运行。请先退出托盘程序，再安装。';
+    Exit;
+  end;
+  // 旧版托盘在释放单实例互斥量后可能仍需短暂时间完成进程退出（v0.2.20–v0.2.22 还会额外等待最多 2 秒），
+  // 等待目标 Jige.exe 解除映像占用后再进入文件替换，避免静默升级时因文件被占直接以退出码 5 中止。
+  WaitForExeUnlocked(ExpandConstant('{app}\Jige.exe'), 60);
 end;
 
 procedure DeinitializeSetup;

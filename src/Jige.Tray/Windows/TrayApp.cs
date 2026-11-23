@@ -2732,9 +2732,9 @@ internal sealed partial class TrayApp : IDisposable
                 ArgumentList = { "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/JIGERESTART" },
                 UseShellExecute = false
             };
+            // 拉起安装器后本进程必须立刻退出以释放 Jige.exe 映像锁；若安装器中途失败，由 installer/jige.iss 的
+            // DeinitializeSetup 按 /JIGERESTART 拉回托盘。切勿在此 WaitForExit，否则会与静默安装器互锁导致退出码 5。
             using var installer = Process.Start(start) ?? throw new Win32Exception(0, "无法启动几格安装器。");
-            if (installer.WaitForExit(2_000) && installer.ExitCode != 0)
-                throw new Win32Exception(installer.ExitCode, $"几格安装器异常退出（退出码 {installer.ExitCode}）。");
         }
         catch (Exception error)
         {
