@@ -4,11 +4,14 @@ using Jige.Core.Diagnostics;
 namespace Jige.Tray;
 
 internal sealed record DeviceStatus(DeviceIdentity Device, LinkState Link, ReadIssue Issue,
-    ChargingState Charging, SavedBattery? Last, bool Fresh, bool PendingRefresh = false)
+    ChargingState Charging, SavedBattery? Last, bool Fresh, bool PendingRefresh = false,
+    bool ChargeStatusOnly = false)
 {
-    public int? Percentage => Last?.Percentage;
-    public bool IsCharging => (Fresh || Device.UsesPassiveBatteryReports && IsOnline) && Charging == ChargingState.Charging;
-    public bool IsFull => Fresh && (Charging == ChargingState.Full || Charging == ChargingState.Charging && Percentage == 100);
+    public int? Percentage => ChargeStatusOnly ? null : Last?.Percentage;
+    public bool IsCharging => (Fresh || ChargeStatusOnly || Device.UsesPassiveBatteryReports && IsOnline) &&
+        Charging == ChargingState.Charging;
+    public bool IsFull => (Fresh || ChargeStatusOnly) &&
+        (Charging == ChargingState.Full || Charging == ChargingState.Charging && Percentage == 100);
     public bool IsOnline => Link == LinkState.Online;
     /// <summary>在线或短时休眠（未超时转离线）均视为活跃设备，避免鼠标静止数秒即跳入「离线设备」闪烁（R1）。</summary>
     public bool IsActive => Link is LinkState.Online or LinkState.Asleep;
@@ -255,7 +258,8 @@ internal sealed class TrayModel
                 Link = LinkState.Offline,
                 Fresh = false,
                 PendingRefresh = false,
-                Charging = ChargingState.Unknown
+                Charging = ChargingState.Unknown,
+                ChargeStatusOnly = false
             };
             ObserveRuntime(id, devices[id], now);
             changed = true;
@@ -374,7 +378,7 @@ internal sealed class TrayModel
         Settings = settings;
         foreach (var device in devices.Values)
         {
-            if (device.Fresh)
+            if (device.Fresh || device.ChargeStatusOnly)
                 UpdateReminder(device, now);
             else if (device.Percentage > ThresholdFor(device.Device.Id))
                 reminders.Remove(device.Device.Id);
@@ -427,7 +431,7 @@ internal sealed class TrayModel
         if (!scanFailed || unknownReceivers > 0)
             UnknownReceivers = unknownReceivers;
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        bool anyFresh = false, meaningfulChange = false, removedChanged = false;
+        bool anyFresh = false, anyLiveStatus = false, meaningfulChange = false, removedChanged = false;
         if (mergeChannels)
         {
             readings = MergeLogitechCableReadings(readings, ref meaningfulChange);
@@ -512,7 +516,12 @@ internal sealed class TrayModel
                 device = device with { Name = previous.Device.Name };
                 reading = reading with { Device = device };
             }
+            bool onlineChargeOnly = !device.UsesPassiveBatteryReports &&
+                reading.Link == LinkState.Online &&
+                reading.Percentage is null &&
+                reading.Charging is ChargingState.Charging or ChargingState.Full;
             if (previous is null && (reading.Percentage is null || reading.Link != LinkState.Online) &&
+                !onlineChargeOnly &&
                 !(device.UsesPassiveBatteryReports && reading.Link is LinkState.Online or LinkState.Asleep))
             {
                 if (removedOffline.Contains(device.Id))
@@ -532,6 +541,7 @@ internal sealed class TrayModel
                 prevLast.ReadAt <= now + FutureClockSkew &&
                 reading.ReadAt < prevLast.ReadAt;
             bool fresh = resolvedLink == LinkState.Online && reading.Percentage is not null && !staleHeld;
+            bool chargeStatusOnly = onlineChargeOnly && resolvedLink == LinkState.Online && !staleHeld;
             var resolvedCharging = reading.Charging;
             var resolvedIssue = reading.Issue;
             if (fresh)
@@ -543,33 +553,41 @@ internal sealed class TrayModel
                 };
                 if (last is null || last.Percentage != nextLast.Percentage || last.IsEstimated != nextLast.IsEstimated ||
                     previous?.Charging != reading.Charging || previous?.Device != device || previous?.Link != resolvedLink ||
-                    previous?.Fresh != true)
+                    previous?.Fresh != true || previous?.ChargeStatusOnly == true)
                     meaningfulChange = true;
                 last = nextLast;
             }
             else if (staleHeld && resolvedLink == LinkState.Online && previous is { Last: { } keptLast })
             {
                 // 适配器返还旧读数（如 HoldOnline）或乱序旧轮询到达时，保留较新的电量、充电态与错误态，避免回退污染历史与提醒。
-                fresh = !IsExpired(keptLast, now, inGameMode);
+                chargeStatusOnly = previous.ChargeStatusOnly;
+                fresh = !chargeStatusOnly && !IsExpired(keptLast, now, inGameMode);
                 resolvedCharging = previous.Charging;
                 resolvedIssue = previous.Issue;
                 if (previous.Link != resolvedLink || previous.Device != device || previous.Fresh != fresh)
                     meaningfulChange = true;
             }
-            else if (previous is null || previous.Link != resolvedLink || previous.Device != device ||
-                previous.Charging != reading.Charging && device.UsesPassiveBatteryReports)
+            else
             {
-                meaningfulChange = true;
+                if (chargeStatusOnly)
+                    anyLiveStatus = true;
+                if (previous is null || previous.Link != resolvedLink || previous.Device != device ||
+                    previous.ChargeStatusOnly != chargeStatusOnly ||
+                    previous.Charging != resolvedCharging && (device.UsesPassiveBatteryReports || chargeStatusOnly))
+                {
+                    meaningfulChange = true;
+                }
             }
 
-            var status = new DeviceStatus(device, resolvedLink, resolvedIssue, resolvedCharging, last, fresh);
+            var status = new DeviceStatus(device, resolvedLink, resolvedIssue, resolvedCharging, last, fresh,
+                ChargeStatusOnly: chargeStatusOnly);
             devices[device.Id] = status;
             onLinkChanged?.Invoke(device, previous?.Link, status.Link);
             UpdateHistory(device.Id, status, now);
             // 仅当旧读数仍保持在线态时跳过续航更新；若已转为休眠/离线必须通知续航模型暂停计时。
             if (!staleHeld || resolvedLink != LinkState.Online)
                 ObserveRuntime(device.Id, status, now);
-            if (fresh && UpdateReminder(status, now))
+            if ((fresh || chargeStatusOnly) && UpdateReminder(status, now))
                 meaningfulChange = true;
         }
 
@@ -600,7 +618,7 @@ internal sealed class TrayModel
             var missingLink = previous.Device.Connection == DeviceConnection.Bluetooth ? LinkState.Asleep :
                 scanFailed ? LinkState.Unknown : receiverStillPresent ? LinkState.Asleep : LinkState.Offline;
             var nextLink = ResolveLinkForSleep(previous.Device, previous.Link, missingLink, now);
-            if (previous.Link != nextLink || previous.Fresh)
+            if (previous.Link != nextLink || previous.Fresh || previous.ChargeStatusOnly)
                 meaningfulChange = true;
             devices[id] = previous with
             {
@@ -608,12 +626,13 @@ internal sealed class TrayModel
                 Issue = ReadIssue.None,
                 Fresh = false,
                 PendingRefresh = false,
-                Charging = ChargingState.Unknown
+                Charging = ChargingState.Unknown,
+                ChargeStatusOnly = false
             };
             ObserveRuntime(id, devices[id], now);
             onLinkChanged?.Invoke(previous.Device, previous.Link, nextLink);
         }
-        if (anyFresh)
+        if (anyFresh || anyLiveStatus)
             UpdatedAt = now;
         // 移除后已消失的设备无需继续保留标记。再次识别时重新出现。
         if (sweepMissing && !scanFailed)
@@ -648,11 +667,25 @@ internal sealed class TrayModel
         {
             var known = devices.Values.Where(item => StringComparer.OrdinalIgnoreCase.Equals(LogitechUnit(item.Device.Id), group.Key))
                 .OrderByDescending(item => item.Last is not null).ToArray();
-            var winner = group.OrderByDescending(item => item.Link == LinkState.Online && item.Percentage is not null)
+            DateTimeOffset? prevReadAt = known.FirstOrDefault()?.Last?.ReadAt;
+            bool hasNewerThanPrev = prevReadAt is { } prevAt &&
+                group.Any(item => item.Link == LinkState.Online && item.ReadAt > prevAt);
+            var winner = group
+                .OrderByDescending(item => item.Link == LinkState.Online && (!hasNewerThanPrev || item.ReadAt > prevReadAt!.Value))
+                .ThenByDescending(item => item.Link == LinkState.Online && item.Percentage is not null)
                 .ThenByDescending(item => item.Link == LinkState.Online)
                 .ThenByDescending(item => item.Link == LinkState.Asleep)
                 .ThenByDescending(item => item.Device.Connection == DeviceConnection.UsbCable)
                 .First();
+            // 若 2.4G 仍给出有效百分比、同时 USB 线缆在线报告充电/充满但无百分比，保留有效百分比并补全充电状态。
+            if (winner.Link == LinkState.Online && winner.Percentage is not null &&
+                winner.Charging is ChargingState.Unknown or ChargingState.NotCharging &&
+                group.FirstOrDefault(item => item.Device.Connection == DeviceConnection.UsbCable &&
+                    item.Link == LinkState.Online && (!hasNewerThanPrev || item.ReadAt > prevReadAt!.Value) &&
+                    item.Charging is ChargingState.Charging or ChargingState.Full) is { } cableCharge)
+            {
+                winner = winner with { Charging = cableCharge.Charging };
+            }
             string id = known.FirstOrDefault()?.Device.Id ?? winner.Device.Id;
             activeRouteIds[id] = winner.Device.Id;
             merged.Add(winner with { Device = winner.Device with { Id = id } });
@@ -872,7 +905,8 @@ internal sealed class TrayModel
                     Issue = update.Issue,
                     Fresh = lostLink ? false : previous.Fresh,
                     PendingRefresh = lostLink ? false : pendingRefresh || previous.PendingRefresh,
-                    Charging = lostLink ? ChargingState.Unknown : previous.Charging
+                    Charging = lostLink ? ChargingState.Unknown : previous.Charging,
+                    ChargeStatusOnly = lostLink ? false : previous.ChargeStatusOnly
                 };
                 devices[id] = next;
                 ObserveRuntime(id, next, now);
@@ -1130,8 +1164,8 @@ internal sealed class TrayModel
         if (Settings.FullChargeReminder && IsChargedFull(device))
             changed |= reminders.TryAdd(fullKey, new(now));
         else if (!Settings.FullChargeReminder ||
-            device.Fresh && (device.Charging == ChargingState.NotCharging ||
-                device.Charging != ChargingState.Full && device.Percentage < 98))
+            (device.Fresh || device.ChargeStatusOnly) && (device.Charging == ChargingState.NotCharging ||
+                device.Charging != ChargingState.Full && (device.Percentage is null || device.Percentage < 98)))
             changed |= reminders.Remove(fullKey);
 
         string predictKey = ReminderKeys.For(ReminderKind.Predicted, id);
@@ -1144,7 +1178,7 @@ internal sealed class TrayModel
     }
 
     private static bool IsChargedFull(DeviceStatus device) =>
-        device is { Link: LinkState.Online, Last: not null, IsFull: true };
+        device is { Link: LinkState.Online, IsFull: true } && (device.Last is not null || device.ChargeStatusOnly);
 
     /// <summary>
     /// 预测提醒：剩余可用时长不够本机日均在线时长（按你的用法撑不过一天），且电量还没到低电量阈值。
@@ -1194,8 +1228,11 @@ internal sealed class TrayModel
     private bool CanRemind(string key, DateTimeOffset now)
     {
         var (kind, id) = ReminderKeys.Parse(key);
-        if (!devices.TryGetValue(id, out var device) || !IsShown(device.Device) ||
-            device is not { Fresh: true, Link: LinkState.Online, Last: { } last } || IsExpired(last, now, inGameMode))
+        if (!devices.TryGetValue(id, out var device) || !IsShown(device.Device))
+            return false;
+        if (kind == ReminderKind.FullCharge && device is { Link: LinkState.Online, ChargeStatusOnly: true })
+            return Settings.FullChargeReminder && IsChargedFull(device);
+        if (device is not { Fresh: true, Link: LinkState.Online, Last: { } last } || IsExpired(last, now, inGameMode))
             return false;
         return kind switch
         {

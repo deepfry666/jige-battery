@@ -197,6 +197,168 @@ public sealed class LogitechTrayTests
         Assert.Equal(83, keyboard.Percentage);
     }
 
+    [Fact]
+    public void MxVerticalSwitchBetween24GAndChargeOnlyUsbNeverShowsZeroAndRestores90Percent()
+    {
+        var receiver = new DeviceIdentity("logitech-hidpp:unifying/1/unit-MXVERTICAL", "MX Vertical", DeviceKind.Mouse,
+            AdaptationSource.Catalog, VerificationTier.DocsOnly, DeviceConnection.Receiver);
+        var cable = receiver with
+        {
+            Id = "logitech-hidpp-direct:usb/unit-MXVERTICAL",
+            Source = AdaptationSource.Generic,
+            Connection = DeviceConnection.UsbCable
+        };
+        var model = new TrayModel(new() { FullChargeReminder = true }, new());
+
+        // 1) 2.4G 在线：90% 未充电。
+        model.ApplyPoll([new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now);
+        var wireless = Assert.Single(model.TrayDevices());
+        Assert.Equal(90, wireless.Percentage);
+        Assert.Equal("90%", Presentation.Value(wireless));
+        Assert.Equal("2.4G 已连接", Presentation.Status(wireless, 15));
+
+        // 2) 插上 USB 线缆（0x1000 回复 00 00 01 -> null / Charging），即便 2.4G 首轮仍返回旧 HoldOnline 读数，USB 也立即生效且不误显示 0% 或陈旧百分比。
+        var t1 = Now.AddSeconds(30);
+        model.ApplyPoll([
+            new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, Now),
+            new(cable, null, false, ChargingState.Charging, LinkState.Online, t1)
+        ], false, t1);
+        var charging = Assert.Single(model.TrayDevices());
+        Assert.Equal(receiver.Id, charging.Device.Id);
+        Assert.Equal(DeviceConnection.UsbCable, charging.Device.Connection);
+        Assert.True(charging.ChargeStatusOnly);
+        Assert.True(charging.IsCharging);
+        Assert.False(charging.IsFull);
+        Assert.Null(charging.Percentage);
+        Assert.Equal("–", Presentation.Value(charging));
+        Assert.Equal("充电中", Presentation.Status(charging, 15));
+        Assert.Equal(BatteryTone.Charging, Presentation.Tone(charging, 15));
+        Assert.Equal("MX Vertical · 充电中", Presentation.DeviceTooltip(model, charging));
+        var stripCharging = TaskbarStripDevice.From(charging, 15);
+        Assert.Equal("--", stripCharging.Text);
+        Assert.Equal(BatteryTone.Charging, stripCharging.Tone);
+        Assert.True(stripCharging.ShowBolt);
+        var listCard = HoverCardBuilder.Build(model, null, t1, forceList: true);
+        var listRow = Assert.Single(listCard.Rows);
+        Assert.Equal("–", listRow.ValueText);
+        Assert.Equal("充电中", listRow.StatusText);
+        Assert.Equal(BatteryTone.Charging, listRow.Tone);
+        Assert.True(listRow.IsCharging);
+        Assert.Null(listRow.Percentage);
+
+        model.ApplySettings(model.Settings with { TrayMode = TrayDisplayMode.Custom }, t1);
+        var singleCard = HoverCardBuilder.Build(model, receiver.Id, t1);
+        Assert.Equal(HoverCardKind.Single, singleCard.Kind);
+        Assert.Null(singleCard.Percentage);
+        Assert.Equal("–", singleCard.ValueText);
+        Assert.Equal("充电中 · 电量未知", singleCard.StatusLine);
+        Assert.Equal(BatteryTone.Charging, singleCard.Tone);
+        Assert.True(singleCard.IsCharging);
+
+        Assert.Equal(t1, model.UpdatedAt);
+        // 历史不记录伪造的 0% / Charging。
+        var historySamples = Assert.Single(model.DiagnosticHistories()).RecentReadings;
+        Assert.Equal([90], historySamples.Select(s => s.Percentage));
+
+        // 3) USB 充满（0x1000 回复 00 00 03 -> null / Full）：显示「已充满」，不编造 100%，不显示 0%。
+        var t2 = Now.AddMinutes(30);
+        model.ApplyPoll([
+            new(receiver, null, false, ChargingState.Unknown, LinkState.Offline, t2),
+            new(cable, null, false, ChargingState.Full, LinkState.Online, t2)
+        ], false, t2);
+        var full = Assert.Single(model.TrayDevices());
+        Assert.Null(full.Percentage);
+        Assert.True(full.ChargeStatusOnly);
+        Assert.True(full.IsFull);
+        Assert.False(full.IsCharging);
+        Assert.Equal("–", Presentation.Value(full));
+        Assert.Equal("已充满", Presentation.Status(full, 15));
+        Assert.Equal(BatteryTone.Charging, Presentation.Tone(full, 15));
+        Assert.Equal("MX Vertical · 已充满", Presentation.DeviceTooltip(model, full));
+        Assert.Equal("已充满 · 电量未知", HoverCardBuilder.SingleStatusLine(full, BatteryTone.Charging, t2));
+        Assert.Equal("已充满", HoverCardBuilder.ListRowStatus(full, BatteryTone.Charging));
+        Assert.Equal(ReminderKeys.For(ReminderKind.FullCharge, receiver.Id), model.ReadyReminderKey(t2, false));
+
+        // 4) 拔线切回 2.4G：恢复 90% / 2.4G 已连接，且清除充满提醒。
+        var t3 = Now.AddMinutes(31);
+        model.ApplyPoll([new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, t3)], false, t3);
+        var back = Assert.Single(model.TrayDevices());
+        Assert.Equal(receiver.Id, back.Device.Id);
+        Assert.Equal(DeviceConnection.Receiver, back.Device.Connection);
+        Assert.False(back.ChargeStatusOnly);
+        Assert.True(back.Fresh);
+        Assert.Equal(90, back.Percentage);
+        Assert.Equal("90%", Presentation.Value(back));
+        Assert.Equal("2.4G 已连接", Presentation.Status(back, 15));
+        Assert.Null(model.ReadyReminderKey(t3, false));
+    }
+
+    [Fact]
+    public void ColdStartOnChargeOnlyUsbAppearsInTrayWithoutHijackingLowerBatteryDevice()
+    {
+        var cable = new DeviceIdentity("logitech-hidpp-direct:usb/unit-MXVERTICAL", "MX Vertical", DeviceKind.Mouse,
+            AdaptationSource.Generic, VerificationTier.DocsOnly, DeviceConnection.UsbCable);
+        var other = new DeviceIdentity("mouse:other", "Other Mouse", DeviceKind.Mouse);
+        var model = new TrayModel(new(), new());
+
+        model.ApplyPoll([new(cable, null, false, ChargingState.Charging, LinkState.Online, Now)], false, Now);
+        var only = Assert.Single(model.PanelDevices());
+        Assert.Null(only.Percentage);
+        Assert.True(only.ChargeStatusOnly);
+        Assert.Equal("–", Presentation.Value(only));
+        Assert.Equal("充电中", Presentation.Status(only, 15));
+        Assert.Equal(BatteryTone.Charging, Presentation.Tone(only, 15));
+
+        // 有另一台真实 25% 无线设备时，无百分比充电鼠标排在后面，不抢占最低电量主卡。
+        var t1 = Now.AddSeconds(10);
+        model.ApplyPoll([
+            new(cable, null, false, ChargingState.Charging, LinkState.Online, t1),
+            new(other, 25, false, ChargingState.NotCharging, LinkState.Online, t1)
+        ], false, t1);
+        var plan = model.BuildMainPanel();
+        Assert.Equal(other.Id, plan.Hero?.Device.Id);
+        Assert.Equal(cable.Id, Assert.Single(plan.OnlineRows).Device.Id);
+    }
+
+    [Fact]
+    public void SimultaneousFresh24GAndChargeOnlyUsbKeepsRealPercentageAndAdoptsChargingState()
+    {
+        var receiver = new DeviceIdentity("logitech-hidpp:unifying/1/unit-MXVERTICAL", "MX Vertical", DeviceKind.Mouse);
+        var cable = receiver with { Id = "logitech-hidpp-direct:usb/unit-MXVERTICAL", Connection = DeviceConnection.UsbCable };
+        var model = new TrayModel(new(), new());
+
+        model.ApplyPoll([new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now);
+        var t1 = Now.AddSeconds(30);
+        model.ApplyPoll([
+            new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, t1),
+            new(cable, null, false, ChargingState.Charging, LinkState.Online, t1)
+        ], false, t1);
+
+        var combined = Assert.Single(model.TrayDevices());
+        Assert.Equal(90, combined.Percentage);
+        Assert.True(combined.Fresh);
+        Assert.False(combined.ChargeStatusOnly);
+        Assert.True(combined.IsCharging);
+        Assert.Equal("充电中", Presentation.Status(combined, 15));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    public void RealZeroPercentAndLowBatteryStillDisplayAndRemindNormally(int percent)
+    {
+        var model = new TrayModel(new(), new());
+        model.ApplyPoll([new(Mouse, percent, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now);
+        var status = Assert.Single(model.TrayDevices());
+        Assert.Equal(percent, status.Percentage);
+        Assert.False(status.ChargeStatusOnly);
+        Assert.Equal($"{percent}%", Presentation.Value(status));
+        Assert.Equal(BatteryTone.Low, Presentation.Tone(status, 15));
+        Assert.Equal("电量低，该充电了", Presentation.Status(status, 15));
+        Assert.Equal($"{percent}%", TaskbarStripDevice.From(status, 15).Text);
+        Assert.Equal(Mouse.Id, model.ReadyReminderKey(Now, false));
+    }
+
     private static BatteryReading Reading(DeviceIdentity device, int? level, LinkState link = LinkState.Online) =>
         new(device, level, false, ChargingState.NotCharging, link, Now);
 }

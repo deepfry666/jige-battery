@@ -137,11 +137,11 @@ Windows 经典蓝牙 HID 路径含 `VID&0002046D`，HID over GATT 路径形如 `
 | `0003` 设备信息 | f0 | P0 实体数、P1–P4 Unit ID、P6–P11 型号字段 |
 | `0005` 名称和类型 | f0 长度、f1 分段名称、f2 类型 | 长度、名称片段或类型字节 |
 | `1004` Unified Battery | f0 能力、f1 状态 | P0 百分比、P1 档位、P2 充电状态、P3 外部供电 |
-| `1000` Battery Status | f0 状态 | P0 百分比、P1 下一档、P2 充电状态 |
+| `1000` Battery Status | f0 状态 | P0 百分比（`0` 表示无有效放电百分比）、P1 下一档、P2 充电状态（`0` 放电、`1/2/4` 充电、`3` 充满、`>=5` 错误） |
 | `1001` Battery Voltage | f0 电压 | P0/P1 大端毫伏，P2 含充电标志 |
 | `1F20` ADC Measurement | f0 ADC | P0/P1 大端毫伏，P2 含连接和充电标志 |
 
-已发现的 `1004` 或 `1000` 电量功能可主动推送事件 `00`。监听已知设备、槽位与索引匹配的事件，直接更新读数，无需主动开启通知或追加查询。回放以公开的 PRO X SUPERLIGHT 2 字节及合成鼠标、键盘、耳机样本覆盖上述解析。[Solaar 报文记录 #2961](https://github.com/pwr-Solaar/Solaar/issues/2961)
+依 HID++ 2.0 `0x1000`（BATTERY_STATUS）规范与 [Solaar `decipher_battery_status`](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp20.py)，部分设备（例如 Logitech MX Vertical `046D:C08A` 经 USB 线缆直连时）在充电或充满状态下回复 `P0=00`（如 `00 00 01`、`00 00 03`），表示当前无有效放电百分比而非 `0%`。几格遇到此类回复时会先尝试后续电压功能 `0x1001`；若无有效百分比，则保留充电/充满状态并置百分比为空（界面显示「充电中」或「已充满」，不误显示 `0%` 也不使用固定百分比）。已发现的 `1004` 或 `1000` 电量功能可主动推送事件 `00`。监听已知设备、槽位与索引匹配的事件，直接更新读数，无需主动开启通知或追加查询。回放以公开的 PRO X SUPERLIGHT 2 字节及合成鼠标、键盘、耳机样本覆盖上述解析。[Solaar 报文记录 #2961](https://github.com/pwr-Solaar/Solaar/issues/2961)
 
 ## Logitech Centurion 与 ASTRO A50 Gen 5
 

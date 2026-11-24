@@ -66,6 +66,8 @@ internal static class ChargeEstimator
         var segment = state.ChargeSegment;
         if (status.Link != LinkState.Online)
             return segment is null ? (state, 0) : (state with { ChargeSegment = segment with { Paused = true } }, 0);
+        if (status.ChargeStatusOnly)
+            return segment is null ? (state, 0) : (state with { ChargeSegment = status.IsFull ? null : segment with { Paused = true } }, 0);
         if (!status.Fresh || status.Last is not { } last)
             return (state, 0);
         if (last.IsEstimated || status.Charging is not (ChargingState.Charging or ChargingState.Full))

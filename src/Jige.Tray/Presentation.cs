@@ -54,7 +54,7 @@ internal static class Presentation
 {
     public static BatteryTone Tone(DeviceStatus? device, int threshold) => device switch
     {
-        { Percentage: { } } when device.IsFull || device.IsCharging => BatteryTone.Charging,
+        { } when device.IsFull || device.IsCharging => BatteryTone.Charging,
         { Fresh: true, Percentage: { } percent } when percent <= threshold => BatteryTone.Low,
         { Fresh: true, Percentage: { } percent } when percent <= threshold + 15 => BatteryTone.Warning,
         { Fresh: true, Percentage: { } } => BatteryTone.Normal,
@@ -114,6 +114,8 @@ internal static class Presentation
 
     public static string Status(DeviceStatus device, int threshold)
     {
+        if (device.ChargeStatusOnly)
+            return device.IsFull ? "已充满" : "充电中";
         if (device.Device.UsesPassiveBatteryReports && device.IsCharging && !device.IsFull)
             return "充电中";
         if (device.Fresh)
@@ -134,6 +136,7 @@ internal static class Presentation
             (_, ReadIssue.Timeout) => "查询超时",
             (_, ReadIssue.InvalidResponse) => "读数无效",
             (_, ReadIssue.IoError) => "读取失败",
+            (LinkState.Online, ReadIssue.None) => "电量未知",
             _ => "状态待确认"
         };
         return device.Last is not null ? $"{status} · 上次读数" : status;
@@ -174,8 +177,8 @@ internal static class Presentation
         return plain;
     }
 
-    public static string Value(DeviceStatus device) => device.Last is { } last
-        ? $"{(last.IsEstimated ? "≈" : "")}{last.Percentage}%" : EmptyValue(device);
+    public static string Value(DeviceStatus device) => device.Percentage is int percent
+        ? $"{(device.Last?.IsEstimated == true ? "≈" : "")}{percent}%" : EmptyValue(device);
 
     public static string EmptyValue(DeviceStatus device) => device.Device.UsesPassiveBatteryReports ? "--" : "–";
 
@@ -259,7 +262,11 @@ internal static class Presentation
         if (!device.IsActive)
             return device.Last is not null ? $" · 已断开 · 上次 {Value(device)}" : " · 已断开";
         if (tone == BatteryTone.Idle)
-            return $" · 上次 {Value(device)}";
+            return device.Last is not null ? $" · 上次 {Value(device)}" : " · 电量未知";
+        if (device.Percentage is null)
+            return tone == BatteryTone.Charging
+                ? (device.IsFull ? " · 已充满" : " · 充电中")
+                : " · 电量未知";
         string tail = tone switch
         {
             BatteryTone.Charging => device.IsFull ? " 已充满" : " 充电中",
