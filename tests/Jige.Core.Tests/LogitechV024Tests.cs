@@ -84,6 +84,128 @@ public sealed class LogitechV024Tests
     }
 
     [Theory]
+    [InlineData("000001", (int)ChargingState.Charging)]
+    [InlineData("000002", (int)ChargingState.Charging)]
+    [InlineData("000004", (int)ChargingState.Charging)]
+    [InlineData("000003", (int)ChargingState.Full)]
+    public async Task CableBatteryStatusZeroLevelWhileChargingOrFullReportsNullPercentageWithoutFakingPercent(
+        string payload, int expectedCharging)
+    {
+        // Issue #33：Logitech MX Vertical（046D:C08A）经 USB 线直连，HID++ 4.5 功能 0x1000（索引 0x07）回复 00 00 01 / 00 00 03。
+        var cable = Nano with { ProductId = 0xC08A, Product = "MX Vertical" };
+        var shortHid = cable with { Path = "short", Usage = 1, InputLength = 7, OutputLength = 7 };
+        string currentPayload = payload;
+        var session = new BatteryHidStub(request => (request[2], request[3]) switch
+        {
+            (0, 0x1A) => [Frame($"11FF001A0405{request[6]:X2}", 20)],
+            (0, 0x0E) => [Frame("11FF000E08", 20)],
+            (8, 0x0A) => [Frame("11FF080A01DEADBEEF0001407B00000000", 20)],
+            (0, 0x0B) => [Frame("11FF000B05", 20)],
+            (5, 0x0A) => [Frame("11FF050A0B", 20)],
+            (5, 0x1A) => [Frame($"11FF051A{Convert.ToHexString(Encoding.UTF8.GetBytes("MX Vertical"))}", 20)],
+            (5, 0x2A) => [Frame("11FF052A03", 20)],
+            (0, 0x0C) => [Frame("11FF000C07", 20)],
+            (7, 0x0A) => [Frame($"11FF070A{currentPayload}", 20)],
+            (0, _) => [Frame($"11FF00{request[3]:X2}00", 20)],
+            _ => throw new InvalidOperationException($"意外发包 {Convert.ToHexString(request)}")
+        });
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([cable, shortHid], [], [])));
+        var transport = new BatteryTransportStub(hid =>
+            hid.Path == shortHid.Path ? new BatteryHidStub(_ => throw new InvalidOperationException()) : session);
+
+        var reading = Assert.Single(await registry.ReadDevicesAsync(device, transport, null, default));
+        Assert.Equal(DeviceConnection.UsbCable, reading.Device.Connection);
+        Assert.Equal(LinkState.Online, reading.Link);
+        Assert.Null(reading.Percentage);
+        Assert.False(reading.IsEstimated);
+        Assert.Equal((ChargingState)expectedCharging, reading.Charging);
+        Assert.Contains("电量 1000", reading.ProtocolSummary);
+
+        // 缓存 0x1000 查询后，下一轮状态切换（充满或恢复有效百分比）只需单次查询。
+        currentPayload = "5A3200";
+        var secondSession = new BatteryHidStub(request =>
+        {
+            Assert.Equal(Frame("11FF070A", 20), request);
+            return [Frame($"11FF070A{currentPayload}", 20)];
+        });
+        var recovered = Assert.Single(await registry.ReadDevicesAsync(device,
+            new BatteryTransportStub(hid => hid.Path == shortHid.Path
+                ? new BatteryHidStub(_ => throw new InvalidOperationException()) : secondSession),
+            null, default));
+        Assert.Equal(90, recovered.Percentage);
+        Assert.Equal(ChargingState.NotCharging, recovered.Charging);
+
+        // 被动推送 00 00 01 / 00 00 03 事件也应保留充电/充满状态而不置为 0%。
+        var listener = new BatteryHidStub(_ => throw new InvalidOperationException("推送监听不应发包"));
+        listener.Enqueue(Frame($"11FF0700{payload}", 20));
+        listener.Enqueue([]);
+        List<PresenceUpdate> updates = [];
+        await registry.ListenPushAsync(device, new BatteryTransportStub(hid =>
+            hid.Path == shortHid.Path ? new BatteryHidStub(_ => []) : listener), updates.Add, default);
+        var push = Assert.Single(updates);
+        Assert.Null(push.Battery?.Percentage);
+        Assert.Equal((ChargingState)expectedCharging, push.Battery?.Charging);
+        Assert.Equal(LinkState.Online, push.Battery?.Link);
+    }
+
+    [Fact]
+    public async Task BatteryStatusZeroLevelWhileChargingFallsBackToVoltageWhenSupported()
+    {
+        var cable = Nano with { ProductId = 0xC08A, Product = "MX Vertical" };
+        var shortHid = cable with { Path = "short", Usage = 1, InputLength = 7, OutputLength = 7 };
+        var session = new BatteryHidStub(request => (request[2], request[3]) switch
+        {
+            (0, 0x1A) => [Frame($"11FF001A0405{request[6]:X2}", 20)],
+            (0, 0x0C) => [Frame("11FF000C07", 20)],
+            (7, 0x0A) => [Frame("11FF070A000001", 20)],
+            (0, 0x0D) => [Frame("11FF000D09", 20)],
+            (9, 0x0A) => [Frame("11FF090A0F0A87", 20)], // 3850 mV -> 50%，电压字节充电位为 Unknown，保留 0x1000 的 Charging。
+            (0, _) => [Frame($"11FF00{request[3]:X2}00", 20)],
+            _ => throw new InvalidOperationException($"意外发包 {Convert.ToHexString(request)}")
+        });
+        var registry = AdapterRegistry.CreateDefault();
+        var device = Assert.Single(registry.Detect(new([cable, shortHid], [], [])));
+        var reading = Assert.Single(await registry.ReadDevicesAsync(device, new BatteryTransportStub(hid =>
+            hid.Path == shortHid.Path ? new BatteryHidStub(_ => throw new InvalidOperationException()) : session), null, default));
+
+        Assert.Equal(50, reading.Percentage);
+        Assert.True(reading.IsEstimated);
+        Assert.Equal(ChargingState.Charging, reading.Charging);
+        Assert.Contains("电量 1001", reading.ProtocolSummary);
+    }
+
+    [Theory]
+    [InlineData(0x1000, "050000", 5, (int)ChargingState.NotCharging)]
+    [InlineData(0x1000, "010000", 1, (int)ChargingState.NotCharging)]
+    [InlineData(0x1000, "2D1401", 45, (int)ChargingState.Charging)]
+    [InlineData(0x1000, "500007", null, (int)ChargingState.Unknown)]
+    [InlineData(0x1004, "00010000", 0, (int)ChargingState.NotCharging)]
+    public async Task RealLowBatteryAndRealZeroPercentageStillDecodeAccurately(
+        int feature, string payload, int? expectedPercent, int expectedCharging)
+    {
+        var ble = Ble("container", 0xB037, null);
+        var registry = AdapterRegistry.CreateDefault();
+        var detected = Assert.Single(registry.Detect(new([ble], [], [])));
+        var session = new BatteryHidStub(request => (request[2], request[3]) switch
+        {
+            (0, 0x1A) => [Frame($"11FF001A0402{request[6]:X2}", 20)],
+            (0, 0x0A) when feature == 0x1004 => [Frame("11FF000A06", 20)],
+            (6, 0x0A) when feature == 0x1004 => [Frame("11FF060A0F03", 20)],
+            (6, 0x1A) when feature == 0x1004 => [Frame($"11FF061A{payload}", 20)],
+            (0, 0x0C) when feature == 0x1000 => [Frame("11FF000C07", 20)],
+            (7, 0x0A) when feature == 0x1000 => [Frame($"11FF070A{payload}", 20)],
+            (0, _) => [Frame($"11FF00{request[3]:X2}00", 20)],
+            _ => throw new InvalidOperationException($"意外发包 {Convert.ToHexString(request)}")
+        });
+
+        var reading = Assert.Single(await registry.ReadDevicesAsync(detected, new BatteryTransportStub(_ => session), null, default));
+        Assert.Equal(LinkState.Online, reading.Link);
+        Assert.Equal(expectedPercent, reading.Percentage);
+        Assert.Equal((ChargingState)expectedCharging, reading.Charging);
+    }
+
+    [Theory]
     [InlineData(@"\?\HID#{00001812-0000-1000-8000-00805F9B34FB}_Dev_VID&02046d_PID&b037_REV&0110_112233445566&Col02", 0xB037)]
     [InlineData(@"\?\HID#{00001124-0000-1000-8000-00805F9B34FB}_vid&0002046d_pid&b010&col02", 0xB010)]
     public async Task BluetoothPathWorksWithoutAnAddressFromParentNodes(string path, int pid)

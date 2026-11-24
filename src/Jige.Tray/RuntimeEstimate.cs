@@ -126,12 +126,12 @@ internal static class RuntimeEstimator
             }, 0);
         }
 
+        if (status.IsCharging || status.IsFull)
+            return (state with { Segment = null, LastChargeAt = now }, 0);
+
         // 在线但还没有新读数（例如刚从休眠唤醒，等待完整刷新）时不计时也不判断边沿。
         if (!status.Fresh || status.Last is not { } last)
             return (state, 0);
-
-        if (status.Charging is ChargingState.Charging or ChargingState.Full)
-            return (state with { Segment = null, LastChargeAt = now }, 0);
 
         int percent = last.Percentage;
         bool estimated = last.IsEstimated;
@@ -345,7 +345,7 @@ internal static class RuntimeEstimator
     /// <summary>计算当前剩余在线可用时长。数据不足时返回「估算中」，充电中或已断开返回 None。</summary>
     public static RuntimeEstimate Estimate(SavedRuntimeEstimate? state, DeviceStatus status, DateTimeOffset now)
     {
-        if (!status.IsActive || status.Last is not { } last || status.IsCharging && !status.IsFull)
+        if (!status.IsActive || status.ChargeStatusOnly || status.Last is not { } last || status.IsCharging && !status.IsFull)
             return RuntimeEstimate.None;
         var rate = Rate(state, now);
         if (status.IsFull)

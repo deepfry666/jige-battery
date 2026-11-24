@@ -582,7 +582,7 @@ internal sealed partial class PopupScene : IDisposable
         float numberSize, float percentSize, float approxSize, Color ink, bool rightAlign)
     {
         string value = device.Percentage?.ToString() ?? Presentation.EmptyValue(device);
-        string prefix = device.Last?.IsEstimated == true ? "≈" : "";
+        string prefix = device.Percentage is not null && device.Last?.IsEstimated == true ? "≈" : "";
         string suffix = device.Percentage is null ? "" : "%";
         float prefixWidth = prefix.Length == 0 ? 0 : canvas.Measure(prefix, approxSize, 500) + 2;
         float numberWidth = canvas.Measure(value, numberSize, 600, true) + 1;

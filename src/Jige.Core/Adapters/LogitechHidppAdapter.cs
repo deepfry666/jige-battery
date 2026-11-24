@@ -98,10 +98,21 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                         charging = LogitechHidppProtocol.Charging(reply[6]);
                     return true;
                 case HidppFeature.Battery:
-                    if (reply[4] > 100 || reply[6] is 5 or 6 || reply[4] == 0 && reply[6] == 0)
+                    if (reply[4] > 100)
                         return false;
-                    level = reply[4];
                     charging = LogitechHidppProtocol.Charging(reply[6], legacy: true);
+                    if (charging == ChargingState.Unknown)
+                        return false;
+                    if (reply[4] == 0)
+                    {
+                        if (charging == ChargingState.NotCharging)
+                            return false;
+                        // HID++ 2.0 0x1000（BATTERY_STATUS）：P0=0 表示当前无有效放电百分比（如 USB 充电/充满时返回 00 00 01 / 00 00 03），
+                        // 不误报为 0%，也不编造固定百分比；保留有效的充电/充满状态。
+                        level = null;
+                        return true;
+                    }
+                    level = reply[4];
                     return true;
                 case HidppFeature.Adc when (reply[6] & 1) == 0:
                     link = LinkState.Offline;
@@ -325,7 +336,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
             if (batterySlot.Disconnected || batterySlot.Last is not { } last ||
                 state.Query(report[1]) is not { Feature: HidppFeature.Unified or HidppFeature.Battery } query ||
                 report[2] != query.Index || !query.TryBattery(report, out int? level, out bool estimated, out var charging, out var link) ||
-                level is null)
+                (level is null && charging is not (ChargingState.Charging or ChargingState.Full)))
                 return null;
             var reading = Reading(last.Device, level, estimated, charging, link, last.ProtocolSummary, endpoint);
             batterySlot.Last = reading;
@@ -526,6 +537,7 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 HidppFeature[] batteryFeatures = device.Kind == DeviceKind.Headset
                     ? [HidppFeature.Unified, HidppFeature.Adc, HidppFeature.Battery, HidppFeature.Voltage]
                     : [HidppFeature.Unified, HidppFeature.Battery, HidppFeature.Voltage];
+                (BatteryReading Reading, BatteryQuery Query)? chargeOnlyFallback = null;
                 foreach (var feature in batteryFeatures)
                 {
                     byte index = await FindFeatureAsync(feature).ConfigureAwait(false);
@@ -542,10 +554,21 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                     var query = new BatteryQuery(feature, index, flags);
                     var frame = await QueryAsync(query.Request(slot)).ConfigureAwait(false);
                     if (ParseBattery(query, frame) is { } reading)
-                        return Remember(reading, query);
+                    {
+                        if (reading.Percentage is not null)
+                        {
+                            if (chargeOnlyFallback is { } prior && reading.Charging == ChargingState.Unknown)
+                                reading = reading with { Charging = prior.Reading.Charging };
+                            return Remember(reading, query);
+                        }
+                        chargeOnlyFallback ??= (reading, query);
+                        continue;
+                    }
                     if (Unreachable(frame))
                         return Remember(Unavailable(true), null);
                 }
+                if (chargeOnlyFallback is { } fallback)
+                    return Remember(fallback.Reading, fallback.Query);
                 return Remember(Reading(device, null, false, ChargingState.Unknown, LinkState.Online, Summary(), endpoint), null);
 
                 async ValueTask<byte> FindFeatureAsync(HidppFeature feature)
@@ -609,8 +632,10 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                             var current = entry.Last?.Device ?? entry.SavedDevice;
                             return receiver && current is null ? null : Unavailable(entry.Disconnected, identity: current);
                         }
-                        // 在线但暂时无读数时仍可输出诊断信息。只有读到过电量后才记住槽位。
-                        if (receiver && reading.Percentage is null)
+                        // 在线但暂时无读数时仍可输出诊断信息。只有读到过电量或明确充电状态后才记住槽位。
+                        bool hasBatterySignal = reading.Percentage is not null ||
+                            reading.Link == LinkState.Online && reading.Charging is ChargingState.Charging or ChargingState.Full;
+                        if (receiver && !hasBatterySignal)
                         {
                             if (known is null)
                                 return reading.Link == LinkState.Online ? reading : null;
