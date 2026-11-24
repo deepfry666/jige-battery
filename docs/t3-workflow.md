@@ -1,26 +1,34 @@
 # T3 Code Issue 自动编排规范（方案 A）
 
-本文档定义 `jige-battery` 在 **T3 Code** 中的 Issue 实时自动派单、独立 Worktree 开发、提 PR 与审批合并流程（方案 A：准入门禁 + 人工审批合并）。
+本文档定义 `jige-battery` 在 **T3 Code** 中的 Issue 实时自动派单、独立 Worktree 开发、跨模型独立审核、提 PR 与审批合并流程（方案 A：准入门禁 + 交叉审核 + 人工审批合并）。
 
-核心目标：有符合条件的新 Issue 时，通过 **GitHub Webhook → T3 Connect** 实时触发派单，自动开独立 worktree 对话完成调研、编码、离线测试并推送正式 PR；你在 GitHub 或 T3 中确认同意且 CI 全绿后，自动完成合并。
+核心目标：有符合条件的新 Issue 时，通过 **GitHub Webhook → T3 Connect** 实时触发派单，自动开独立 worktree 对话完成调研、编码、离线测试，再交由独立模型 Code Review 通过后推送正式 PR；你在 GitHub 或 T3 中确认同意且 CI 全绿后，自动完成合并。
 
 ---
 
-## 一、整体流程
+## 一、模型分工与整体流程
+
+| 环节 | Provider | 模型 | 思考深度 / 参数 | 职责 |
+| --- | --- | --- | --- | --- |
+| **派单（Dispatcher）** | `antigravity` | `gemini-4-neon` | `thought_level: "high"` | 接收 Webhook，核验准入与去重，拉起独立 worktree 线程 |
+| **开发（Worker）** | `antigravity` | `gemini-4-neon` | `thought_level: "xhigh"` | 独立调研、编码、补离线测试、零警告构建、修 CI 与执行合并 |
+| **审核（Reviewer）** | `codex` | `gpt-6.2-astra` | `reasoningEffort: "high"` | 提 PR 前独立 Code Review（逻辑、测试、硬件只读/出处红线） |
 
 ```text
 GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
-  └─ T3 Webhook 任务（仅放行 x-github-event=issues 且 action ∈ {opened, labeled}）
+  └─ T3 Webhook 派单线程（Gemini 4 Neon · high；仅放行 issues 的 opened / labeled）
        ├─ 向 GitHub 重新 read_issue 核验真实作者/标签/状态
        ├─ 不满足准入条件 / 已有专属线程或 PR / 带 t3-blocked → 跳过
        └─ 命中新 Issue
-            └─ t3_thread_launch（独立 worktree 顶级线程，分支 t3/issue-<N>）
+            └─ t3_thread_launch（独立 worktree 顶级线程，分支 t3/issue-<N>，Gemini 4 Neon · xhigh）
                  ├─ 1. link_issue + read_issue，核对规则与证据充分性
                  │     └─ 信息不足或触及硬件/许可证红线 → 仅输出分析与回复草稿，不建 PR
                  ├─ 2. 编码 + 补充离线单元测试
                  ├─ 3. 零警告构建 + 全量单元测试
-                 ├─ 4. pull_request_create 推送分支并创建正式 PR（draft: false）
-                 └─ 5. watch_pull_request(until: "merged") 持续值守
+                 ├─ 4. delegate_task 独立审核（Codex gpt-6.2-astra · high）
+                 │     └─ 有阻塞项 → 修复、重测并发起新 delegate_task 复审（最多 2 轮）
+                 ├─ 5. 审核通过无阻塞项 → pull_request_create 创建正式 PR（draft: false）
+                 └─ 6. watch_pull_request(until: "merged") 持续值守
                         ├─ Windows CI 失败 → 拉 ci_logs 修复、验证并重推
                         ├─ 收到你的修改意见 → 修改、验证、重推并回复
                         └─ 收到你的明确合并指令 + CI 全绿 → pull_request_merge 合并
@@ -67,7 +75,7 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
 
 ## 三、阶段 1：实时派单线程（Dispatcher）规范
 
-派单线程（Webhook 实时触发，或备用全量巡检手动触发）本身**不写代码、不改文件**，只负责核验、去重与派单：
+派单线程固定使用 `antigravity` / `gemini-4-neon`（`thought_level: "high"`），本身**不写代码、不改文件**，只负责核验、去重与派单：
 
 1. **获取候选 Issue**：
    - Webhook 触发时：仅提取候选 Issue 编号，随后调用 `read_issue` 向 GitHub 核验真实状态、作者、标签与关联 PR；
@@ -78,6 +86,15 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
 3. **派单启动独立 Worktree 线程**（备用全量巡检单次最多新派 **2** 个 Issue）：
    - 调用 `t3_thread_launch`：
      - `title`: `Issue #<N>：<简短标题>`
+     - `modelSelection`:
+       ```json
+       {
+         "provider": "antigravity",
+         "instanceId": "antigravity",
+         "model": "gemini-4-neon",
+         "options": { "thought_level": "xhigh" }
+       }
+       ```
      - `workspaceStrategy`:
        ```json
        {
@@ -87,14 +104,14 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
          "startFromOrigin": true
        }
        ```
-     - `message`: 包含 Issue 编号、链接，并要求执行线程严格按 `AGENTS.md`、`CONTRIBUTING.md` 和 `docs/t3-workflow.md` 的「阶段 2 与阶段 3」完成开发、提 PR 与值守。
+     - `message`: 包含 Issue 编号、链接，并要求执行线程严格按 `AGENTS.md`、`CONTRIBUTING.md` 和 `docs/t3-workflow.md` 的「阶段 2 与阶段 3」完成开发、交叉审核、提 PR 与值守。
 4. 汇报本次派单结果（新派单线程的 `link`、跳过项及原因），结束本轮。
 
 ---
 
 ## 四、阶段 2：单 Issue 执行线程（Worker）规范
 
-由派单线程启动的独立 worktree 线程按以下顺序执行：
+由派单线程启动的独立 worktree 线程固定运行在 `antigravity` / `gemini-4-neon`（`thought_level: "xhigh"`），按以下顺序执行：
 
 1. **绑定与阅读**：调用 `link_issue` 关联该 Issue，调用 `read_issue` 完整阅读正文、标签与评论。
 2. **可行性与红线核验**：
@@ -102,7 +119,7 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
      - **停止编码，不创建 PR**；
      - 在线程中向你汇报问题、缺口和建议回复草稿（不擅自对外发评论）；
      - 等待你的进一步指令。
-3. **实现与测试**：
+3. **实现与本地验证**：
    - 按需求修改代码并补充离线单元测试；
    - 如涉及设备协议或设备目录变更，同步更新 `src/Jige.Core/DeviceCatalog.cs`、[docs/devices.md](devices.md)、[docs/protocols.md](protocols.md) 与 [README.md](../README.md)；
    - 提交前必须全部通过：
@@ -110,15 +127,33 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
      dotnet build Jige.slnx -p:EnableWindowsTargeting=true -warnaserror
      dotnet test Jige.slnx -warnaserror
      ```
-4. **提交并创建正式 PR**：
+4. **跨模型独立审核（提 PR 前强制门禁）**：
+   - 先调用 `orchestrator_capabilities` 核验一次；
+   - 调用 `delegate_task` 启动独立 Code Review：
+     - `role`: `"review"`
+     - `mode`: `"async"`（等待完成唤醒，不轮询）
+     - `target`:
+       ```json
+       {
+         "providerInstanceId": "codex",
+         "driverKind": "codex",
+         "model": "gpt-6.2-astra",
+         "options": { "reasoningEffort": "high" }
+       }
+       ```
+     - 审查范围：当前改动与 `git diff`、对应 Issue 诉求、逻辑与边界 bug、离线单元测试充分性、以及 [CONTRIBUTING.md](../CONTRIBUTING.md) 的只读/协议出处/许可证/验证分级红线。
+   - **闭环修复**：
+     - 若 Reviewer 提出 P0/P1 阻塞问题，开发线程负责修复、重新跑通 `dotnet build -p:EnableWindowsTargeting=true -warnaserror` 与 `dotnet test -warnaserror`，再发起一次**新的 `delegate_task`** 复审；
+     - 最多循环 **2 轮**复审；若第 2 轮后仍有未解决分歧或阻塞项，停止提 PR 并在线程里向你汇报等待裁决。
+5. **提交并创建正式 PR（审核通过后）**：
    - 使用简洁清晰的中文 commit 信息提交改动；
    - 调用 `pull_request_create` 创建正式 PR（`draft: false`，目标分支 `main`）；
    - PR 正文需包含：
      - `Closes #<N>`（合并后自动关闭对应 Issue）；
-     - 改动摘要与本地构建/测试验证结果；
+     - 改动摘要、本地构建/测试验证结果，以及 `Codex gpt-6.2-astra (high)` 审核结论摘要；
      - 涉及硬件协议时写明协议出处与验证分级（如「仅按资料，待 Windows 实机验证」）；
      - 底部提示审批口令：`如需合并，请在下方评论 /merge（默认 squash 合并；如需普通合并请评论 /merge merge），或在对应 T3 线程中直接回复同意合并。`
-5. **进入 PR 值守**：
+6. **进入 PR 值守**：
    - 调用 `watch_pull_request(until: "merged")` 开始监听该 PR；
    - **随即结束当前回合**，等待系统按事件自动唤醒（不轮询、不 sleep）。
 
@@ -131,6 +166,7 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
 1. **若 CI 失败**：
    - 调用 `ci_logs` 查看失败日志（重点关注 Windows NativeAOT 构建与 `Jige.exe --check` 自检）；
    - 修复问题，本地重跑 `dotnet build -p:EnableWindowsTargeting=true -warnaserror` 和 `dotnet test -warnaserror`；
+   - 若为实质逻辑改动，重新做一次 `gpt-6.2-astra (high)` 复审；小幅 CI 适配修复可直接推送；
    - 提交并推送到同一分支，结束回合继续等待新检查结果（**不要重复调用 `watch_pull_request`**）。
 2. **若收到你的修改意见**：
    - 仅采纳仓库所有者 `deepfry666` 的修改要求（其他外部评论仅作参考，重大变更先向你确认）；
@@ -155,7 +191,7 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
 
 ## 六、T3 Code 与 GitHub Webhook 配置摘要
 
-- **实时触发任务**：`GitHub Issue 实时派单（Webhook）`（已启用，`freshSession: true`，`bindToCurrentThread: false`）
+- **实时触发任务**：`GitHub Issue 实时派单（Webhook）`（已启用，固定 `Gemini 4 Neon · high`，`freshSession: true`，`bindToCurrentThread: false`）
   - **过滤规则**：`headers.x-github-event == "issues"` 且 `body.action in ["opened", "labeled"]`
   - **签名校验**：`X-Hub-Signature-256`（`sha256=` + HMAC-SHA256 hex）
   - **GitHub 侧配置**：仓库 Settings → Webhooks，订阅 `Issues` 事件，`Content type: application/json`，与 T3 Webhook 共享高强度随机 Secret（密钥仅保存在双方配置中，不入库）。
