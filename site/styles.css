@@ -599,9 +599,16 @@ body.has-pointer .bg-spotlight { opacity: 1; }
   transform: translateY(-56%);
   max-width: min(400px, calc(100% - 416px));
   z-index: 8;
-  transition: opacity 0.28s ease, transform 0.28s var(--ease-out);
+  visibility: visible;
+  transition: opacity 0.28s ease, transform 0.28s var(--ease-out), visibility 0s linear 0s;
 }
-.stage.is-game .stage-side { opacity: 0; pointer-events: none; transform: translateY(-50%); }
+.stage.is-game .stage-side {
+  opacity: 0;
+  pointer-events: none;
+  visibility: hidden;
+  transform: translateY(-50%);
+  transition: opacity 0.28s ease, transform 0.28s var(--ease-out), visibility 0s linear 0.28s;
+}
 .stage-side-badge {
   display: inline-flex;
   align-items: center;
@@ -649,9 +656,16 @@ body.has-pointer .bg-spotlight { opacity: 1; }
   opacity: 0;
   transform: translateY(16px) scale(0.985);
   pointer-events: none;
-  transition: opacity 0.16s ease, transform 0.26s var(--ease-out);
+  visibility: hidden;
+  transition: opacity 0.16s ease, transform 0.26s var(--ease-out), visibility 0s linear 0.26s;
 }
-.sim-flyout.is-open { opacity: 1; transform: none; pointer-events: auto; }
+.sim-flyout.is-open {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+  visibility: visible;
+  transition: opacity 0.16s ease, transform 0.26s var(--ease-out), visibility 0s linear 0s;
+}
 
 .fo-head { display: flex; align-items: center; gap: 8px; padding: 12px 12px 8px 16px; }
 .fo-title { font-weight: 600; font-size: 14px; color: #f5f5f5; }
@@ -749,10 +763,13 @@ body.has-pointer .bg-spotlight { opacity: 1; }
   padding: 13px 15px; border-radius: 10px; background: rgba(34, 34, 34, 0.94);
   backdrop-filter: blur(36px); border: 1px solid rgba(255, 153, 164, 0.28);
   box-shadow: 0 22px 48px rgba(0, 0, 0, 0.6); z-index: 24;
-  transform: translateX(calc(100% + 28px)); opacity: 0; pointer-events: none;
-  transition: transform 0.38s var(--ease-out), opacity 0.25s ease;
+  transform: translateX(calc(100% + 28px)); opacity: 0; pointer-events: none; visibility: hidden;
+  transition: transform 0.38s var(--ease-out), opacity 0.25s ease, visibility 0s linear 0.38s;
 }
-.sim-toast.is-show { transform: none; opacity: 1; pointer-events: auto; }
+.sim-toast.is-show {
+  transform: none; opacity: 1; pointer-events: auto; visibility: visible;
+  transition: transform 0.38s var(--ease-out), opacity 0.25s ease, visibility 0s linear 0s;
+}
 .toast-head { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #bdbdbd; }
 .toast-head img { border-radius: 4px; }
 .toast-close { margin-left: auto; border: 0; background: transparent; color: #9c9c9c; font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 6px; }
@@ -776,9 +793,13 @@ body.has-pointer .bg-spotlight { opacity: 1; }
 .sim-queued-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ui-charge); flex: none; }
 .sim-game {
   position: absolute; inset: 0; z-index: 22; background: radial-gradient(circle at 50% 50%, #151514 0%, #090908 100%);
-  display: grid; place-items: center; opacity: 0; pointer-events: none; transition: opacity 0.35s var(--ease-out);
+  display: grid; place-items: center; opacity: 0; pointer-events: none; visibility: hidden;
+  transition: opacity 0.35s var(--ease-out), visibility 0s linear 0.35s;
 }
-.sim-game.is-on { opacity: 1; pointer-events: auto; }
+.sim-game.is-on {
+  opacity: 1; pointer-events: auto; visibility: visible;
+  transition: opacity 0.35s var(--ease-out), visibility 0s linear 0s;
+}
 .sim-crosshair { position: absolute; left: 50%; top: 43%; width: 22px; height: 22px; transform: translate(-50%, -50%); }
 .sim-crosshair::before, .sim-crosshair::after { content: ""; position: absolute; background: var(--ui-charge); }
 .sim-crosshair::before { left: 10px; top: 0; width: 2px; height: 22px; }

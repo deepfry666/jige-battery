@@ -19,7 +19,7 @@
 你可以通过下面任意一种方式导出本地诊断报告：
 
 - **方法 A（推荐，在几格托盘内导出）**：
-  1. 右键托盘图标点击「诊断信息…」，或在面板「管理设备」页点击「导出诊断信息」。
+  1. 右键任务栏直读条或托盘图标点击「诊断信息…」，或在面板「管理设备」页点击「导出诊断信息」。
   2. 几格会在本机生成脱敏报告 `%LOCALAPPDATA%\Jige\diagnostics.txt`，并自动用记事本打开供你完整检查（若当时正在玩游戏，不会弹出记事本，可稍后打开面板点击「查看诊断报告」）。
   3. 确认内容没问题后，可在面板底部点击「**复制报告并去反馈**」——几格会把报告全文复制到剪贴板，再用默认浏览器打开设备报告页面（网址里**不会**携带任何报告内容或设备信息），你直接粘贴即可。
 - **方法 B（使用命令行探针）**：
@@ -45,8 +45,8 @@
 如果你想提前体验最新修复或协助实机验证新适配的设备，可以从测试版通道下载滚动构建：
 
 - **下载地址**：前往 GitHub Releases 的固定预发布页面 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build)，下载最新的 `Jige-Setup-prerelease-x64.exe` 和 `SHA256SUMS.txt`（每次推送到 `main` 分支都会自动重建并替换旧文件）。
-- **关于自动更新**：几格内置的「检查更新」**只查看正式版**，不会推送测试版；如果你安装了测试版（例如 `0.2.3 测试版（abc1234）`），点击「检查更新」时也不会提示你降级回更低的正式版（如 `v0.2.2`）。
-- **反馈测试版问题**：打开几格的「设置」页底部或诊断报告开头，复制完整的版本号和 **7 位提交号**（例如 `0.2.3 测试版（abc1234）`），连同诊断报告一起写进 issue，方便定位到具体提交。
+- **关于自动更新**：几格内置的「检查更新」**只查看正式版**，不会推送测试版；如果你安装了测试版（例如 `0.2.27 测试版（abc1234）`），点击「检查更新」时也不会提示你降级回更低的正式版（如 `v0.2.26`）。
+- **反馈测试版问题**：打开几格的「设置」页底部或诊断报告开头，复制完整的版本号和 **7 位提交号**（例如 `0.2.27 测试版（abc1234）`），连同诊断报告一起写进 issue，方便定位到具体提交。
 
 ## 五、提交代码与新增协议规范
 
@@ -86,7 +86,7 @@ Thank you for helping improve Jige Battery (几格)! Jige follows three core rul
 ### 2. Exporting a Diagnostic Report
 
 - **In Jige Tray (Recommended)**:
-  1. Right-click the tray icon → **诊断信息…** (or open **管理设备** → **导出诊断信息**).
+  1. Right-click the taskbar strip or tray icon → **诊断信息…** (or open **管理设备** → **导出诊断信息**).
   2. Jige generates a sanitized local report at `%LOCALAPPDATA%\Jige\diagnostics.txt` and opens it in Notepad for your review (deferred while gaming).
   3. After inspecting it, click **复制报告并去反馈** in the panel. Jige copies the full report to your clipboard and opens the GitHub device-report form in your default browser — **no report text or device data is placed in the URL**.
 - **Via CLI Probe**:
@@ -108,7 +108,7 @@ Serial numbers, Windows device instance IDs, usernames, computer names, COM port
 
 - Every push to `main` updates a single rolling pre-release at [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build) (`Jige-Setup-prerelease-x64.exe` + `SHA256SUMS.txt`). Old assets are replaced automatically.
 - Jige's built-in "Check for Updates" only checks stable releases (`releases/latest`) and will never prompt beta users to downgrade to an older stable release.
-- When reporting an issue on a beta build, please include the displayed version and 7-character commit hash shown in Settings or at the top of `diagnostics.txt` (e.g. `0.2.3 测试版（abc1234）`).
+- When reporting an issue on a beta build, please include the displayed version and 7-character commit hash shown in Settings or at the top of `diagnostics.txt` (e.g. `0.2.27 测试版（abc1234）`).
 
 ### 5. Protocol & Code Contribution Rules
 

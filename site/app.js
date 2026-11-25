@@ -52,6 +52,13 @@
     }
   }
 
+  function cleanInlineMarkdown(line) {
+    return line
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/`([^`]+)`/g, "$1");
+  }
+
   function applyLatest(data) {
     if (!data || !Array.isArray(data.assets)) return showFallback();
     var version = typeof data.tag_name === "string" && data.tag_name.trim() ? data.tag_name.trim() : "";
@@ -92,7 +99,7 @@
     if (typeof data.body === "string") {
       var lines = data.body
         .split(/\r?\n/)
-        .map(function (l) { return l.trim().replace(/^-\s+/, ""); })
+        .map(function (l) { return cleanInlineMarkdown(l.trim().replace(/^-\s+/, "")); })
         .filter(function (l) { return l.length > 0; });
       var list = document.querySelector("[data-changes]");
       if (list && lines.length) {
@@ -411,10 +418,10 @@
   /* --- 首屏黑曜石交互桌面橱窗 --- */
   var DEMO_DEVICES = [
     { id: "atk", name: "ATK 鼠标", kind: "mouse", pct: 12, state: "low", conn: "2.4G", source: "ATK 无线接收器", badge: "通用适配", badgeCls: "is-gen", status: "电量低，该充电了", hoverStatus: "电量低 · 1 分钟前读取" },
-    { id: "mx3s", name: "MX Anywhere 3S", kind: "mouse", pct: 20, state: "warn", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按资料适配", badgeCls: "", status: "休眠 · 上次读数 · 2 分钟前", hoverStatus: "电量偏低 · 休眠中 · 2 分钟前读取" },
+    { id: "mx3s", name: "MX Anywhere 3S", kind: "mouse", pct: 20, state: "warn", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按协议适配", badgeCls: "", status: "休眠 · 上次读数", hoverStatus: "电量偏低 · 休眠中 · 2 分钟前读取" },
     { id: "h9", name: "INZONE H9", kind: "headset", pct: 45, state: "charge", charging: true, conn: "2.4G", source: "Sony INZONE 接收器", badge: "已实机验证", badgeCls: "is-ok", status: "充电中", hoverStatus: "充电中 · 刚刚读取" },
-    { id: "ulx", name: "Finalmouse ULX", kind: "mouse", pct: 72, est: true, state: "ok", conn: "2.4G", source: "Finalmouse 接收器", badge: "通用适配", badgeCls: "is-gen", status: "2.4G 已连接 · 电压估算", hoverStatus: "电压估算 · 3 分钟前读取" },
-    { id: "mxks", name: "MX Keys S", kind: "keyboard", pct: 80, state: "ok", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按资料适配", badgeCls: "", status: "2.4G 已连接", hoverStatus: "在线 · 1 分钟前读取" }
+    { id: "ulx", name: "Finalmouse ULX", kind: "mouse", pct: 72, est: true, state: "ok", conn: "2.4G", source: "Finalmouse 接收器", badge: "通用适配", badgeCls: "is-gen", status: "2.4G 已连接 · 电量估算", hoverStatus: "电量估算 · 3 分钟前读取" },
+    { id: "mxks", name: "MX Keys S", kind: "keyboard", pct: 80, state: "ok", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按协议适配", badgeCls: "", status: "2.4G 已连接", hoverStatus: "在线 · 1 分钟前读取" }
   ];
 
   function cellsHtml(pct, stateKey, count, isMini, charging, animatePop) {
@@ -436,6 +443,7 @@
   }
 
   var stage = document.getElementById("stage");
+  var stageSide = document.getElementById("stageSide");
   var stageTabsBox = document.getElementById("stageTabs");
   var stageTabSlider = document.getElementById("stageTabSlider");
   var flyout = document.getElementById("simFlyout");
@@ -454,6 +462,26 @@
   var lastHeroPct = 12;
   var pctAnimRaf = 0;
   var activeScene = "panel";
+  var toastTimer = 0;
+
+  function setFlyoutOpen(open) {
+    if (!flyout) return;
+    flyout.classList.toggle("is-open", open);
+    flyout.inert = !open;
+  }
+
+  function setToastOpen(open) {
+    if (!toastEl) return;
+    toastEl.classList.toggle("is-show", open);
+    toastEl.inert = !open;
+  }
+
+  function setGameOpen(open) {
+    if (!gameEl) return;
+    gameEl.classList.toggle("is-on", open);
+    gameEl.setAttribute("aria-hidden", open ? "false" : "true");
+    gameEl.inert = !open;
+  }
 
   function findDevice(id) {
     for (var i = 0; i < DEMO_DEVICES.length; i += 1) {
@@ -550,14 +578,11 @@
     }
   }
 
-  // 直读条只显示「自定义」里勾选的设备，顺序与主面板一致：ATK 鼠标、INZONE H9、MX Keys S。
-  var STRIP_IDS = ["atk", "h9", "mxks"];
-
+  // 直读条像素图展示「自定义」勾选的 3 台设备，悬停卡片按真实 HoverCardBuilder（forceList: true）列出全部 5 台活动设备。
   function renderHoverList() {
     if (!hoverCardEl || !stage || !stripEl) return;
     var rows = "";
-    STRIP_IDS.forEach(function (id) {
-      var d = findDevice(id);
+    DEMO_DEVICES.forEach(function (d) {
       var tc = textClassFor(d.state);
       rows +=
         '<div class="hl-row">' +
@@ -567,11 +592,11 @@
             '<span class="fo-row-st ' + tc + '">' + d.status + "</span>" +
           "</span>" +
           cellsHtml(d.pct, d.state, 5, true, d.charging, false) +
-          '<span class="fo-row-num ' + tc + '">' + d.pct + "<small>%</small></span>" +
+          '<span class="fo-row-num ' + tc + '">' + (d.est ? "≈" : "") + d.pct + "<small>%</small></span>" +
         "</div>";
     });
     hoverCardEl.classList.add("is-list");
-    hoverCardEl.innerHTML = '<div class="hl-head">几格 · ' + STRIP_IDS.length + " 台设备</div>" + rows;
+    hoverCardEl.innerHTML = '<div class="hl-head">几格 · ' + DEMO_DEVICES.length + " 台设备</div>" + rows;
     var sr = stage.getBoundingClientRect();
     var br = stripEl.getBoundingClientRect();
     var cardW = hoverCardEl.offsetWidth || Math.min(272, sr.width - 24);
@@ -586,13 +611,17 @@
     });
     stripEl.addEventListener("click", function () {
       if (activeScene === "game") return;
-      if (toastEl) toastEl.classList.remove("is-show");
+      setToastOpen(false);
       setScene(activeScene === "panel" && flyout && flyout.classList.contains("is-open") ? "hover" : "panel");
     });
   }
 
   function setScene(scene) {
     activeScene = scene;
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = 0;
+    }
     for (var i = 0; i < tabs.length; i += 1) {
       var on = tabs[i].getAttribute("data-scene") === scene;
       tabs[i].classList.toggle("is-active", on);
@@ -602,16 +631,15 @@
     syncStageSlider(false);
 
     if (stage) {
+      stage.setAttribute("aria-labelledby", "tab-" + scene);
       stage.classList.toggle("is-hover", scene === "hover");
       stage.classList.toggle("is-game", scene === "game");
     }
-    if (flyout) flyout.classList.toggle("is-open", scene === "panel");
-    if (gameEl) {
-      gameEl.classList.toggle("is-on", scene === "game");
-      gameEl.setAttribute("aria-hidden", scene === "game" ? "false" : "true");
-    }
+    if (stageSide) stageSide.inert = scene === "game";
+    setFlyoutOpen(scene === "panel");
+    setGameOpen(scene === "game");
     if (queuedEl) queuedEl.classList.toggle("is-on", scene === "game");
-    if (toastEl) toastEl.classList.remove("is-show");
+    setToastOpen(false);
 
     if (scene === "hover") {
       if (stageHintTitleEl) stageHintTitleEl.textContent = "鼠标移上去，就能看全部读数";
@@ -659,8 +687,13 @@
   if (exitGameBtn) {
     exitGameBtn.addEventListener("click", function () {
       setScene("panel");
-      if (flyout) flyout.classList.remove("is-open");
-      if (toastEl) setTimeout(function () { toastEl.classList.add("is-show"); }, 180);
+      setFlyoutOpen(false);
+      if (toastEl) {
+        toastTimer = setTimeout(function () {
+          toastTimer = 0;
+          setToastOpen(true);
+        }, 180);
+      }
     });
   }
 
@@ -668,8 +701,8 @@
     var btn = document.getElementById(id);
     if (btn && toastEl) {
       btn.addEventListener("click", function () {
-        toastEl.classList.remove("is-show");
-        if (activeScene === "panel" && flyout) flyout.classList.add("is-open");
+        setToastOpen(false);
+        if (activeScene === "panel") setFlyoutOpen(true);
       });
     }
   });
@@ -677,9 +710,9 @@
   var triggerToastBtn = document.getElementById("simTriggerToast");
   if (triggerToastBtn && toastEl) {
     triggerToastBtn.addEventListener("click", function () {
-      if (flyout) flyout.classList.remove("is-open");
+      setFlyoutOpen(false);
       if (hoverCardEl) hoverCardEl.classList.remove("is-show");
-      toastEl.classList.add("is-show");
+      setToastOpen(true);
     });
   }
 
@@ -746,19 +779,27 @@
 
   function copyPlainText(text, onDone) {
     if (!text) return;
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      navigator.clipboard.writeText(text).then(onDone, function () {});
-    } else {
+    var fallbackCopy = function () {
       var area = document.createElement("textarea");
       area.value = text;
       area.setAttribute("readonly", "");
-      area.className = "skip";
+      area.className = "copy-sr";
       document.body.appendChild(area);
+      try {
+        area.focus({ preventScroll: true });
+      } catch (_) {
+        area.focus();
+      }
       area.select();
       try {
         if (document.execCommand("copy")) onDone();
       } catch (_) {}
       document.body.removeChild(area);
+    };
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      navigator.clipboard.writeText(text).then(onDone, fallbackCopy);
+    } else {
+      fallbackCopy();
     }
   }
 
@@ -844,33 +885,11 @@
       var code = document.querySelector("[data-hash-cmd]");
       var text = code ? code.textContent : "";
       if (!text) return;
-      var done = function () {
+      copyPlainText(text, function () {
         btn.textContent = "已复制";
         if (resetTimer) clearTimeout(resetTimer);
         resetTimer = setTimeout(function () { btn.textContent = "复制"; }, 2000);
-      };
-      var fallbackCopy = function () {
-        var area = document.createElement("textarea");
-        area.value = text;
-        area.setAttribute("readonly", "");
-        area.className = "copy-sr";
-        document.body.appendChild(area);
-        try {
-          area.focus({ preventScroll: true });
-        } catch (_) {
-          area.focus();
-        }
-        area.select();
-        try {
-          if (document.execCommand("copy")) done();
-        } catch (_) {}
-        document.body.removeChild(area);
-      };
-      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-        navigator.clipboard.writeText(text).then(done, fallbackCopy);
-      } else {
-        fallbackCopy();
-      }
+      });
     });
   });
 })();

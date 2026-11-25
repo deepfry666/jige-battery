@@ -34,7 +34,7 @@ body:
     attributes:
       label: 几格版本
       description: 可在「设置」页底部或诊断报告开头查看；如果是测试版，请带上 7 位提交号。
-      placeholder: 例如：0.2.3 或 0.2.3 测试版（abc1234）
+      placeholder: 例如：0.2.26 或 0.2.27 测试版（abc1234）
     validations:
       required: true
   - type: dropdown
@@ -54,7 +54,7 @@ body:
     attributes:
       label: 几格与官方驱动的读数对比
       description: 写明导出前官方驱动显示的百分比和充电状态，以及几格里的表现（未识别、读数偏差、充电状态不对、休眠/离线异常等）。
-      placeholder: 例如：官方驱动显示 74%、未充电；几格显示「检测到 1 个未识别接收器」。
+      placeholder: 例如：官方驱动显示 74%、未充电；几格显示「有 1 个 USB 设备未识别」。
     validations:
       required: true
   - type: textarea

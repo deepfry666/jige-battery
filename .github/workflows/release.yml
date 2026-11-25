@@ -63,15 +63,15 @@ jobs:
             throw "CHANGELOG.md 缺少 $version 的更新记录"
           }
           $section.Groups[1].Value.Trim() | Set-Content release-notes.md -Encoding utf8
-          foreach ($siteFile in @('site/index.html', 'site/download.html')) {
+          foreach ($siteFile in @('site/index.html', 'site/download.html', 'README.md')) {
             $siteText = Get-Content $siteFile -Raw -Encoding utf8
             $matches = [regex]::Matches($siteText, '(?:data-version>v|releases/v|Jige-Setup-)((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))(?=[</\-])')
             if ($matches.Count -eq 0) {
-              throw "$siteFile 中未找到静态回退版本号位点"
+              throw "$siteFile 中未找到静态版本号位点"
             }
             $mismatch = $matches | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne $version } | Select-Object -Unique
             if ($mismatch) {
-              throw "$siteFile 中存在未同步的回退版本号（$($mismatch -join ', ')），请统一更新为 $version"
+              throw "$siteFile 中存在未同步的版本号（$($mismatch -join ', ')），请统一更新为 $version"
             }
           }
           "number=$version" >> $env:GITHUB_OUTPUT
@@ -97,6 +97,9 @@ jobs:
           $expected = [version] "${env:JIGE_VERSION}.0"
           $actual = [version] $exe.VersionInfo.FileVersion
           if ($actual -ne $expected) { throw "Jige.exe 文件版本 $actual 与标签 $env:JIGE_VERSION 不一致" }
+          if ($exe.VersionInfo.ProductVersion -cnotmatch ('\A' + [regex]::Escape($env:JIGE_VERSION) + '(?:\+|\z)')) {
+            throw "Jige.exe 产品版本 $($exe.VersionInfo.ProductVersion) 与标签 $env:JIGE_VERSION 不一致"
+          }
           $env:JIGE_CHECK_LOG = Join-Path $env:RUNNER_TEMP 'jige-check.txt'
           $tray = Start-Process -FilePath $exe.FullName -ArgumentList '--check' -Wait -PassThru
           if ($tray.ExitCode -ne 0 -and (Test-Path $env:JIGE_CHECK_LOG)) { Get-Content $env:JIGE_CHECK_LOG }

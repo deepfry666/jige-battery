@@ -94,15 +94,15 @@ Get-FileHash .\Jige-Setup-0.2.26-x64.exe -Algorithm SHA256
 | --- | --- | --- |
 | Sony INZONE | INZONE H9 一代 | ✅ |
 | 游狼 G-Wolves | HTX Ultra 8K，以及同协议的 Fenrir Pro 8K、HTM Plus、HSK Pro 2.0 8K 和 21 款旧协议型号 | ✅ HTX Ultra 8K |
-| 雷蛇 Razer | 72 款鼠标、15 款键盘，BlackShark V3 Pro / V3 / V2 HyperSpeed / V2 Pro (2020) 耳机 | ✅ BlackShark V3 Pro |
+| 雷蛇 Razer | 72 个鼠标 PID、15 个键盘 PID，BlackShark V3 Pro / V3 / V2 HyperSpeed / V2 Pro (2020) 耳机 | ✅ BlackShark V3 Pro |
 | ASUS ROG / TUF | Falchion / Azoth / Scope II 96 键盘，Gladius III / Harpe Ace / Keris / Chakram 等 33 个鼠标 PID，OMNI 接收器，Strix Go 2.4 耳机 | ✅ 无线键盘 |
-| 罗技 Logitech | Bolt、Unifying、LIGHTSPEED 等接收器，G533 / G535 / G733 / G PRO X 等耳机 | MX Keys S、MX Anywhere 3S 日常在用 |
+| 罗技 Logitech | Bolt、Unifying、LIGHTSPEED 等接收器，G533 / G535 / G733 / G PRO X / ASTRO A50 Gen 5 等耳机 | MX Keys S、MX Anywhere 3S 日常在用 |
 | 赛睿 SteelSeries | Arctis Nova 7 / 5 / 3P / 3X / Pro、Arctis 1 / 7 / 7+ / 9 / Pro、GameBuds 耳机，Aerox 3/5/9、Rival 3 鼠标 | 按协议资料 |
 | HyperX 极度未知 | Cloud II / II Core / Flight / Alpha / III / III S Wireless 无线耳机 | 按协议资料 |
 | 海盗船 Corsair | Void Elite / Void v2 / HS80 / Virtuoso SE / XT / Max 耳机，Dark Core / M75 / Sabre v2 Pro 鼠标，K65 PLUS 键盘 | 按协议资料 |
 | Pulsar · Hitscan · Glorious · Endgame Gear | Pulsar X2 V2 / V3 / CrazyLight，Hitscan Hyperlight，Glorious Model O Wireless，Endgame Gear XM2we | 按协议资料 |
 | Cougar · Redragon · Audeze · Keychron | Cougar Revenger Pro，Redragon M991，Audeze Maxwell 耳机，Keychron Ultra-Link 8K / M5 / Nape Pro | 按协议资料 |
-| ATK | F1 Ultimate、ATK ZERO，以及同家族接收器 | 按协议资料 |
+| ATK | F1 Ultimate、ATK ZERO、A9 Plus NK、A9 Pro Max 2.0 NK 及多款共用/同家族接收器 | 按协议资料 |
 | VXE · VGN · Scyrox | VXE R1 系列、MAD，VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master，Scyrox V8 等 | 按协议资料 |
 | Lamzu · WLmouse | Lamzu Maya X，WLmouse Beast X 系列 | 按协议资料 |
 | 迈从 MCHOSE | A5 Pro Max 初代、M7 Ultra、L7 Pro、A7 V2 Ultra、V3 鼠标，K87 键盘 | 按协议资料 |
@@ -124,8 +124,8 @@ Get-FileHash .\Jige-Setup-0.2.26-x64.exe -Algorithm SHA256
 | ASUS ROG 无线键盘 | `0B05:1934`，`MI_01 / FF00:0001`（纯只读 `12 01`） | G-Helper | **已实机验证**（Windows 11，2026-11-20） |
 | 游狼 XVI-NEW 同家族 | Fenrir Pro 8K `33E4:3617`、HTM Plus `33E4:3817`、HSK Pro 2.0 8K `33E4:6817`，`MI_02 / FFFF:0000` | 与已验证型号同协议家族、同官方型号表 | **同家族推定**（未在实机验证） |
 | Finalmouse UltralightX（ULX） | 2.4 GHz 接收器 `361D:0100`，以及同家族 `361D` + `FF00:0001`（64/64）通用识别 | 单一来源 / 通用适配 | 仅按资料 |
-| ATK Compx-OUT | `373B:1031`（F1 Ultimate）、共用接收器 `373B:101A/11D9/1278`（默认「ATK 鼠标」，协议返回 CID/MID 时显示具体型号），以及同家族 `373B` + `FF02:0002`（17/17）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
-| ATK BitMouse | ATK ZERO `373B:1155`（`FF05:0001`），以及同家族 `373B` + `FF05:0001`（64/64）通用识别 | 多方开源实现一致 / 通用适配 | 仅按资料 |
+| ATK Compx-OUT | `373B:1031`（F1 Ultimate）、`373B:10C9`（A9 Plus NK 星闪接收器）、共用接收器 `373B:101A/11D9/1278`（默认「ATK 鼠标」，协议返回 CID/MID 时显示具体型号），以及同家族 `373B` + `FF02:0002`（17/17）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
+| ATK BitMouse | ATK ZERO `373B:1155`、NK NANO 接收器 `373B:1216`、A9 Pro Max 2.0 NK `373B:11DC/11DB`（`FF05:0001`），以及同家族 `373B` + `FF05:0001`（64/64）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
 | 游狼 XVI-OLD | 从官方网页驱动型号表导入 21 款 `XVI=1` 旧协议型号（如 HTX Mini 8K `33E4:2717`、VUK `33E4:3917`、HT-S2 / HTS Plus / HSK Pro 等），`MI_02 / FFFF:0000` | 依据官方网页驱动型号表 | 仅按资料 |
 | VXE R1 系列 / MAD | `3554:F58A`、`3554:F505`、`3554:F58E`、`373B:1040`、`373B:1085`，Compx-OUT | atk-control / HaloBattery / mouse_tray | 仅按资料 |
 | Scyrox / Compx 共享接收器 | `3554:F5F7`、`3554:F5F4`、`3554:F517`、`3554:F50D`，Compx-OUT | Scyrox S-center / HaloBattery / Lamzu Aurora / Control HUB | 仅按资料 |
@@ -154,7 +154,7 @@ Get-FileHash .\Jige-Setup-0.2.26-x64.exe -Algorithm SHA256
 | Corsair 海盗船 | Void Elite / Void v2 / HS80 / Virtuoso SE / XT / Max 耳机，Dark Core / M75 / Sabre v2 Pro 鼠标，K65 PLUS 键盘（14 个 PID，严禁切软件模式） | HeadsetControl / ckb-next / OpenLinkHub / HaloBattery（MIT） | 仅按资料 |
 | Pulsar · Hitscan · Glorious · Endgame Gear · Cougar · Redragon | Pulsar X2 V2 / V3 / CrazyLight、Hitscan Hyperlight、Glorious Model O Wireless、Endgame Gear XM2we、Cougar Revenger Pro、Redragon M991 | HaloBattery（MIT）/ python-pulsar-mouse-tool / hitscan-battery / xm2we-linux | 仅按资料 |
 | DAREU · EWEADN · AJAZZ · AULA · Keychron · Audeze | DAREU A950、EWEADN S9 / H2、AJAZZ AJ179 V2 MAX / Pro、AULA F87 Pro V2C、Keychron Ultra-Link 8K / M5 / Nape Pro、Audeze Maxwell（单帧只读 `0CD6`） | MousePower（MIT）/ aj179-linux（MIT）/ HaloBattery（MIT）/ OpenMouse | 仅按资料 |
-| 暂未启用路径（路径开关） | 雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`）、Endgame Gear 4K 接收器（`3367:1970`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
+| 暂未启用路径（路径开关） | Compx-OUT 存在未核实回复分支的接收器（`3554:F524/F527/F5D5/FB43/FB44/F510/FB26/FB23`）、雷蛇 PA（`0555/0556/0557/0583/053A/0536`）、Barracuda X Macronix（`0552`）、V2 Pro 2020 充电线（`052E`）、ATK A9 Ultra（`373B:111A`）、游狼 Receiver RS（`33E4:3854`）、Fenrir Asym（`33E4:3517`）、ASTRO A50 X（`046D:0B0B`）、罗技 PRO X 3（`046D:0B45`）、Endgame Gear 4K 接收器（`3367:1970`） | 违背只读原则、协议冲突或尚缺接口特征，打开句柄前跳过 | 暂未启用 |
 
 更多说明（三级验证状态、暂未启用的原因）见 [设备支持清单](docs/devices.md)。
 
