@@ -118,13 +118,13 @@
               </div>
               <div class="stage-tabs" id="stageTabs" role="tablist" aria-label="交互场景切换">
                 <span class="stage-tab-slider" id="stageTabSlider" aria-hidden="true"></span>
-                <button type="button" class="stage-tab is-active" role="tab" aria-selected="true" aria-controls="stage" tabindex="0" data-scene="panel">主面板</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="hover">悬停卡片</button>
-                <button type="button" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="game">全屏游戏</button>
+                <button type="button" id="tab-panel" class="stage-tab is-active" role="tab" aria-selected="true" aria-controls="stage" tabindex="0" data-scene="panel">主面板</button>
+                <button type="button" id="tab-hover" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="hover">悬停卡片</button>
+                <button type="button" id="tab-game" class="stage-tab" role="tab" aria-selected="false" aria-controls="stage" tabindex="-1" data-scene="game">全屏游戏</button>
               </div>
             </div>
 
-            <div class="stage" id="stage" role="tabpanel" aria-label="交互演示画布">
+            <div class="stage" id="stage" role="tabpanel" aria-labelledby="tab-panel">
               <div class="stage-wallpaper" aria-hidden="true"></div>
 
               <!-- 左侧桌面说明与快捷交互 -->
@@ -147,7 +147,7 @@
               </div>
 
               <!-- 全屏游戏遮罩 -->
-              <div class="sim-game" id="simGame" aria-hidden="true">
+              <div class="sim-game" id="simGame" aria-hidden="true" inert>
                 <div class="sim-crosshair" aria-hidden="true"></div>
                 <div class="sim-game-hud">
                   <div class="sim-game-badge">独占全屏游戏中</div>
@@ -177,7 +177,7 @@
               <div class="sim-hcard" id="simHoverCard" aria-hidden="true"></div>
 
               <!-- 低电量提醒 Toast -->
-              <div class="sim-toast" id="simToast" role="status" aria-live="polite">
+              <div class="sim-toast" id="simToast" role="status" aria-live="polite" inert>
                 <div class="toast-head">
                   <img src="assets/app-icon.svg" width="16" height="16" alt="">
                   <span>几格</span>
@@ -380,7 +380,7 @@
               <svg class="device-search-ico" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="7" cy="7" r="4.6"/><path d="m10.8 10.8 3.2 3.2"/></svg>
               <input id="deviceSearch" class="device-search-input" type="search" placeholder="快速查设备：输入品牌或型号，如 雷蛇、罗技、赛睿、HyperX、ROG、ATK…" autocomplete="off" spellcheck="false" data-device-search>
             </label>
-            <span class="device-search-meta mono" data-device-count>19 类设备 / 蓝牙通用</span>
+            <span class="device-search-meta mono" data-device-count aria-live="polite">19 类设备 / 蓝牙通用</span>
           </div>
           <ul class="devices" data-device-list>
             <li class="device">
@@ -395,12 +395,12 @@
             </li>
             <li class="device">
               <span class="device-brand">罗技 Logitech</span>
-              <span class="device-models">Bolt、Unifying、Nano、LIGHTSPEED 接收器；G533、G535、G733、G PRO X 等耳机。MX Keys S / MX Anywhere 3S 日常在用</span>
+              <span class="device-models">Bolt、Unifying、Nano、LIGHTSPEED 接收器；G533、G535、G733、G PRO X、ASTRO A50 Gen 5 等耳机。MX Keys S / MX Anywhere 3S 日常在用</span>
               <span class="tag">按资料适配</span>
             </li>
             <li class="device">
               <span class="device-brand">雷蛇 Razer</span>
-              <span class="device-models">72 款鼠标、15 款键盘，含 HyperPolling 接收器；BlackShark V3 Pro、V3、V2 HyperSpeed、V2 Pro (2020) 耳机</span>
+              <span class="device-models">72 个鼠标 PID、15 个键盘 PID，含 HyperPolling 接收器；BlackShark V3 Pro、V3、V2 HyperSpeed、V2 Pro (2020) 耳机</span>
               <span class="tag tag-verified">BlackShark V3 Pro 已实机验证</span>
             </li>
             <li class="device">
@@ -445,7 +445,7 @@
             </li>
             <li class="device">
               <span class="device-brand">Lamzu · WLmouse</span>
-              <span class="device-models">Lamzu Maya X、Atlantis；WLmouse Beast X、Beast X Max、Beast X Mini Pro</span>
+              <span class="device-models">Lamzu Maya X；WLmouse Beast X、Beast X Max、Beast X Mini Pro</span>
               <span class="tag">按资料适配</span>
             </li>
             <li class="device">
@@ -465,7 +465,7 @@
             </li>
             <li class="device">
               <span class="device-brand">雷柏 · Incott</span>
-              <span class="device-models">雷柏 VT7、VT9 Pro、VT9 Pro V2；Incott G 系列 2.4 GHz 接收器</span>
+              <span class="device-models">雷柏 VT7、VT9 Pro、VT9 Pro V2；Incott 8K 鼠标 2.4 GHz 接收器</span>
               <span class="tag">按资料适配</span>
             </li>
             <li class="device">
@@ -475,7 +475,7 @@
             </li>
             <li class="device">
               <span class="device-brand">蓝牙设备</span>
-              <span class="device-models">Windows 系统能读到电量的蓝牙鼠标、键盘和耳机，可在设置里随时关闭显示</span>
+              <span class="device-models">Windows 系统能读到电量的蓝牙鼠标、键盘和耳机，可在「管理设备」里随时关闭显示</span>
               <span class="tag">按资料适配</span>
             </li>
           </ul>
@@ -515,9 +515,8 @@
           <p class="spread-sub">每次 GitHub 发布正式版后自动同步至国内镜像，几格每天自动检查一次，新版下载校验好后在面板提示，点一下即可无损升级。</p>
 
           <ul class="changes" data-changes>
-            <li>修复 Logitech MX Vertical 等罗技鼠标在 USB 有线充电或充满未报百分比时误报 0% 的问题，并支持有线与 2.4G 平滑切换。</li>
-            <li>修复部分 ATK、G-Wolves 和罗技接收器已被识别却读不到电量的问题。</li>
-            <li>修复 HyperX Cloud III 系列、ASUS Strix Go 和罗技部分耳机查询电量时漏读回复的问题。</li>
+            <li>修复 Logitech MX Vertical 等使用 HID++ 0x1000 协议的罗技鼠标，通过 USB 有线充电或充满但未上报放电百分比时误报为 0% 的问题（#33、#35）。</li>
+            <li>当设备仅上报充电/充满状态而无有效百分比时，优先尝试电压读数回退；仍无百分比则以绿色「充电中」/「已充满」展示而不污染历史电量，并支持 USB 有线与 2.4G 接收器之间的平滑切换。</li>
           </ul>
 
           <a class="text-link" href="https://github.com/deepfry666/jige-battery/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">

@@ -185,7 +185,7 @@ internal static class HoverCardBuilder
             IsEstimated: device.Percentage is not null && device.Last?.IsEstimated == true,
             ValueText: Presentation.Value(device),
             Tone: tone,
-            FilledCells: Presentation.FilledCells(device.Percentage, 10),
+            FilledCells: Presentation.FilledCells(device, 10),
             IsCharging: device.IsCharging && !device.IsFull,
             StatusLine: SingleStatusLine(device, tone, now, model.LastCharged(device.Device.Id)),
             Rows: [],
@@ -206,7 +206,7 @@ internal static class HoverCardBuilder
             IsEstimated: device.Percentage is not null && device.Last?.IsEstimated == true,
             ValueText: Presentation.Value(device),
             Tone: tone,
-            FilledCells: Presentation.FilledCells(device.Percentage, 5),
+            FilledCells: Presentation.FilledCells(device, 5),
             IsCharging: device.IsCharging && !device.IsFull,
             IsAsleep: device.Link == LinkState.Asleep);
     }
@@ -234,14 +234,14 @@ internal static class HoverCardBuilder
     {
         if (device.ChargeStatusOnly)
             return device.IsFull ? "已充满 · 电量未知" : "充电中 · 电量未知";
-        bool charging = device.Fresh && (device.IsFull || device.IsCharging);
+        bool charging = device.IsFull || device.IsCharging;
         // 休眠时「休眠中 · N 分钟前」更要紧，单行放不下时不再加「上次充电」。
         string? charged = !charging && device.Link != LinkState.Asleep && lastCharge is { } at && at <= now
             ? RuntimeEstimator.ChargedAgo(at, now) : null;
         List<string> parts = [];
-        if (device.Fresh && device.IsFull)
+        if (device.IsFull)
             parts.Add("已充满");
-        else if (device.Fresh && device.IsCharging)
+        else if (device.IsCharging)
             parts.Add("充电中");
         else if (tone == BatteryTone.Low)
             parts.Add("电量低");
@@ -297,7 +297,7 @@ internal static class HoverCardBuilder
         if (runtime is { Charging: true, Kind: RuntimeKind.Ready } && device.Fresh && device.IsCharging && !device.IsFull)
             return ChargeEstimator.Format(runtime.Hours, compact: true);
         if (runtime.Kind == RuntimeKind.None || device.Link == LinkState.Asleep ||
-            (device.Fresh || device.ChargeStatusOnly) && (device.IsFull || device.IsCharging))
+            device.IsFull || device.IsCharging)
             return ListRowStatus(device, tone);
         // 列表行只有约 106px：低电量靠红/橙色表达，文字统一写剩余时间，避免「电量偏低 · 约 18 小时」被截断。
         if (runtime.Kind == RuntimeKind.Ready)
@@ -322,9 +322,9 @@ internal static class HoverCardBuilder
             };
         }
 
-        if ((device.Fresh || device.ChargeStatusOnly) && device.IsFull)
+        if (device.IsFull)
             return "已充满";
-        if ((device.Fresh || device.ChargeStatusOnly) && device.IsCharging)
+        if (device.IsCharging)
             return "充电中";
         return tone switch
         {

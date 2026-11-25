@@ -121,7 +121,7 @@ GitHub Repository Webhook（events: issues，HMAC-SHA256 验签）
      - 等待你的进一步指令。
 3. **实现与本地验证**：
    - 按需求修改代码并补充离线单元测试；
-   - 如涉及设备协议或设备目录变更，同步更新 `src/Jige.Core/DeviceCatalog.cs`、[docs/devices.md](devices.md)、[docs/protocols.md](protocols.md) 与 [README.md](../README.md)；
+   - 如涉及设备协议或设备目录变更，同步更新 `src/Jige.Core/DeviceCatalog.cs`、[docs/devices.md](devices.md)、[docs/protocols.md](protocols.md)、[README.md](../README.md) 与 [site/index.html](../site/index.html)；
    - 提交前必须全部通过：
      ```sh
      dotnet build Jige.slnx -p:EnableWindowsTargeting=true -warnaserror

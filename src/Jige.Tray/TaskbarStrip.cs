@@ -4,7 +4,8 @@ using Jige.Core;
 namespace Jige.Tray;
 
 internal readonly record struct TaskbarStripDevice(
-    DeviceKind Kind, int? Percentage, BatteryTone Tone, bool ShowBolt = false, bool IsPlaceholder = false)
+    DeviceKind Kind, int? Percentage, BatteryTone Tone, bool ShowBolt = false, bool IsPlaceholder = false,
+    bool IsFull = false)
 {
     public static TaskbarStripDevice Placeholder { get; } =
         new(DeviceKind.Other, null, BatteryTone.Idle, ShowBolt: false, IsPlaceholder: true);
@@ -33,7 +34,8 @@ internal readonly record struct TaskbarStripDevice(
         if ((device.Link == LinkState.Asleep || device is { Link: LinkState.Online, PendingRefresh: true }) &&
             device.Last is { WasChargingOrFull: true })
             tone = BatteryTone.Charging;
-        return new(device.Device.Kind, tone == BatteryTone.Idle ? null : device.Percentage, tone, showBolt);
+        return new(device.Device.Kind, tone == BatteryTone.Idle ? null : device.Percentage, tone, showBolt,
+            IsFull: device.IsFull);
     }
 }
 

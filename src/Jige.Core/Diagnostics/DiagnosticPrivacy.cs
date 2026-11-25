@@ -394,16 +394,24 @@ public static partial class DiagnosticPrivacy
             }
             return;
         }
-        if (AsusHidProtocol.FindHeadset(pid) is { } hs &&
-            AsusHidProtocol.TryDecodeHeadsetBattery(raw, hs.Connection == DeviceConnection.UsbCable, out bool offline, out _, out _))
+        if (AsusHidProtocol.FindHeadset(pid) is { } hs)
         {
-            int skip = raw[0] == AsusHidProtocol.HeadsetReportId ? 0 : 1;
-            raw[..Math.Min(raw.Length, 4 - skip)].CopyTo(result);
-            if (!offline && 12 - skip < raw.Length)
+            if (AsusHidProtocol.TryDecodeHeadsetBattery(raw, hs.Connection == DeviceConnection.UsbCable, out bool offline, out _, out _))
             {
-                result[9 - skip] = raw[9 - skip];
-                result[11 - skip] = raw[11 - skip];
-                result[12 - skip] = raw[12 - skip];
+                int skip = raw[0] == AsusHidProtocol.HeadsetReportId ? 0 : 1;
+                raw[..Math.Min(raw.Length, 4 - skip)].CopyTo(result);
+                if (!offline && 12 - skip < raw.Length)
+                {
+                    result[9 - skip] = raw[9 - skip];
+                    result[11 - skip] = raw[11 - skip];
+                    result[12 - skip] = raw[12 - skip];
+                }
+            }
+            else if (result.Length >= 2)
+            {
+                // 未识别帧（如请求回显或 0 mV 异常报文）写入脱敏哨兵头，避免全零在诊断回放时被误判为离线帧。
+                result[0] = AsusHidProtocol.HeadsetReportId;
+                result[1] = 0xEE;
             }
         }
     }
@@ -435,15 +443,20 @@ public static partial class DiagnosticPrivacy
             }
             return;
         }
-        if (usagePage == 0xFF00 &&
-            AsusHidProtocol.TryDecodeKeyboardBattery(raw, AsusBatteryLayout.Auto, 0x02, out bool kAsleep, out _, out _))
+        if (usagePage == 0xFF00)
         {
-            raw[..3].CopyTo(result);
-            if (!kAsleep && raw.Length > 11)
+            bool autoOk = AsusHidProtocol.TryDecodeKeyboardBattery(raw, AsusBatteryLayout.Auto, 0x02, out bool autoAsleep, out _, out _);
+            bool byte11Ok = AsusHidProtocol.TryDecodeKeyboardBattery(raw, AsusBatteryLayout.Byte11, 0x02, out bool byte11Asleep, out _, out _);
+            if (autoOk || byte11Ok)
             {
-                result[6] = raw[6];
-                result[9] = raw[9];
-                result[11] = raw[11];
+                raw[..3].CopyTo(result);
+                bool asleepUnderBoth = (!autoOk || autoAsleep) && (!byte11Ok || byte11Asleep);
+                if (!asleepUnderBoth && raw.Length > 11)
+                {
+                    result[6] = raw[6];
+                    result[9] = raw[9];
+                    result[11] = raw[11];
+                }
             }
         }
     }
@@ -456,6 +469,7 @@ public static partial class DiagnosticPrivacy
             SteelSeriesProtocol.DecodeNovaPro(raw).Matched && raw.Length >= 16)
         {
             result[0] = raw[0];
+            result[1] = raw[1];
             result[6] = raw[6];
             result[15] = raw[15];
             return;
@@ -703,6 +717,9 @@ public static partial class DiagnosticPrivacy
                 return FormattableString.Invariant(
                     $"Razer90B len=91 rid={raw[0]:X2} st={raw[1]:X2} tid={raw[2]:X2} cls={raw[7]:X2} cmd={raw[8]:X2} crc={(crc ? "OK" : "FAIL")}");
             }
+            case AsusHidAdapter when AsusHidProtocol.FindHeadset(hid.ProductId) is not null:
+                return FormattableString.Invariant(
+                    $"AsusHs len={raw.Length} rid={raw[0]:X2} b1={raw[1]:X2} b2={raw[2]:X2}");
             case AsusHidAdapter when raw.Length == AsusHidProtocol.ReportLength:
                 return FormattableString.Invariant(
                     $"AsusKb len=65 rid={raw[0]:X2} b1={raw[1]:X2} b2={raw[2]:X2} b6={raw[6]:X2} b9={raw[9]:X2} b11={raw[11]:X2}");

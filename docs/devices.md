@@ -285,6 +285,11 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 
 | 设备 | 接收器 VID:PID | 协议家族 | 暂未启用原因 | 出处 |
 | --- | --- | --- | --- | --- |
+| Zaopin 鼠标 | `3554:F524`、`3554:F527` | Compx-OUT | 电量应答存在未核实分支 | Control HUB |
+| Compx 方案鼠标 | `3554:F5D5` | Compx-OUT | Zaopin 电量应答存在未核实分支 | Control HUB |
+| Attack Shark 鼠标 | `3554:FB43`、`3554:FB44` | Compx-OUT | 电量应答分支未核实 | Control HUB |
+| Compx 方案鼠标 | `3554:F510` | Compx-OUT | Lamzu 与 Attack Shark 共用 PID，回复分支无法区分 | Lamzu Aurora / Control HUB |
+| Delux 鼠标 | `3554:FB26`、`3554:FB23` | Compx-OUT | 电量应答分支未核实 | Control HUB |
 | Razer BlackShark V2 Pro 2023（PC） | `1532:0555` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery `providers/blackshark.py`（MIT） |
 | Razer BlackShark V2 Pro 2023（待确定 SKU） | `1532:0556`、`1532:0557`、`1532:0583` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式且 SKU 待核实 | HaloBattery `providers/blackshark.py`（MIT） |
 | Razer Barracuda Pro | `1532:053A` | Razer PA | PA 查询序列涉及 `0xE1` 切换远程模式，违背只读原则 | HaloBattery #10 / `providers/blackshark.py`（MIT） |

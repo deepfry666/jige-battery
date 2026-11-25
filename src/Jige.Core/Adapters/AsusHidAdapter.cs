@@ -338,13 +338,17 @@ internal static class AsusHidProtocol
         byte b1 = frame[1 - skip];
         byte b2 = frame[2 - skip];
         byte b3 = frame[3 - skip];
-        if ((b1 == 0xFF && b2 == 0xAA) || (b1 == 0 && b2 == 0 && b3 == 0) || b1 != 0x1B)
+        if ((b1 == 0xFF && b2 == 0xAA) || (b1 == 0 && b2 == 0 && b3 == 0))
         {
             offline = true;
             return true;
         }
+        if (b1 != 0x1B)
+            return false;
 
         int mv = frame[11 - skip] | (frame[12 - skip] << 8);
+        if (mv == 0)
+            return false;
         bool isCharging = wired || frame[9 - skip] == 0x0A;
         // 充电时会抬升端电压约 160 mV，在恒压满电平台（4100 mV）以下扣除抬升避免跳档（依据 HaloBattery #190）。
         if (isCharging && mv < 4100)

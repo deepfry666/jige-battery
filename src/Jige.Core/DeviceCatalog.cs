@@ -267,7 +267,8 @@ public static class DeviceCatalog
             VerificationTier.DocsOnly, "razer-headset:", "HaloBattery #292（MIT）/ OpenRazer PR 2794"),
         // 2026-11-20 Windows 11（10.0.26200）实机诊断验证：36 ms 读到 96% NotCharging Online。
         new(0x1532, 0x0577, "Razer BlackShark V3 Pro", "Razer BlackShark V3 64B", DeviceKind.Headset,
-            VerificationTier.HardwareVerified, "razer-headset:", "Windows 11 实机诊断验证（2026-11-20）/ OpenRazer #2838"),
+            VerificationTier.HardwareVerified, "razer-headset:", "Windows 11 实机诊断验证（2026-11-20）/ OpenRazer #2838",
+            "Windows 11 实机读到 96%（2026-11-20）"),
 
         // === 已实机验证 / 仅按资料：ASUS ROG 无线键盘（MI_01 FF00:0001 65B 命令 12 01） ===
         // 0B05:1934 于 2026-11-20 Windows 11（10.0.26200）实机诊断验证：1 ms 读到 100% Charging Online。
@@ -275,7 +276,8 @@ public static class DeviceCatalog
             AsusHidProtocol.VendorId, model.Pid, model.Name, "ASUS ROG 65B", DeviceKind.Keyboard,
             model.Pid == 0x1934 ? VerificationTier.HardwareVerified : VerificationTier.DocsOnly,
             "asus:",
-            model.Pid == 0x1934 ? "Windows 11 实机诊断验证（2026-11-20）/ G-Helper" : "G-Helper / HaloBattery（MIT）")),
+            model.Pid == 0x1934 ? "Windows 11 实机诊断验证（2026-11-20）/ G-Helper" : "G-Helper / HaloBattery（MIT）",
+            model.Pid == 0x1934 ? "Windows 11 实机读到 100%（2026-11-20）" : null)),
 
         // === 仅按资料：MCHOSE 迈从无线键盘（FF02:0002 20B 命令 13 4A） ===
         new(MchoseKbProtocol.VendorId, MchoseKbProtocol.K87ReceiverPid, "MCHOSE K87", "MCHOSE 20B", DeviceKind.Keyboard,

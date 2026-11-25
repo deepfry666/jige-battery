@@ -142,6 +142,7 @@ jobs:
           $checksums = 'artifacts/release/SHA256SUMS.txt'
           $keep = @('Jige-Setup-prerelease-x64.exe', 'SHA256SUMS.txt')
           $basicAuth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GH_TOKEN"))
+          Write-Output "::add-mask::$basicAuth"
           $authHeader = "http.https://github.com/.extraheader=AUTHORIZATION: basic $basicAuth"
 
           gh release view $tag --repo $env:GITHUB_REPOSITORY > $null 2>&1

@@ -62,6 +62,8 @@ internal sealed partial class TrayApp
         }
 
         stripAutomation = new(host, StripGeometryMessage);
+        if (stripFullscreen)
+            stripAutomation.SetPaused(true);
         return stripAutomation;
     }
 
@@ -228,7 +230,7 @@ internal sealed partial class TrayApp
                     stripPalette = ResolveStripPalette(sampled);
                     darkTaskbar = sampled.PrefersDarkPalette();
                 }
-                bool raise = stripZOrderPending && popup is null && menu is null && hoverCard is null;
+                bool raise = stripZOrderPending && popup is null && menu is null && !HoverCardVisible;
                 stripWindow.Update(rendered, layout, next.Bounds, stripPalette, scale, ensureTopmost: raise);
                 if (raise)
                     stripZOrderPending = false;

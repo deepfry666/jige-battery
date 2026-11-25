@@ -1,6 +1,6 @@
 # 设备读取协议
 
-几格已在 Windows 11 实机读到 Sony INZONE H9 一代和游狼 HTX Ultra 8K 的电量。使用 Finalmouse ULX 接收器（固件 `0303`）的用户也已确认 Windows 版 0.2.24 能读到电量。其他设备的资料来源与验证范围见各节。C# 实现依据公开协议与报文独立编写，其中 openinzone 用于核对字段。
+几格已在 Windows 11 实机读到 Sony INZONE H9 一代、游狼 HTX Ultra 8K、Razer BlackShark V3 Pro（`1532:0577`）和 ASUS ROG 无线键盘（`0B05:1934`）的电量。使用 Finalmouse ULX 接收器（固件 `0303`）的用户也已确认 Windows 版 0.2.24 能读到电量。其他设备的资料来源与验证范围见各节。C# 实现依据公开协议与报文独立编写，其中 openinzone 用于核对字段。
 
 ## Finalmouse UltralightX
 
@@ -61,7 +61,7 @@
 
 Compx 回复核对 ID、命令、状态、地址、载荷长度及校验字节。校验为 `0x55` 减去前 16 字节之和后取低 8 位。只解析声明范围内的百分比及充电字节。游狼 Receiver RS 的公开回复尾字节与此校验式不一致，需复核完整原始帧后再考虑启用。离线测试使用 OpenMouse 的 X1 Pro Max 无线完整抓包核对 Compx 帧。Compx-FEAT 与其共享协议编解码，A9 Ultra 用同通道的真实版本回复核验校验和及电量解码对非电量命令的拒绝，独立电量抓包待补。[Compx-OUT 抓包](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/captures/atk-x1-pro-max/receiver.json) · [A9 Ultra 协议](https://github.com/cobanov/atkctl/blob/1755d8510663/docs/PROTOCOL.md#compx-a9-ultra-compatibility) · [A9 Ultra 版本回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/CompxTests.swift) · [Receiver RS 回复记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#6-the-compx-family)
 
-BitMouse 请求的校验为 ID 和校验槽之后的字节和取低 8 位。回复按登记布局检查帧头、命令和长度，拒绝 `FF` 和主动推送 `73`。实测有未回显请求序列和目标的回复。带前置校验的布局单独校验，当前无自动启用的该布局接收器。BitMouse 的 `83` 会忘记配对，发送白名单只允许 `07` 和 `0F` 的两条完整帧。[BitMouse 解码](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/bitmouse/index.ts) · [BitMouse 实机回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/ProtocolTests.swift)
+BitMouse 请求的校验为 ID 和校验槽之后的字节和取低 8 位。回复按登记布局检查帧头、命令和长度，拒绝 `FF` 和主动推送 `73`。实测有未回显请求序列和目标的回复。带前置校验的布局单独校验，ATK NK NANO（`1216`）、`11DC/11DB` 及通用 `373B` 路径均自动兼容带/不带前置校验两种回复布局。BitMouse 的 `83` 会忘记配对，发送白名单只允许 `07` 和 `0F` 的两条完整帧。[BitMouse 解码](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/bitmouse/index.ts) · [BitMouse 实机回复](https://github.com/cobanov/atkctl/blob/1755d8510663/Tests/ATKKitTests/ProtocolTests.swift)
 
 XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做有限次 GetFeature。两代分别校验自己的回复头和电量范围。旧协议可识别休眠状态，超时和乱码不会生成新读数。旧协议测试用实机验证实现公布的帧布局和合成百分比，新协议测试使用公开的 60% 实机记录。设备缓存可能返回旧回复，单次成功无法证明无线端仍在线。[XVI-OLD 实机验证实现](https://github.com/OpenMouse-Project/mouse-protocol/blob/93c4cc601d44/src/drivers/gwolves/xvi-hid.ts) · [XVI-NEW 实机记录](https://github.com/maximelonguepe/gwolves-battery-overlay/blob/7e11d7154f72/docs/PROTOCOL.md#3-response-frame)
 
@@ -109,7 +109,7 @@ XVI 的 65 字节含 Windows Report ID 槽，SetFeature 后等 100 ms，再做�
 
 ### HID++ 1.0 电量寄存器
 
-只有 Ping 回显错误 `01`（旧设备不识别 HID++ 2.0 子命令）才通过短集合读 `10 <地址> 81 <寄存器> 00 00 00`。先读 `0D`，回复 P0 是百分比，P2 高四位 `3/5/9` 分别是未充电、充电中和已充满。没有有效读数时读 `07`，P0 档位 `7/5/3/1` 分别显示约 `100/50/20/5%`。P1 按 `21/22` 掩码识别正在充电或已充满，两者同时成立时优先判为充电。寄存器 `B5` 只允许 `81` 形式。资料中的 Bolt / Unifying 完整配对记录使用 `83`，0.2.4 不主动读配对表。首次启动遇到一直静默且没有历史读数的槽位时，等它回复后才显示。[HaloBattery 旧寄存器解析](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 长寄存器定义](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp10.py)
+只有 Ping 回显错误 `01`（旧设备不识别 HID++ 2.0 子命令）才通过短集合读 `10 <地址> 81 <寄存器> 00 00 00`。先读 `0D`，回复 P0 是百分比，P2 高四位 `3/5/9` 分别是未充电、充电中和已充满。没有有效读数时读 `07`，P0 档位 `7/5/3/1` 分别显示约 `100/50/20/5%`。P1 按 `21/22` 掩码识别正在充电或已充满，两者同时成立时优先判为充电。寄存器 `B5` 只允许 `81` 形式。资料中的 Bolt / Unifying 完整配对记录使用 `83`，当前不主动读配对表。首次启动遇到一直静默且没有历史读数的槽位时，等它回复后才显示。[HaloBattery 旧寄存器解析](https://github.com/HeyOkay/HaloBattery/blob/main/providers/logitech.py) · [Solaar 长寄存器定义](https://github.com/pwr-Solaar/Solaar/blob/master/lib/logitech_receiver/hidpp10.py)
 
 ### USB 线缆
 
@@ -175,21 +175,23 @@ G325 跳过 ACK，用实机状态帧 `50 23 0B 00 03 10 00 06 00 07 0A` 的字�
 | BlackShark V2 HyperSpeed | 启用 `0565` 的 MI_03、`FF14:0001`。多方开源实现一致 | 未在实机验证 |
 | BlackShark V2 Pro 2023（PC） | `0555` 及待确定 SKU 的 `0556`/`0557`/`0583` 默认禁用。PA 查询序列涉及 `E1` 切换远程模式。单一来源 | 未在实机验证 |
 | Barracuda Pro、Barracuda X 2022 | 对照型号 `053A`/`0536` 的 PA 分支与 `0552` 的 Macronix/Airoha RACE 分支默认禁用（涉及远程/应用模式切换）。单一来源 | 未在实机验证 |
-| BlackShark V3、BlackShark V3 Pro | 启用 `057A`/`0577` 的 MI_05、`FF14:0001` 纯只读 `21/2A` 查询（不发冷启动会话帧，且跳过高频心跳以避免干扰无线链路）。单一来源 | 未在实机验证 |
+| BlackShark V3、BlackShark V3 Pro | 启用 `057A`/`0577` 的 MI_05、`FF14:0001` 纯只读 `21/2A` 查询（不发冷启动会话帧，且跳过高频心跳以避免干扰无线链路）。`0577` 已有 Windows 11 实机诊断记录，`057A` 单一来源 | `0577` 已实机验证（Windows 11，2026-11-20）；`057A` 未在实机验证 |
 | Barracuda X Chroma、Barracuda V2 Pro | 协议家族与电量事务未核实，保持禁用 | 未在实机验证 |
 
 BlackShark V2 Pro (2020) `0528` 使用 `FF00:0001` 的 64 字节 Feature 报告（Report ID `FF`），固定发送只读请求 `FF 0A 00 FD 04 12 F1 02 05 00×55`，等待约 100 ms 后读取同一报告。仅接受新鲜回复头 `FF 0F 05 FE 12 04 1F 08 05`（`[11]` 为电源状态：`01/02/03` 放电、`09` 充电中、`06` 已充满；`[12..13]` 大端毫伏，为 0 判离线；`[14]` 为设备上报的粗粒度百分比 `100/80/50/30/10`，标为估算；充电中 `09` 因固件跳数暂隐去具体百分比）；无新回复头 `FF 01 00 FE 12 04 1F 08 05` 判离线且拒绝使用其过期载荷。
 
-BlackShark V2 HyperSpeed 使用 64 字节 Input/Output、Report ID `02`。白名单为本地域 `00` 的 `20` 链路查询，以及无线域 `80` 的 `21` 电量、`2A` 充电查询。仅发送零参数帧，核对回显序号、域、命令、方向、参数长度及回复 CRC。请求 CRC 含 Report ID，回复 CRC 从字节 1 起算。维护及设置命令禁止发送。PA/PA-Barracuda 只保留 `type 03` 的 `21/2A` 离线编解码，V3 系列只保留已公开的纯查询模板及基础款的回复解码。V3 Pro 的回复和不同固件变体有待核实。代码里没有远程模式切换或冷启会话路径。
+BlackShark V2 HyperSpeed 使用 64 字节 Input/Output、Report ID `02`。白名单为本地域 `00` 的 `20` 链路查询，以及无线域 `80` 的 `21` 电量、`2A` 充电查询。仅发送零参数帧，核对回显序号、域、命令、方向、参数长度及回复 CRC。请求 CRC 含 Report ID，回复 CRC 从字节 1 起算。维护及设置命令禁止发送。PA/PA-Barracuda 只保留 `type 03` 的 `21/2A` 离线编解码。V3（`057A`）与 V3 Pro（`0577`）共享同一纯只读 `21/2A` 查询模板，其中 V3 校验从字节 0 起算的回复 CRC，V3 Pro（已于 2026-11-20 在 Windows 11 实机验证，36 ms 读到 96%）按不同固件变体同时严格校验起始偏移为 0 或 1 的双偏移回复 CRC。代码里没有远程模式切换或冷启会话路径。
 
 V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实机直接抓到的放电、低电、充电中、充满与关机过期帧；V3 单元测试使用 Synapse 实机抓包。V2 HyperSpeed 的测试回放实机的非电量回复以确认过滤，并按公开字段构造可接受回复验证 CRC 与事务。PA 测试回放 053A 的实机 34% 回复，并按公开字段构造 0555 应答。[V2 Pro 2020 实机记录](https://github.com/HeyOkay/HaloBattery/blob/main/providers/blackshark2020.py) · [BlackShark V3 抓包 #292](https://github.com/HeyOkay/HaloBattery/issues/292) · [V3 Pro 实机记录 #2838](https://github.com/openrazer/openrazer/issues/2838) · [V2 HyperSpeed 实机抓包 #2316](https://github.com/openrazer/openrazer/issues/2316) · [V2 HyperSpeed 协议与实测](https://github.com/bbesli/Synapse-for-Linux/blob/main/docs/PROTOCOL.md) · [Barracuda Pro 实机抓包 #10](https://github.com/HeyOkay/HaloBattery/issues/10) · [PA 查询字段](https://github.com/HeyOkay/HaloBattery/blob/main/providers/blackshark.py)
 
-## 拓展品牌纯只读协议（ASUS ROG/TUF · SteelSeries · HyperX · Corsair · 分集合 Compx · 扩展外设）
+## 拓展品牌纯只读协议（ASUS ROG/TUF · MCHOSE 键盘 · SteelSeries · HyperX · Corsair · 分集合 Compx · 扩展外设）
 
-本节新增路径全部标为「仅按资料」，遵守严格只读白名单（不发任何配置、DPI、EQ、灯效、配对或模式切换命令），并在 `tests/Jige.Core.Tests/BrandExpansionTests.cs` 中附带完整离线模拟帧与诊断回放单测：
+本节路径中 **ASUS ROG 无线键盘（`0B05:1934`）** 为「已实机验证」（Windows 11，2026-11-20），其余型号均标为「仅按资料」；所有路径遵守严格只读白名单（不发任何配置、DPI、EQ、灯效、配对或模式切换命令），并在 `tests/Jige.Core.Tests/` 中附带完整离线模拟帧与诊断回放单测：
 
 | 品牌 / 家族 | 集合与传输 | 严格只读查询白名单 | 来源 |
 | --- | --- | --- | --- |
+| ASUS ROG 无线键盘 | `0B05` 无线键盘（`0B05:1934` 已实机验证，其余如 Falchion / Claymore II / Azoth / Strix Scope II 96 仅按资料）走 `MI_01 / FF00:0001` 65B Output / Input | `00 12 01 00×62`（纯只读电量与充电查询；兼容 Byte6 / Byte11 / Auto 三种回复布局） | Windows 11 实机诊断验证（2026-11-20）/ G-Helper / HaloBattery（MIT） |
+| MCHOSE K87 无线键盘 | `41E4:2001` 2.4G 接收器走 `FF02:0002` 20B Output / Input（Report ID `13`） | `13 4A 01 00 00 02 00×14`（校验尾字节累加和 `[19]`，拒绝请求回显与未就绪全零载荷） | HaloBattery `mchose_kb.py`（MIT） |
 | ASUS ROG / TUF 鼠标与 OMNI / Strix Go 2.4 | 鼠标：`0B05` `MI_00` 厂商集合 64/65B（Harpe II Ace 接收器 `1AD0` 走 `MI_02 / FF01` RID `03`）；OMNI `1ACE` 走 `MI_02`（`FF02` 配对表、`FF01` 鼠标、`FF00` 键盘）；Strix Go 2.4 `18D6/18D7` 走 `>=64B` Feature `FF` | 鼠标 `00/03 12 07`；OMNI 配对表 `01 A0`、键盘 `02 12 01`；Strix Go `FF 08 00 FD 04 12 F1 03 52 01`（电压四档映射并扣除充电抬升） | G-Helper / HaloBattery（MIT） |
 | SteelSeries 赛睿 | 现代耳机与鼠标走 `1038` `FFC0:0001`（优先 `MI_03`）；经典 Arctis 与 Nova Pro 底座按型号匹配指定接口与厂商页 | 现代耳机 `00 B0`；Nova Pro `06 B0`（9 档估算）；Arctis 1/7X/7P `06 12`；Arctis 7 `06 14` / `06 18`；Arctis 9 `00 20`；Arctis Pro `41 AA` / `40 AA`；Aerox `00 D2`；Rival 3 `00 AA 01` | HeadsetControl / Linux / rivalcfg / alloyctl / HaloBattery（MIT） |
 | HyperX 极度未知 | Cloud II HP（`FF90:0303`）、Kingston（`FF13:0001`）、Cloud Flight（`FF53/FF90:0303`）、Cloud Alpha（`FF43:0202`）、Cloud III / II Core（`FF13:0001`，按实际发送通道校验 Output 或 Feature `66`，回复走 Input `66`）、Cloud III S（优先 `MI_03`、核对 Output `0C`，可跨集合收回复） | `06 FF BB 02/03`；Kingston 62B `... BB 02/03`；Flight `21 FF 05`；Alpha `21 BB 03/0B/0C`；Cloud III `66 89/8A`；Cloud III S `0C 02 03 01 00 06/48`（严格 GET `01`，拒绝 SET `00`） | HeadsetControl / HyperHeadset / HyperXBatteryMonitor / HaloBattery（MIT） |
@@ -223,4 +225,4 @@ V2 Pro (2020) 单元测试使用 OpenRazer #1280 与 HaloBattery 在 Windows 实
 
 ## 本阶段验收
 
-0.2.3 在 macOS 上通过托管构建（零警告）与离线单元测试，覆盖在线/休眠/离线三态语义与 10 分钟休眠转离线、`GetLastInputInfo` 唤醒节流、三级验证目录与文档一致性、路径开关打开句柄前跳过、诊断开头脱敏提示与反馈链接、测试版版本号格式与检查更新防降级、无变化跳过写 `state.json`、设置动画增量重绘、DPI/主题变化防抖与改名保护，以及雷蛇 90B 协议忙重试。所有 Windows 实机行为（Compx/游狼休眠唤醒、高 DPI 图标复用、DPI/主题防抖、剪贴板复制、测试版滚动发布工作流）均待 Windows 11 实机确认。完整设备清单与三级验证状态见 [设备支持清单](devices.md)。
+当前仓库持续通过零警告托管构建与全量离线单元测试，覆盖：在线/休眠/离线三态语义与 10 分钟休眠转离线、`GetLastInputInfo` 唤醒节流、三级验证目录与文档一致性、路径开关打开句柄前跳过、各品牌只读白名单与离线模拟帧/实机诊断回放、诊断脱敏与 `回复特征`/`被动帧` 输出、无变化跳过写 `state.json`、雷蛇 90B 协议忙重试与罗技 `0x1000` 充电无百分比回退等。已在 Windows 11 实机验证 Sony INZONE H9 一代、游狼 HTX Ultra 8K、Razer BlackShark V3 Pro（`1532:0577`）与 ASUS ROG 无线键盘（`0B05:1934`），其余标为「同家族推定」与「仅按资料」的设备持续待实机反馈核验。完整设备清单与三级验证状态见 [设备支持清单](devices.md)。

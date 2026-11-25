@@ -113,8 +113,12 @@ internal sealed partial class TrayApp : IDisposable
     private int updateOperationId;
     // 当前更新任务由后台自动检查发起时记录其编号；用户操作会换新编号，从而接管或取消后台任务。
     private int? backgroundUpdateId;
+    private bool activeUpdateInstalls;
     private readonly BackgroundUpdateSchedule autoUpdate = new(Environment.TickCount64);
     private bool MenuOpen => menu is not null;
+    private bool HoverCardVisible => hoverCard is not null && hoverPhase != HoverPhase.Parked;
+    private bool ShouldShowWelcome =>
+        welcomePending && model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons && icons.AnyRegistered;
     private bool UpdateActive => updateState.IsBusy;
     private int cleanupAttempts;
     private volatile bool exitRequested;
@@ -725,9 +729,13 @@ internal sealed partial class TrayApp : IDisposable
                 ProcessWork();
                 if (wParam.Value == GameSettleTimer && stripZOrderPending)
                 {
-                    stripZOrderPending = false;
-                    if (!stripFullscreen && popup is null && menu is null && hoverCard is null)
-                        stripWindow?.EnsureTopmost();
+                    if (stripFullscreen)
+                        stripZOrderPending = false;
+                    else if (popup is null && menu is null && !HoverCardVisible && stripWindow is { VisibleBounds: not null })
+                    {
+                        stripWindow.EnsureTopmost();
+                        stripZOrderPending = false;
+                    }
                 }
                 return true;
             case 0x007E or 0x02E0: // WM_DISPLAYCHANGE / WM_DPICHANGED（D3：防抖且不中断改名）
@@ -757,12 +765,7 @@ internal sealed partial class TrayApp : IDisposable
                 PInvoke.PostQuitMessage(0);
                 return true;
             case 0x0010: // WM_CLOSE，安装器可请求托盘正常退出。
-                exitRequested = true;
-                DestroyMenu();
-                DestroyHoverCard();
-                DestroyPopup();
-                updateCancellation?.Cancel();
-                PInvoke.PostQuitMessage(0);
+                RequestExit();
                 return true;
             default:
                 return false;
@@ -963,7 +966,7 @@ internal sealed partial class TrayApp : IDisposable
 
         if (!game.BlockPopups && !MenuOpen && popup is null)
         {
-            if (welcomePending && icons.AnyRegistered && !(nextWelcomeAttempt > now))
+            if (ShouldShowWelcome && !(nextWelcomeAttempt > now))
                 ShowWelcome();
             else if (!schedule.Running && !(nextPopupAttempt > now) &&
                 model.ReadyReminderKey(now, false) is { } readyKey)
@@ -994,7 +997,7 @@ internal sealed partial class TrayApp : IDisposable
                     ? Earlier(reminder > now ? reminder : null, now + GameRecheck)
                     : nextPopupAttempt is { } retry && retry > reminder ? retry : reminder);
             }
-            if (welcomePending && icons.AnyRegistered)
+            if (ShouldShowWelcome)
                 wallDue = Earlier(wallDue, game.BlockPopups ? now + GameRecheck : nextWelcomeAttempt ?? now);
         }
         if (popup?.IsNotice == true)
@@ -2248,9 +2251,19 @@ internal sealed partial class TrayApp : IDisposable
                 ShowDiagnostics();
                 break;
             case TrayMenuCommand.Exit:
-                PInvoke.PostQuitMessage(0);
+                RequestExit();
                 break;
         }
+    }
+
+    private void RequestExit()
+    {
+        exitRequested = true;
+        DestroyMenu();
+        DestroyHoverCard();
+        DestroyPopup();
+        try { updateCancellation?.Cancel(); } catch (ObjectDisposedException) { }
+        PInvoke.PostQuitMessage(0);
     }
 
     private void CloseMenu()
@@ -2466,6 +2479,7 @@ internal sealed partial class TrayApp : IDisposable
         CancelUpdateTask();
         int opId = ++updateOperationId;
         backgroundUpdateId = background ? opId : null;
+        activeUpdateInstalls = install;
         var source = new CancellationTokenSource();
         updateCancellation = source;
         var token = source.Token;
@@ -2674,7 +2688,7 @@ internal sealed partial class TrayApp : IDisposable
     private void CancelUpdate(PopupWindow activePopup)
     {
         bool wasChecking = updateState.Phase is UpdatePhase.Checking or UpdatePhase.Idle;
-        bool clearReady = updateState.Phase == UpdatePhase.Verifying;
+        bool clearReady = updateState.ShouldClearReadyOnCancel(activeUpdateInstalls);
         CancelUpdateTask();
         events.LogUpdateCheck("已取消");
         if (wasChecking)
@@ -2694,6 +2708,7 @@ internal sealed partial class TrayApp : IDisposable
     private void CancelUpdateTask()
     {
         updateOperationId++;
+        activeUpdateInstalls = false;
         if (updateCancellation is not { } active)
             return;
         updateCancellation = null;
@@ -2703,7 +2718,10 @@ internal sealed partial class TrayApp : IDisposable
 
     private void FinishUpdateCancellation(int opId)
     {
-        if (opId != updateOperationId || updateCancellation is not { } active)
+        if (opId != updateOperationId)
+            return;
+        activeUpdateInstalls = false;
+        if (updateCancellation is not { } active)
             return;
         updateCancellation = null;
         active.Dispose();

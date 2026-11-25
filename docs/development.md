@@ -4,9 +4,9 @@
 
 ## 配置与缓存
 
-- `%LOCALAPPDATA%\Jige\config.json`：显示位置、外观模式（`theme`）、托盘模式、各设备的面板/托盘显示选择（`hiddenDeviceIds` / `trayExcludedDeviceIds`）、提醒阈值（含单台设备阈值 `deviceThresholds`、进游戏提醒 `gameEntryReminder`、充满提醒 `fullChargeReminder`）、查询间隔（含游戏间隔）、游戏保护、自动检查更新（`autoCheckUpdates`）、预计可用时间开关（`showRuntimeEstimate`）、开机自启、设备别名。配置损坏时，保留一份 `config.broken-<时间>.json`，再恢复默认值。
+- `%LOCALAPPDATA%\Jige\config.json`：显示位置（`displayLocation`）、任务栏直读条样式与配色（`taskbarStyle` / `taskbarColor`）、外观模式（`theme`）、托盘模式（`trayMode`）、蓝牙设备显示开关（`showBluetoothDevices`）、各设备的面板/托盘显示选择（`hiddenDeviceIds` / `trayExcludedDeviceIds`）、提醒阈值（含单台设备阈值 `deviceThresholds`、进游戏提醒 `gameEntryReminder`、充满提醒 `fullChargeReminder`）、查询间隔（含游戏间隔）、游戏保护、自动检查更新（`autoCheckUpdates`）、首次引导状态（`welcomeShown`）、预计可用时间开关（`showRuntimeEstimate`）、开机自启、设备别名。配置损坏时保留一份 `config.broken-<时间>.json` 再恢复默认值；写盘遇到文件占用时备份为 `config.locked-<时间>.json`。
 - 游戏以普通窗口运行时，可以先退出几格，再在 `config.json` 里加上 `"gameProcessNames": ["Game.exe"]`（进程名见任务管理器，不区分大小写，可省略 `.exe`）。
-- `%LOCALAPPDATA%\Jige\state.json`：最近一次成功读数、提醒状态、每台设备最近 5 次读数，以及预计可用时间的统计摘要（`runtime`）。电量或状态有变化时才写盘，另外每累计在线半小时顺带保存一次估算进度。
+- `%LOCALAPPDATA%\Jige\state.json`：最近一次成功读数（`readings`）、提醒状态（`reminders`）、已手动移除的离线设备（`removedOfflineDevices`）、每台设备最近 5 次读数历史（`history`）、通用适配安全门拦截记录（`blockedReceivers`），以及预计可用时间的统计摘要（`runtime`）。电量或状态有变化时才写盘，另外每累计在线半小时顺带保存一次估算进度。
 - `%LOCALAPPDATA%\Jige\jige.log`：脱敏日志，只记录状态变化和原因类别。
 - 开机自启使用当前用户 Run 项里的 `Jige Battery` 值。
 
@@ -42,8 +42,8 @@ dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAo
 
 ### 发布流程
 
-- 每次推送到 `main`，CI 都会运行测试、发布两个 NativeAOT 程序、做托盘启动自检，并更新滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build)（国内镜像：[安装包](https://download.imfourj.cn/jige-battery/prerelease/Jige-Setup-prerelease-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/prerelease/SHA256SUMS.txt)）。几格内置的检查更新只看正式版。
-- 发布正式版：确认 `Directory.Build.props` 和 `installer/jige.iss` 的版本号，在 [CHANGELOG.md](../CHANGELOG.md) 写好 `## [x.y.z]`，然后打标签推送：
+- 每次推送到 `main`，[`build.yml`](../.github/workflows/build.yml) 会编译运行测试、发布两个 NativeAOT 程序（`jige-probe-win-x64` 与 `jige-tray-win-x64`）并做启动自检；[`prerelease.yml`](../.github/workflows/prerelease.yml) 会独立编译打包测试版安装器并更新滚动测试版 [`prerelease-build`](https://github.com/deepfry666/jige-battery/releases/tag/prerelease-build)（国内镜像：[安装包](https://download.imfourj.cn/jige-battery/prerelease/Jige-Setup-prerelease-x64.exe) · [SHA256SUMS.txt](https://download.imfourj.cn/jige-battery/prerelease/SHA256SUMS.txt)）。几格内置的检查更新只看正式版。
+- 发布正式版：先同步 `Directory.Build.props`、`installer/jige.iss`、`site/index.html`、`site/download.html` 与 `README.md` 中的版本号（及 `site/index.html` 的静态回退更新摘要），在 [CHANGELOG.md](../CHANGELOG.md) 写好 `## [x.y.z]`，然后打标签推送：
 
   ```sh
   git tag vX.Y.Z
@@ -55,6 +55,6 @@ dotnet publish src/Jige.Tray/Jige.Tray.csproj -c Release -r win-x64 -p:PublishAo
 
 ## 待实机确认
 
-- 任务栏直读条在 Windows 10 和 Windows 11 上的位置和层级：点开开始菜单、通知/操作中心以后是否还在；Windows 10 下的「资讯和兴趣」、小任务栏按钮、自定义工具栏避让；自动隐藏任务栏、Explorer 重启、全屏游戏进出时的表现；100%、150%、200% 缩放下与时钟的大小是否协调。
+- 任务栏直读条在 Windows 10 和 Windows 11 上的边缘场景：5 种样式与 9 套配色在彩色/半透明任务栏及高反差壁纸上的自适应效果、多屏与不同 DPI 缩放（100%、150%、200%）下的对齐、自动隐藏任务栏与 Explorer 重启恢复。
 - 托盘水位图标在深浅色任务栏、不同缩放下的清晰度。
-- 标为「仅按资料」的设备的实际读数。
+- 除 4 台已实机验证设备外，其余标为「同家族推定」与「仅按资料」设备的 Windows 实机读数。

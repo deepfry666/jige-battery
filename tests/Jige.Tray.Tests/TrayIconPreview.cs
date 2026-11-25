@@ -19,7 +19,7 @@ internal static class TrayIconPreview
         }
 
         var kind = icon.Kind ?? throw new ArgumentException("预览需要设备类型", nameof(icon));
-        var layout = TrayIconLayout.Compute(size, kind, icon.Percentage);
+        var layout = TrayIconLayout.Compute(size, kind, icon.EffectiveFillPercentage);
         var transform = TrayDeviceShape.Transform(kind, layout.Glyph);
         var contours = TrayDeviceShape.Contours(kind).ToArray()
             .Select(contour => contour.Select(point => Vector2.Transform(point, transform)).ToArray())

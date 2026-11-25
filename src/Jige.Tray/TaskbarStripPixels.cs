@@ -192,9 +192,11 @@ internal static class TaskbarStripPixels
             if (barWidth < cells * 2)
                 return;
 
-            int lit = segment.Device.Percentage is { } percent && percent > 0
-                ? Math.Clamp((percent * cells + 50) / 100, 1, cells)
-                : 0;
+            int lit = segment.Device.IsFull && segment.Device.Percentage is null
+                ? cells
+                : segment.Device.Percentage is { } percent && percent > 0
+                    ? Math.Clamp((percent * cells + 50) / 100, 1, cells)
+                    : 0;
             uint litArgb = litColor.Premultiplied;
             uint dimArgb = palette.Foreground.WithAlpha(palette.UsesLightInk ? (byte)56 : (byte)48).Premultiplied;
             for (int i = 0; i < cells; i++)

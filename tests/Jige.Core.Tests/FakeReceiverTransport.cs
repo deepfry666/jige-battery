@@ -190,9 +190,11 @@ internal sealed class FakeReceiverTransport : IReceiverTransport
             if (hid is null)
                 return;
             if (hid.InputOnly)
-                Assert.DoesNotContain(op, new[] { DiagnosticOperation.HidOutput, DiagnosticOperation.SetFeature });
+                Assert.DoesNotContain(op, new[] { DiagnosticOperation.HidOutput, DiagnosticOperation.SetFeature, DiagnosticOperation.GetFeature });
             if (hid.FeatureOnly)
                 Assert.DoesNotContain(op, new[] { DiagnosticOperation.HidInput, DiagnosticOperation.HidOutput });
+            else
+                Assert.DoesNotContain(op, new[] { DiagnosticOperation.GetFeature, DiagnosticOperation.SetFeature });
             ushort? expected = op switch
             {
                 DiagnosticOperation.HidInput => hid.InputLength,

@@ -280,11 +280,15 @@ end;
 
 function ShouldRestoreAutostartFromConfig(const ConfigText: AnsiString): Boolean;
 var
+  Raw: AnsiString;
   Lower, Compact: String;
   I: Integer;
   Ch: Char;
 begin
-  Lower := Lowercase(String(ConfigText));
+  Raw := ConfigText;
+  if (Length(Raw) >= 3) and (Ord(Raw[1]) = $EF) and (Ord(Raw[2]) = $BB) and (Ord(Raw[3]) = $BF) then
+    Delete(Raw, 1, 3);
+  Lower := Lowercase(String(Raw));
   Compact := '';
   for I := 1 to Length(Lower) do
   begin
@@ -414,6 +418,8 @@ begin
       CloseTray(300)
     else
       CloseTray(80);
+    if not CheckForMutexes('{#TrayMutex}') then
+      WaitForExeUnlocked(ExpandConstant('{app}\Jige.exe'), 60);
   end;
   if CurUninstallStep <> usPostUninstall then
     Exit;

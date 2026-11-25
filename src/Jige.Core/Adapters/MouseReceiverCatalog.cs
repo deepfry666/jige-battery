@@ -9,10 +9,12 @@ internal sealed record MouseProtocolShape(ushort UsagePage, ushort? Usage, ushor
 {
     public HidInterface QueryEndpoint(HidInterface endpoint) => Channel switch
     {
-        MouseChannel.Feature => endpoint with { FeatureOnly = true, RequiredFeatureReportId = ReportId },
-        MouseChannel.FeatureInput => endpoint with { RequiredFeatureReportId = ReportId, RequiredInputReportId = ReportId },
+        MouseChannel.Feature or MouseChannel.FeatureInput => endpoint with { FeatureOnly = true, RequiredFeatureReportId = ReportId },
         _ => endpoint with { RequiredOutputReportId = ReportId, RequiredInputReportId = ReportId }
     };
+
+    public HidInterface InputEndpoint(HidInterface endpoint) =>
+        endpoint with { InputOnly = true, RequiredInputReportId = ReportId };
 
     public bool Matches(HidInterface hid) =>
         hid.MetadataIssue == ReadIssue.None && hid.UsagePage == UsagePage && hid.Usage.HasValue &&

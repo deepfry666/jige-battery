@@ -102,6 +102,9 @@ internal sealed record UpdateViewState(
         Ready = package
     };
 
+    public bool ShouldClearReadyOnCancel(bool installing) =>
+        Phase == UpdatePhase.Verifying || (installing && Ready is not null);
+
     public UpdateViewState BackToAvailable(bool clearReady = false) => Available is null
         ? Idle(CurrentVersionLabel, IsInstalled)
         : this with
