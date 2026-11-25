@@ -366,7 +366,7 @@ internal sealed class TrayFiles(string folder)
             .Select(pair => pair.Key));
         // 保留用户已为其设置过别名、隐藏或阈值的被动推送鼠标，避免首次未收到推送前重启丢失个性化配置。
         var currentSettings = settings;
-        emptyIds.RemoveWhere(id => id.StartsWith("mouse-passive:", StringComparison.OrdinalIgnoreCase) &&
+        emptyIds.RemoveWhere(id => id.StartsWith("passive-mouse:", StringComparison.OrdinalIgnoreCase) &&
             (currentSettings.DeviceAliases.ContainsKey(id) || currentSettings.HiddenDeviceIds.Contains(id, StringComparer.OrdinalIgnoreCase) ||
              currentSettings.DeviceThresholds.ContainsKey(id) || !currentSettings.IsInTray(id)));
         if (emptyIds.Count == 0)

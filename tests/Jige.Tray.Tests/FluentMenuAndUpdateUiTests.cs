@@ -164,6 +164,27 @@ public sealed class FluentMenuAndUpdateUiTests
         Assert.Equal(UpdatePhase.Available, back.Phase);
         Assert.Null(back.Progress);
 
+        // 后台预下载就绪后点击「重启并升级」若复核失败回退到重新下载（Phase=Downloading，Ready 仍非空），
+        // 取消下载时必须清空 Ready，避免 updates/ 已被清空却保留陈旧的「已就绪」状态。
+        var readyPkg = new VerifiedPackage("Jige-Setup-0.2.9-x64.exe", 1024, new byte[32]);
+        var ready = found.WithReady(readyPkg);
+        Assert.True(ready.IsReady);
+        var verifyingReady = ready.WithProgress(new(1024, 1024, Verifying: true));
+        Assert.True(verifyingReady.ShouldClearReadyOnCancel(installing: true));
+        var fallbackDownloading = ready.WithProgress(new(256, 1024, Verifying: false));
+        Assert.Equal(UpdatePhase.Downloading, fallbackDownloading.Phase);
+        Assert.NotNull(fallbackDownloading.Ready);
+        Assert.True(fallbackDownloading.ShouldClearReadyOnCancel(installing: true));
+        Assert.False(fallbackDownloading.ShouldClearReadyOnCancel(installing: false));
+        var cancelledInstall = fallbackDownloading.BackToAvailable(
+            clearReady: fallbackDownloading.ShouldClearReadyOnCancel(installing: true));
+        Assert.Null(cancelledInstall.Ready);
+        Assert.False(cancelledInstall.IsReady);
+
+        // 常规非安装下载（Ready 为空）取消时不误触发 clearReady。
+        Assert.False(downloading.ShouldClearReadyOnCancel(installing: true));
+        Assert.False(downloading.ShouldClearReadyOnCancel(installing: false));
+
         Assert.Equal("更新服务器请求失败（HTTP 403）。",
             UpdateViewState.ExplainError(new HttpRequestException("forbidden", null, HttpStatusCode.Forbidden)));
         Assert.Equal("无法读取更新服务器返回的发行信息。",

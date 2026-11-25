@@ -359,6 +359,151 @@ public sealed class LogitechTrayTests
         Assert.Equal(Mouse.Id, model.ReadyReminderKey(Now, false));
     }
 
+    [Fact]
+    public void ChargeStatusOnlyFullReminderDoesNotExpireOnStaleLastReadAtWhileFreshRemindersStillExpire()
+    {
+        var receiver = new DeviceIdentity("logitech-hidpp:unifying/1/unit-MXVERTICAL", "MX Vertical", DeviceKind.Mouse,
+            AdaptationSource.Catalog, VerificationTier.DocsOnly, DeviceConnection.Receiver);
+        var cable = receiver with
+        {
+            Id = "logitech-hidpp-direct:usb/unit-MXVERTICAL",
+            Source = AdaptationSource.Generic,
+            Connection = DeviceConnection.UsbCable
+        };
+        var freshMouse = new DeviceIdentity("mouse:fresh", "Fresh Mouse", DeviceKind.Mouse);
+        var model = new TrayModel(new() { PollSeconds = 60, LowBatteryThreshold = 15, FullChargeReminder = true }, new());
+
+        // 1) 2.4G 在 T0 记录 90%，随后 30 分钟后切换为仅状态 USB 充满（Last.ReadAt 仍停留在 30 分钟前）。
+        model.ApplyPoll([new(receiver, 90, false, ChargingState.NotCharging, LinkState.Online, Now)], false, Now);
+        var t2 = Now.AddMinutes(30);
+        model.ApplyPoll([
+            new(receiver, null, false, ChargingState.Unknown, LinkState.Offline, t2),
+            new(cable, null, false, ChargingState.Full, LinkState.Online, t2),
+            new(freshMouse, 10, false, ChargingState.NotCharging, LinkState.Online, t2)
+        ], false, t2);
+
+        string fullKey = ReminderKeys.For(ReminderKind.FullCharge, receiver.Id);
+        Assert.Equal(freshMouse.Id, model.ReadyReminderKey(t2, false));
+        Assert.True(model.ReminderIsDue(fullKey, t2));
+        // ChargeStatusOnly 充满提醒不依赖陈旧 Last.ReadAt 过期，避免 WorkTimer 10ms 忙循环。
+        Assert.Null(model.ReminderExpires(fullKey));
+
+        // 普通 Fresh 低电量提醒仍按 TTL 正常过期；消除低电量后充满提醒即就绪。
+        var expectedExpiry = t2.AddSeconds(120).AddTicks(1);
+        Assert.Equal(expectedExpiry, model.ReminderExpires(freshMouse.Id));
+        model.SetReminder(freshMouse.Id, null);
+        Assert.Equal(fullKey, model.ReadyReminderKey(t2, false));
+
+        var t3 = t2.AddMinutes(1);
+        model.ApplyPoll([
+            new(freshMouse, 100, false, ChargingState.Full, LinkState.Online, t3)
+        ], false, t3);
+        string freshFullKey = ReminderKeys.For(ReminderKind.FullCharge, freshMouse.Id);
+        Assert.True(model.ReminderIsDue(freshFullKey, t3));
+        Assert.Equal(t3.AddSeconds(120).AddTicks(1), model.ReminderExpires(freshFullKey));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChargeStatusOnlyIconsCellsHoverCardAndTaskbarMeterRenderGreenFillWithoutFakingPercentage(bool dark)
+    {
+        var cable = new DeviceIdentity("logitech-hidpp-direct:usb/unit-MXVERTICAL", "MX Vertical", DeviceKind.Mouse,
+            AdaptationSource.Generic, VerificationTier.DocsOnly, DeviceConnection.UsbCable);
+        var model = new TrayModel(new() { TrayMode = TrayDisplayMode.Custom }, new());
+
+        // 1) ChargeStatusOnly 充电中（无百分比）：图标 50% 绿填充，保留 Percentage=null，不编造数字。
+        model.ApplyPoll([new(cable, null, false, ChargingState.Charging, LinkState.Online, Now)], false, Now);
+        var charging = Assert.Single(model.TrayDevices());
+        var chargingIcon = Presentation.Icon(charging, dark, 15);
+        Assert.Null(chargingIcon.Percentage);
+        Assert.Equal(50, chargingIcon.FillPercentage);
+        Assert.Equal(50, chargingIcon.EffectiveFillPercentage);
+        Assert.Equal(BatteryTone.Charging, chargingIcon.Tone);
+        Assert.Equal("–", Presentation.Value(charging));
+
+        foreach (int size in new[] { 16, 24, 32 })
+        {
+            uint[] pixels = TrayIconPreview.Render(size, chargingIcon);
+            Assert.Contains(chargingIcon.FillInk.Premultiplied, pixels);
+            Assert.Contains(chargingIcon.DimInk.Premultiplied, pixels);
+        }
+
+        // 2) ChargeStatusOnly 已充满（无百分比）：图标 100% 全绿填充，主面板/悬停卡片满格，底栏格条 4/4 全亮，数字仍为 "–"/"--"。
+        var t1 = Now.AddMinutes(10);
+        model.ApplyPoll([new(cable, null, false, ChargingState.Full, LinkState.Online, t1)], false, t1);
+        var full = Assert.Single(model.TrayDevices());
+        var fullIcon = Presentation.Icon(full, dark, 15);
+        Assert.Null(fullIcon.Percentage);
+        Assert.Equal(100, fullIcon.FillPercentage);
+        Assert.Equal(100, fullIcon.EffectiveFillPercentage);
+        Assert.Equal(BatteryTone.Charging, fullIcon.Tone);
+        Assert.NotEqual(chargingIcon, fullIcon);
+        Assert.Equal("–", Presentation.Value(full));
+        Assert.Equal(10, Presentation.FilledCells(full, 10));
+        Assert.Equal(5, Presentation.FilledCells(full, 5));
+
+        foreach (int size in new[] { 16, 24, 32 })
+        {
+            uint[] pixels = TrayIconPreview.Render(size, fullIcon);
+            Assert.Contains(fullIcon.FillInk.Premultiplied, pixels);
+            Assert.DoesNotContain(fullIcon.DimInk.Premultiplied, pixels);
+        }
+
+        var singleCard = HoverCardBuilder.Build(model, cable.Id, t1);
+        Assert.Equal(10, singleCard.FilledCells);
+        Assert.Null(singleCard.Percentage);
+        Assert.Equal("–", singleCard.ValueText);
+        Assert.False(singleCard.IsCharging);
+        Assert.Equal("已充满 · 电量未知", singleCard.StatusLine);
+
+        var listCard = HoverCardBuilder.Build(model, null, t1, forceList: true);
+        var row = Assert.Single(listCard.Rows);
+        Assert.Equal(5, row.FilledCells);
+        Assert.Null(row.Percentage);
+        Assert.Equal("–", row.ValueText);
+        Assert.False(row.IsCharging);
+        Assert.Equal("已充满", row.StatusText);
+
+        var stripDevice = TaskbarStripDevice.From(full, 15);
+        Assert.True(stripDevice.IsFull);
+        Assert.Null(stripDevice.Percentage);
+        Assert.Equal("--", stripDevice.Text);
+        Assert.True(stripDevice.ShowBolt);
+        Assert.Equal(BatteryTone.Charging, stripDevice.Tone);
+
+        var palette = TaskbarStripPalette.Create(TaskbarBackdrop.FromDark(dark), TaskbarStripStyle.Meter, TaskbarStripColorScheme.Auto);
+        uint expectedLit = palette.Charging.Premultiplied;
+        uint expectedDim = palette.Foreground.WithAlpha(palette.UsesLightInk ? (byte)56 : (byte)48).Premultiplied;
+
+        // 充电中（非满电、无百分比）在底栏格条样式下保持 0/4 亮格，避免误显示满格。
+        var chargingStrip = TaskbarStripDevice.From(charging, 15);
+        Assert.False(chargingStrip.IsFull);
+        var chargingLayout = TaskbarStripLayout.Build([chargingStrip]);
+        uint[] chargingMeterPixels = TaskbarStripPixels.Render(chargingLayout, palette, 1);
+        var chargingSeg = Assert.Single(chargingLayout.Segments);
+        int chargingBarLeft = chargingSeg.Icon.X;
+        int chargingBarWidth = chargingSeg.Text.Right - chargingBarLeft;
+        for (int i = 0; i < 4; i++)
+        {
+            int cellLeft = chargingBarLeft + i * (chargingBarWidth + 1) / 4;
+            Assert.Equal(expectedDim, chargingMeterPixels[17 * chargingLayout.Width + cellLeft]);
+        }
+
+        // 已充满（无百分比）在底栏格条样式下 4/4 全亮绿色。
+        var layout = TaskbarStripLayout.Build([stripDevice]);
+        uint[] meterPixels = TaskbarStripPixels.Render(layout, palette, 1);
+        var seg = Assert.Single(layout.Segments);
+        int barLeft = seg.Icon.X;
+        int barWidth = seg.Text.Right - barLeft;
+        for (int i = 0; i < 4; i++)
+        {
+            int cellLeft = barLeft + i * (barWidth + 1) / 4;
+            Assert.Equal(expectedLit, meterPixels[17 * layout.Width + cellLeft]);
+            Assert.Equal(expectedLit, meterPixels[18 * layout.Width + cellLeft]);
+        }
+    }
+
     private static BatteryReading Reading(DeviceIdentity device, int? level, LinkState link = LinkState.Online) =>
         new(device, level, false, ChargingState.NotCharging, link, Now);
 }

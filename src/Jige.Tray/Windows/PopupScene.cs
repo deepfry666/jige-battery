@@ -600,7 +600,7 @@ internal sealed partial class PopupScene : IDisposable
 
     private void DrawCells(Canvas canvas, DeviceStatus device, float x, float y, float w, float h, float radius, int count)
     {
-        int filled = Presentation.FilledCells(device.Percentage, count);
+        int filled = Presentation.FilledCells(device, count);
         var ink = colors.Status(Presentation.Tone(device, Threshold(device)));
         for (int i = 0; i < count; i++)
         {
@@ -618,7 +618,7 @@ internal sealed partial class PopupScene : IDisposable
     private void AddPulse(Composition.Layer parent, DeviceStatus device, float x, float y, float w, float h,
         float radius, int count)
     {
-        int filled = Presentation.FilledCells(device.Percentage, count);
+        int filled = Presentation.FilledCells(device, count);
         if (!animations || filled >= count)
             return;
         var layer = new Composition.Layer(composition, parent, x + filled * (w + 3), y, w + 1, h + 1);

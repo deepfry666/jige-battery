@@ -68,7 +68,7 @@ public sealed class AuditRoundFixesTrayTests
     public void PassiveMousePreservesFreshReadingAcrossFullPollAndExcludesSleepHeartbeat()
     {
         var model = new TrayModel(new(), new());
-        var passive = new DeviceIdentity("mouse-passive:rx-1", "ATTACK SHARK X11", DeviceKind.Mouse)
+        var passive = new DeviceIdentity("passive-mouse:rx-1", "ATTACK SHARK X11", DeviceKind.Mouse)
         {
             UsesPassiveBatteryReports = true
         };
@@ -394,7 +394,7 @@ public sealed class AuditRoundFixesTrayTests
         Assert.Equal(ChargingState.Charging, current.Charging);
 
         // 被动鼠标在有效期内明确收到 Offline 不得被吞掉
-        var passive = new DeviceIdentity("mouse-passive:rx-2", "ATTACK SHARK X11", DeviceKind.Mouse)
+        var passive = new DeviceIdentity("passive-mouse:rx-2", "ATTACK SHARK X11", DeviceKind.Mouse)
         {
             UsesPassiveBatteryReports = true
         };
@@ -508,6 +508,84 @@ public sealed class AuditRoundFixesTrayTests
         bool mismatched = state.Release(4, () => mismatchReleased = true, out _);
         Assert.True(mismatchReleased);
         Assert.False(mismatched);
+    }
+
+    [Fact]
+    public void PassiveMouseCustomSettingsSurviveRestartBeforeFirstPushArrives()
+    {
+        const string aliased = "passive-mouse:rx-alias";
+        const string hidden = "passive-mouse:rx-hidden";
+        const string thresholded = "passive-mouse:rx-threshold";
+        const string excluded = "passive-mouse:rx-tray";
+        const string uncustomized = "passive-mouse:rx-plain";
+        const string unreadNormal = "mouse:unread-normal";
+
+        var settings = new TraySettings
+        {
+            DeviceAliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [aliased] = "我的被动鼠标",
+                [unreadNormal] = "普通未读鼠标"
+            },
+            HiddenDeviceIds = [hidden, unreadNormal],
+            DeviceThresholds = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            {
+                [thresholded] = 10,
+                [unreadNormal] = 20
+            },
+            TrayExcludedDeviceIds = [excluded, unreadNormal]
+        }.Normalize();
+
+        var folder = Directory.CreateTempSubdirectory("jige-passive-persist-");
+        try
+        {
+            var files = new TrayFiles(folder.FullName);
+            files.SaveSettings(settings);
+            files.SaveState(new()
+            {
+                History = new()
+                {
+                    [aliased] = new(Now, null, []),
+                    [hidden] = new(Now, null, []),
+                    [thresholded] = new(Now, null, []),
+                    [excluded] = new(Now, null, []),
+                    [uncustomized] = new(Now, null, []),
+                    [unreadNormal] = new(Now, null, [])
+                }
+            });
+
+            Assert.True(files.TryLoadSettings(out var loaded));
+            var state = files.LoadState(ref loaded);
+
+            // 带个性化配置的 passive-mouse:* 在首次收到推送前重启不得丢失别名/隐藏/阈值/托盘勾选。
+            Assert.Equal("我的被动鼠标", loaded.DeviceAliases[aliased]);
+            Assert.Contains(hidden, loaded.HiddenDeviceIds, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(10, loaded.ThresholdFor(thresholded));
+            Assert.False(loaded.IsInTray(excluded));
+            Assert.Contains(aliased, state.History.Keys);
+            Assert.Contains(hidden, state.History.Keys);
+            Assert.Contains(thresholded, state.History.Keys);
+            Assert.Contains(excluded, state.History.Keys);
+
+            // 未做任何个性化配置的空被动记录与普通未读设备仍正常清理。
+            Assert.DoesNotContain(uncustomized, state.History.Keys);
+            Assert.DoesNotContain(unreadNormal, state.History.Keys);
+            Assert.False(loaded.DeviceAliases.ContainsKey(unreadNormal));
+            Assert.DoesNotContain(unreadNormal, loaded.HiddenDeviceIds, StringComparer.OrdinalIgnoreCase);
+            Assert.False(loaded.DeviceThresholds.ContainsKey(unreadNormal));
+            Assert.True(loaded.IsInTray(unreadNormal));
+
+            // 磁盘上的 config.json 也同步保留所有 passive-mouse:* 自定义配置。
+            Assert.True(files.TryLoadSettings(out var reloaded));
+            Assert.Equal("我的被动鼠标", reloaded.DeviceAliases[aliased]);
+            Assert.Contains(hidden, reloaded.HiddenDeviceIds, StringComparer.OrdinalIgnoreCase);
+            Assert.Equal(10, reloaded.ThresholdFor(thresholded));
+            Assert.False(reloaded.IsInTray(excluded));
+        }
+        finally
+        {
+            folder.Delete(recursive: true);
+        }
     }
 
     private sealed class AsyncStubHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> respond)

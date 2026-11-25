@@ -297,7 +297,7 @@ internal sealed unsafe class TrayIcon(HWND window, uint callback, uint id = 1) :
                     render->Clear((D2D1_COLOR_F*)null);
                     if (icon.Kind is { } kind)
                     {
-                        var layout = TrayIconLayout.Compute(size, kind, icon.Percentage);
+                        var layout = TrayIconLayout.Compute(size, kind, icon.EffectiveFillPercentage);
                         canvas.TrayDeviceGlyph(sharedFactories.D2D, kind, layout, icon);
                     }
                     else

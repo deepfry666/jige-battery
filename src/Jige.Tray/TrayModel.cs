@@ -1280,7 +1280,9 @@ internal sealed class TrayModel
 
     public DateTimeOffset? ReminderExpires(string key)
     {
-        if (devices.GetValueOrDefault(ReminderKeys.Parse(key).DeviceId)?.Last is not { } last)
+        var (kind, id) = ReminderKeys.Parse(key);
+        if (devices.GetValueOrDefault(id) is not { Last: { } last } device ||
+            (kind == ReminderKind.FullCharge && device.ChargeStatusOnly))
             return null;
         // 用时间差判断读数是否过期；定时器遇到不合理的未来记录直接略过。
         var ttl = ReadingTtl(inGameMode).Add(TimeSpan.FromTicks(1));

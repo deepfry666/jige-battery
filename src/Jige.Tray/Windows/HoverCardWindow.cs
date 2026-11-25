@@ -201,7 +201,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
             canvas.Text(content.SourceLabel, srcX, 29, srcW, 17, 11.5f, colors.Muted, ellipsis: true);
 
         var numInk = NumberColor(content.Tone);
-        string digits = content.Percentage?.ToString() ?? "–";
+        string digits = content.Percentage?.ToString() ?? (content.ValueText.Length > 0 ? content.ValueText : "–");
         string prefix = content.IsEstimated && content.Percentage is not null ? "≈" : "";
         string suffix = content.Percentage is null ? "" : "%";
         float prefixW = prefix.Length == 0 ? 0 : canvas.Measure(prefix, 16, 500) + 1.5f;

@@ -99,7 +99,7 @@ internal static class PixelTrayIcon
             return;
         }
 
-        var layout = TrayIconLayout.Compute(Size, kind, icon.Percentage);
+        var layout = TrayIconLayout.Compute(Size, kind, icon.EffectiveFillPercentage);
         var rows = kind switch
         {
             DeviceKind.Mouse => Mouse,
