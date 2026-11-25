@@ -155,13 +155,15 @@ internal static class SteelSeriesProtocol
                 return new(true, true, Math.Min(r[2], (byte)4) * 25, true,
                     r[3] is 0x01 or 0x02 ? ChargingState.Charging : ChargingState.NotCharging);
             case SteelSeriesProtocolKind.Nova5:
-                if (r.Length < 5)
+                if (r.Length < 5 || !r[1..].ContainsAnyExcept((byte)0))
                     return default;
                 if (r[1] == 0x02)
                     return new(true, false, null, false, ChargingState.Unknown);
                 return new(true, true, Math.Min(r[3], (byte)100), false,
                     r[4] == 0x01 ? ChargingState.Charging : ChargingState.NotCharging);
             case SteelSeriesProtocolKind.Arctis7Plus:
+                if (!r[1..].ContainsAnyExcept((byte)0))
+                    return default;
                 if (r[1] == 0x01)
                     return new(true, false, null, true, ChargingState.Unknown);
                 return new(true, true, Math.Min(r[2], (byte)4) * 25, true,
@@ -187,7 +189,7 @@ internal static class SteelSeriesProtocol
 
     public static DecodedBattery DecodeArctis1(ReadOnlySpan<byte> r)
     {
-        if (r.Length < 4 || r[0] != 0x06 || r[1] != 0x12)
+        if (r.Length < 4 || r[0] != 0x06 || r[1] != 0x12 || !r[2..].ContainsAnyExcept((byte)0))
             return default;
         if (r[2] == 0x01)
             return new(true, false, null, false, ChargingState.Unknown);
@@ -246,7 +248,7 @@ internal static class SteelSeriesProtocol
 
     public static DecodedBattery DecodeNovaPro(ReadOnlySpan<byte> r)
     {
-        if (r.Length < 16 || r[15] is not (0x01 or 0x02 or 0x08))
+        if (r.Length < 16 || r[0] != 0x06 || r[1] != 0xB0 || r[15] is not (0x01 or 0x02 or 0x08))
             return default;
         if (r[15] == 0x01)
             return new(true, false, null, true, ChargingState.Unknown);
@@ -273,16 +275,19 @@ internal static class SteelSeriesProtocol
 
     public static DecodedBattery DecodeRival3(ReadOnlySpan<byte> raw)
     {
-        if (raw.IsEmpty)
+        if (raw.IsEmpty || !raw.ContainsAnyExcept((byte)0))
             return default;
         var r = raw.Length > 1 && raw[0] == 0x00 ? raw[1..] : raw;
         if (r.Length >= 4 && r[0] == 0xAA)
         {
+            // 拒绝原样请求回显（AA 01 00 ...），防止被误解为 1% 在线。
+            if (r[1] == 0x01 && !r[2..].ContainsAnyExcept((byte)0))
+                return default;
             if (r[1] > 100)
                 return default;
             return new(true, true, r[1], false, r[3] != 0 ? ChargingState.Charging : ChargingState.NotCharging);
         }
-        if (r.Length >= 3 && r[0] <= 100 && r[2] is 0 or 1)
+        if (r.Length >= 3 && r[0] <= 100 && r[2] is 0 or 1 && (r[0] > 0 || r[2] == 1))
             return new(true, true, r[0], false, r[2] == 1 ? ChargingState.Charging : ChargingState.NotCharging);
         return default;
     }

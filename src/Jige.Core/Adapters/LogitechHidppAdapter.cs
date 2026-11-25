@@ -56,7 +56,8 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
         public string? QueryIdentity;
     }
 
-    private sealed record BatteryQuery(HidppFeature Feature, byte Index, byte Flags, byte Register = 0)
+    private sealed record BatteryQuery(HidppFeature Feature, byte Index, byte Flags, byte Register = 0,
+        BatteryQuery? Fallback = null, bool VoltageProbed = false)
     {
         public byte[] Request(byte address) => Register != 0
             ? LogitechHidppProtocol.ReadRegister(address, Register)
@@ -214,8 +215,12 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                 headset ?? (bluetooth ? BluetoothBattery.UnnamedHidpp : endpoint.Product ?? "Logitech 无线设备");
             string sourceLabel = receiver ? $"罗技 {family ?? "HID++"} 接收器" :
                 bluetooth ? "罗技蓝牙" : cable ? "罗技 USB 直连" : "罗技无线接收器";
+            var verification = family is null && headset is null
+                ? VerificationTier.DocsOnly
+                : DeviceCatalog.VerificationFor(endpoint.VendorId, endpoint.ProductId);
             var device = new DeviceIdentity(id, name, headset is null ? DeviceKind.Other : DeviceKind.Headset,
-                family is null && headset is null ? AdaptationSource.Generic : AdaptationSource.Catalog, Connection: connection)
+                family is null && headset is null ? AdaptationSource.Generic : AdaptationSource.Catalog,
+                verification, connection)
             {
                 BluetoothContainerKey = bluetooth ? BluetoothBattery.DeviceId(endpoint.ReceiverId, null) : null,
                 SourceLabel = sourceLabel
@@ -457,7 +462,45 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                     // 每个槽本轮的第一条请求给足唤醒时间：罗技设备打盹时，无线电要约 0.5 秒才回复。
                     var reply = await QueryAsync(cached.Request(slot), WakeTimeoutMs).ConfigureAwait(false);
                     if (ParseBattery(cached, reply, previous?.ProtocolSummary) is { } updated)
+                    {
+                        if (cached.Feature == HidppFeature.Battery && updated.Percentage is null)
+                        {
+                            var effectiveCache = cached;
+                            var voltageQuery = cached.Fallback;
+                            if (voltageQuery is null && !cached.VoltageProbed)
+                            {
+                                var lookup = await QueryAsync(LogitechHidppProtocol.GetFeature(slot, HidppFeature.Voltage)).ConfigureAwait(false);
+                                if (Unreachable(lookup))
+                                    return Remember(Unavailable(true, previous?.ProtocolSummary), null);
+                                if (LogitechHidppProtocol.IsSuccess(lookup))
+                                {
+                                    byte vIdx = lookup![4];
+                                    voltageQuery = LogitechHidppProtocol.IsFeatureIndex(vIdx)
+                                        ? new BatteryQuery(HidppFeature.Voltage, vIdx, 0)
+                                        : null;
+                                    effectiveCache = cached with { Fallback = voltageQuery, VoltageProbed = true };
+                                }
+                                else if (LogitechHidppProtocol.Error(lookup) is not null)
+                                {
+                                    effectiveCache = cached with { VoltageProbed = true };
+                                }
+                            }
+                            if (voltageQuery is not null)
+                            {
+                                var vReply = await QueryAsync(voltageQuery.Request(slot)).ConfigureAwait(false);
+                                if (Unreachable(vReply))
+                                    return Remember(Unavailable(true, previous?.ProtocolSummary), null);
+                                if (ParseBattery(voltageQuery, vReply, previous?.ProtocolSummary) is { Percentage: not null } vReading)
+                                {
+                                    if (vReading.Charging == ChargingState.Unknown)
+                                        vReading = vReading with { Charging = updated.Charging };
+                                    return Remember(vReading, effectiveCache);
+                                }
+                            }
+                            return Remember(updated, effectiveCache);
+                        }
                         return Remember(updated, cached);
+                    }
                     if (reply is null && HoldOnline() is { } held)
                         return held;
                     if (receiver && LogitechHidppProtocol.LegacyError(reply) == 0x08)
@@ -557,9 +600,16 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                     {
                         if (reading.Percentage is not null)
                         {
-                            if (chargeOnlyFallback is { } prior && reading.Charging == ChargingState.Unknown)
-                                reading = reading with { Charging = prior.Reading.Charging };
-                            return Remember(reading, query);
+                            var queryToCache = query;
+                            if (chargeOnlyFallback is { } prior)
+                            {
+                                if (reading.Charging == ChargingState.Unknown)
+                                    reading = reading with { Charging = prior.Reading.Charging };
+                                // 0x1001 仅在 0x1000 充电无百分比时兜底，主缓存仍保留 0x1000，停止充电后即可立即恢复精确百分比。
+                                if (prior.Query.Feature == HidppFeature.Battery && query.Feature == HidppFeature.Voltage)
+                                    queryToCache = prior.Query with { Fallback = query, VoltageProbed = true };
+                            }
+                            return Remember(reading, queryToCache);
                         }
                         chargeOnlyFallback ??= (reading, query);
                         continue;
@@ -568,7 +618,18 @@ internal sealed class LogitechHidppAdapter(SafetyGateStore? gates = null,
                         return Remember(Unavailable(true), null);
                 }
                 if (chargeOnlyFallback is { } fallback)
-                    return Remember(fallback.Reading, fallback.Query);
+                {
+                    var cachedQuery = fallback.Query;
+                    if (cachedQuery.Feature == HidppFeature.Battery)
+                    {
+                        BatteryQuery? voltageFallback = indices.TryGetValue(HidppFeature.Voltage, out byte vIdx) &&
+                            LogitechHidppProtocol.IsFeatureIndex(vIdx)
+                            ? new BatteryQuery(HidppFeature.Voltage, vIdx, 0)
+                            : null;
+                        cachedQuery = cachedQuery with { Fallback = voltageFallback, VoltageProbed = true };
+                    }
+                    return Remember(fallback.Reading, cachedQuery);
+                }
                 return Remember(Reading(device, null, false, ChargingState.Unknown, LinkState.Online, Summary(), endpoint), null);
 
                 async ValueTask<byte> FindFeatureAsync(HidppFeature feature)

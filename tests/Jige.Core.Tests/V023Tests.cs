@@ -239,6 +239,24 @@ public sealed class V023Tests
         Assert.Equal(catalogInferred, devicesInferred);
     }
 
+    [Fact]
+    public void B3_DocsDevicesSectionFourCoversAllDisabledPaths()
+    {
+        string root = FindRepoRoot();
+        string devicesMd = File.ReadAllText(Path.Combine(root, "docs", "devices.md"));
+        int sectionStart = devicesMd.IndexOf("## 四、已识别但暂未启用的路径", StringComparison.Ordinal);
+        Assert.True(sectionStart >= 0, "docs/devices.md 缺少「## 四、已识别但暂未启用的路径」章节");
+        int nextSection = devicesMd.IndexOf("\n## ", sectionStart + 1, StringComparison.Ordinal);
+        string section = nextSection >= 0 ? devicesMd[sectionStart..nextSection] : devicesMd[sectionStart..];
+
+        var documented = ExtractSectionTableVidPids(section);
+        var catalogDisabled = DeviceCatalog.DisabledPaths
+            .Select(entry => entry.VidPid)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        Assert.Equal(catalogDisabled, documented);
+    }
+
     [Theory]
     [InlineData(0x1532, 0x0555, 0xFF14, 1, 64, 64, 0, 3)] // 雷蛇 PA：BlackShark V2 Pro 2023
     [InlineData(0x1532, 0x0556, 0xFF14, 1, 64, 64, 0, 3)] // 雷蛇 PA：SKU 候选
@@ -399,6 +417,31 @@ public sealed class V023Tests
                 string pair = match.Value.ToUpperInvariant();
                 if (!pair.StartsWith("FF", StringComparison.Ordinal))
                     result.Add(pair);
+            }
+        }
+        return result;
+    }
+
+    private static HashSet<string> ExtractSectionTableVidPids(string markdownSection)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var groupRegex = new Regex(@"\b([0-9A-F]{4}):([0-9A-F]{4}(?:/[0-9A-F]{4})*)\b",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        foreach (string rawLine in markdownSection.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            string line = rawLine.Trim();
+            if (!line.StartsWith('|'))
+                continue;
+            var cells = line.Split('|', StringSplitOptions.TrimEntries);
+            if (cells.Length < 4)
+                continue;
+            foreach (Match match in groupRegex.Matches(cells[2]))
+            {
+                string vid = match.Groups[1].Value.ToUpperInvariant();
+                if (vid.StartsWith("FF", StringComparison.Ordinal))
+                    continue;
+                foreach (string pid in match.Groups[2].Value.Split('/'))
+                    result.Add($"{vid}:{pid.ToUpperInvariant()}");
             }
         }
         return result;

@@ -40,9 +40,14 @@ public sealed class MouseAdapterTests
         Assert.Null(shape.Usage);
         var query = shape.QueryEndpoint(Atk);
         Assert.Equal((byte)8, query.RequiredFeatureReportId);
-        Assert.Equal((byte)8, query.RequiredInputReportId);
+        Assert.Null(query.RequiredInputReportId);
         Assert.Null(query.RequiredOutputReportId);
-        Assert.False(query.FeatureOnly);
+        Assert.True(query.FeatureOnly);
+        var input = shape.InputEndpoint(Atk);
+        Assert.Equal((byte)8, input.RequiredInputReportId);
+        Assert.Null(input.RequiredFeatureReportId);
+        Assert.Null(input.RequiredOutputReportId);
+        Assert.True(input.InputOnly);
     }
 
     [Fact]

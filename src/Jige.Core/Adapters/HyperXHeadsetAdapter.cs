@@ -176,7 +176,14 @@ internal static class HyperXHeadsetProtocol
         offline = false;
         level = null;
         charging = ChargingState.Unknown;
-        if (r.Length is not (15 or 20))
+        // 与 Match(InputLength >= 15) 对齐：兼容 15B、20B 以及 Windows HID 集合按更大 caps 补零后的输入报告。
+        if (r.Length < 15 || !r.ContainsAnyExcept((byte)0))
+            return false;
+        // 拒绝静音/电源事件（0x64）与随机无头噪声；允许 21 FF 05 回复、0x65 状态报告，以及零头非零电压测试帧。
+        bool validHeader = (r[0] == 0x21 && r[1] == 0xFF && r[2] == 0x05)
+            || r[0] == 0x65
+            || (r[0] == 0x00 && r[1] == 0x00 && r[2] == 0x00 && (r[3] != 0 || r[4] != 0));
+        if (!validHeader)
             return false;
         int voltage = (r[3] << 8) | r[4];
         if (voltage == 0)
@@ -267,11 +274,17 @@ internal static class HyperXHeadsetProtocol
         return true;
     }
 
+    private static bool IsCloud3SRequestEcho(ReadOnlySpan<byte> r, byte cmd) =>
+        r.Length >= 6 && r[0] == 0x0C && r[1] == 0x02 && r[2] == 0x03 &&
+        r[3] == 0x01 && r[4] == 0x00 && r[5] == cmd && !r[6..].ContainsAnyExcept((byte)0);
+
     public static bool TryDecodeCloud3SLevel(ReadOnlySpan<byte> r, out int level)
     {
         level = 0;
         if (r.Length >= 7 && r[0] == 0x0C && r[5] == 0x06 && r[6] <= 100)
         {
+            if (IsCloud3SRequestEcho(r, 0x06))
+                return false;
             level = r[6];
             return true;
         }
@@ -288,7 +301,11 @@ internal static class HyperXHeadsetProtocol
         charging = ChargingState.Unknown;
         byte state;
         if (r.Length >= 7 && r[0] == 0x0C && r[5] == 0x48)
+        {
+            if (IsCloud3SRequestEcho(r, 0x48))
+                return false;
             state = r[6];
+        }
         else if (r.Length >= 6 && r[0] == 0x0D && r[4] == 10)
             state = r[5];
         else
@@ -505,6 +522,7 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
     private sealed class Cloud3Channel(HidInterface endpoint, IReceiverTransport transport) : IDisposable
     {
         private IHidSession? session;
+        private IHidSession? featureSession;
         private bool useOutput = endpoint.OutputLength is >= 62;
 
         public async ValueTask<byte[]?> QueryAsync(byte command, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
@@ -533,9 +551,10 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
                 }
                 if (!useOutput)
                 {
-                    session ??= transport.OpenHid(endpoint with { RequiredInputReportId = 0x66, RequiredFeatureReportId = 0x66 }, dt);
+                    featureSession ??= transport.OpenHid(endpoint with { FeatureOnly = true, RequiredFeatureReportId = 0x66 }, dt);
+                    session ??= transport.OpenHid(endpoint with { InputOnly = true, RequiredInputReportId = 0x66 }, dt);
                     var request = Encode(command, endpoint.FeatureLength!.Value);
-                    await session.WriteFeatureAsync(request, dt).ConfigureAwait(false);
+                    await featureSession.WriteFeatureAsync(request, dt).ConfigureAwait(false);
                     trace?.Invoke(FrameDirection.Sent, request);
                 }
 
@@ -566,29 +585,57 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
             return request;
         }
 
-        public void Dispose() => session?.Dispose();
+        public void Dispose()
+        {
+            session?.Dispose();
+            session = null;
+            featureSession?.Dispose();
+            featureSession = null;
+        }
     }
 
     private static async ValueTask<BatteryReading> ReadCloud3SAsync(
         DeviceTarget target, HidInterface endpoint, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
     {
         using var session = transport.OpenHid(endpoint with { RequiredOutputReportId = 0x0C }, token);
-        var levelReq = HyperXHeadsetProtocol.EncodeCloud3S(endpoint.OutputLength!.Value, 0x06);
-        var levelFrame = await QueryCloud3SAsync(session, endpoint, target.RelatedHids, transport, levelReq,
-            p => HyperXHeadsetProtocol.TryDecodeCloud3SLevel(p, out _), trace, token).ConfigureAwait(false);
-        if (levelFrame is null || !HyperXHeadsetProtocol.TryDecodeCloud3SLevel(levelFrame, out int level))
-            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, ReadIssue.Timeout);
+        List<(IHidSession Session, int InputLength)> siblings = [];
+        try
+        {
+            foreach (var sib in target.RelatedHids)
+            {
+                if (sib.InputLength is not >= 6)
+                    continue;
+                try
+                {
+                    siblings.Add((transport.OpenHid(sib with { InputOnly = true }, token), sib.InputLength.Value));
+                }
+                catch (TransportException error) when (error.Issue != ReadIssue.Disconnected)
+                {
+                }
+            }
 
-        var chgReq = HyperXHeadsetProtocol.EncodeCloud3S(endpoint.OutputLength.Value, 0x48);
-        var chgFrame = await QueryCloud3SAsync(session, endpoint, target.RelatedHids, transport, chgReq,
-            p => HyperXHeadsetProtocol.TryDecodeCloud3SCharging(p, out _), trace, token).ConfigureAwait(false);
-        var charging = chgFrame is not null && HyperXHeadsetProtocol.TryDecodeCloud3SCharging(chgFrame, out var state)
-            ? state : ChargingState.Unknown;
-        return new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow);
+            var levelReq = HyperXHeadsetProtocol.EncodeCloud3S(endpoint.OutputLength!.Value, 0x06);
+            var levelFrame = await QueryCloud3SAsync(session, endpoint, siblings, levelReq,
+                p => HyperXHeadsetProtocol.TryDecodeCloud3SLevel(p, out _), trace, token).ConfigureAwait(false);
+            if (levelFrame is null || !HyperXHeadsetProtocol.TryDecodeCloud3SLevel(levelFrame, out int level))
+                return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, ReadIssue.Timeout);
+
+            var chgReq = HyperXHeadsetProtocol.EncodeCloud3S(endpoint.OutputLength.Value, 0x48);
+            var chgFrame = await QueryCloud3SAsync(session, endpoint, siblings, chgReq,
+                p => HyperXHeadsetProtocol.TryDecodeCloud3SCharging(p, out _), trace, token).ConfigureAwait(false);
+            var charging = chgFrame is not null && HyperXHeadsetProtocol.TryDecodeCloud3SCharging(chgFrame, out var state)
+                ? state : ChargingState.Unknown;
+            return new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow);
+        }
+        finally
+        {
+            foreach (var (sibSession, _) in siblings)
+                sibSession.Dispose();
+        }
     }
 
     private static async ValueTask<byte[]?> QueryCloud3SAsync(
-        IHidSession primary, HidInterface endpoint, IReadOnlyList<HidInterface> related, IReceiverTransport transport,
+        IHidSession primary, HidInterface endpoint, List<(IHidSession Session, int InputLength)> siblings,
         byte[] request, Func<byte[], bool> matches, FrameTrace? trace, CancellationToken token)
     {
         if (!HyperXHeadsetProtocol.AllowsRequest(request))
@@ -597,36 +644,38 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(900);
         var dt = deadline.Token;
-        List<(IHidSession Session, bool Owned, byte[] Buffer, Task<int> Read)> listeners = [];
+        List<(IHidSession Session, bool IsPrimary, byte[] Buffer, Task<int> Read)> listeners = [];
+        TransportException? disconnected = null;
         try
         {
             if (endpoint.InputLength is >= 6)
             {
                 var buf = new byte[endpoint.InputLength.Value];
-                listeners.Add((primary, false, buf, primary.ReadInputAsync(buf, dt).AsTask()));
+                listeners.Add((primary, true, buf, primary.ReadInputAsync(buf, dt).AsTask()));
             }
-            foreach (var sib in related)
+            for (int i = 0; i < siblings.Count;)
             {
-                if (sib.InputLength is not >= 6)
-                    continue;
-                IHidSession? opened = null;
+                var (sibSession, inputLength) = siblings[i];
                 try
                 {
-                    opened = transport.OpenHid(sib with { InputOnly = true }, dt);
-                    var buf = new byte[sib.InputLength.Value];
-                    listeners.Add((opened, true, buf, opened.ReadInputAsync(buf, dt).AsTask()));
-                    opened = null;
+                    var buf = new byte[inputLength];
+                    listeners.Add((sibSession, false, buf, sibSession.ReadInputAsync(buf, dt).AsTask()));
+                    i++;
                 }
-                catch (TransportException)
+                catch (TransportException error)
                 {
-                }
-                finally
-                {
-                    opened?.Dispose();
+                    sibSession.Dispose();
+                    siblings.RemoveAt(i);
+                    if (error.Issue == ReadIssue.Disconnected)
+                        disconnected ??= error;
                 }
             }
             if (listeners.Count == 0)
+            {
+                if (disconnected is not null)
+                    throw disconnected;
                 return null;
+            }
 
             await primary.WriteOutputAsync(request, dt).ConfigureAwait(false);
             trace?.Invoke(FrameDirection.Sent, request);
@@ -642,6 +691,8 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
                 try
                 {
                     int count = await item.Read.ConfigureAwait(false);
+                    if (count == 0)
+                        throw new TransportException(ReadIssue.Disconnected, "HID 输入通道已关闭");
                     var frame = count == item.Buffer.Length ? item.Buffer : item.Buffer[..count];
                     trace?.Invoke(FrameDirection.Received, frame);
                     if (matches(frame))
@@ -649,15 +700,30 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
                     // 本集合仍有排队通报时，先处理其他集合已经到达的应答。
                     var next = item.Session.ReadInputAsync(item.Buffer, dt).AsTask();
                     listeners.RemoveAt(idx);
-                    listeners.Add((item.Session, item.Owned, item.Buffer, next));
+                    listeners.Add((item.Session, item.IsPrimary, item.Buffer, next));
                 }
-                catch (TransportException)
+                catch (TransportException error)
                 {
-                    if (item.Owned)
-                        item.Session.Dispose();
                     listeners.RemoveAt(idx);
+                    if (!item.IsPrimary)
+                    {
+                        int sibIdx = siblings.FindIndex(s => ReferenceEquals(s.Session, item.Session));
+                        if (sibIdx >= 0)
+                        {
+                            siblings[sibIdx].Session.Dispose();
+                            siblings.RemoveAt(sibIdx);
+                        }
+                    }
+                    if (error.Issue == ReadIssue.Disconnected)
+                    {
+                        if (item.IsPrimary)
+                            throw;
+                        disconnected ??= error;
+                    }
                 }
             }
+            if (listeners.Count == 0 && disconnected is not null)
+                throw disconnected;
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
@@ -666,11 +732,7 @@ internal sealed class HyperXHeadsetAdapter(SafetyGateStore? gates = null) : IDev
         {
             deadline.Cancel();
             foreach (var item in listeners)
-            {
                 await ((Task)item.Read).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
-                if (item.Owned)
-                    item.Session.Dispose();
-            }
         }
         return null;
     }

@@ -308,10 +308,24 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         return new(endpoint.ReceiverId, null, target.Device.Id, link, result.Level.HasValue ? ReadIssue.None : result.Issue);
     }
 
-    private static IHidSession OpenQuerySession(IReceiverTransport transport, HidInterface endpoint, MouseReceiver route,
+    internal static IHidSession OpenQuerySession(IReceiverTransport transport, HidInterface endpoint, MouseReceiver route,
         IReadOnlyList<HidInterface> siblings, CancellationToken token)
     {
         var shape = route.Shape!;
+        if (shape.Channel == MouseChannel.FeatureInput)
+        {
+            var input = transport.OpenHid(shape.InputEndpoint(endpoint), token);
+            try
+            {
+                var feature = transport.OpenHid(shape.QueryEndpoint(endpoint), token);
+                return new SplitFeatureInputSession(feature, input);
+            }
+            catch
+            {
+                input.Dispose();
+                throw;
+            }
+        }
         var command = shape.QueryEndpoint(endpoint);
         try
         {
@@ -389,6 +403,19 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
         {
             input.Dispose();
             output.Dispose();
+        }
+    }
+
+    private sealed class SplitFeatureInputSession(IHidSession feature, IHidSession input) : IHidSession
+    {
+        public ValueTask WriteOutputAsync(byte[] report, CancellationToken token) => throw new NotSupportedException();
+        public ValueTask<int> ReadInputAsync(byte[] report, CancellationToken token) => input.ReadInputAsync(report, token);
+        public ValueTask WriteFeatureAsync(byte[] report, CancellationToken token) => feature.WriteFeatureAsync(report, token);
+        public ValueTask ReadFeatureAsync(byte[] report, CancellationToken token) => feature.ReadFeatureAsync(report, token);
+        public void Dispose()
+        {
+            input.Dispose();
+            feature.Dispose();
         }
     }
 
@@ -564,6 +591,7 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
             if (shape.Channel == MouseChannel.Feature)
                 await Task.Delay(100, token).ConfigureAwait(false);
 
+            int siblingNoise = 0;
             for (int attempt = 0; attempt < 8; attempt++)
             {
                 token.ThrowIfCancellationRequested();
@@ -625,6 +653,8 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                 }
                 else
                 {
+                    // 旁路集合事件不消耗主集合 8 次读取预算，单独以 64 帧上限防噪声刷屏。
+                    attempt--;
                     int idx = siblingListeners.FindIndex(item => item.Read == finished);
                     if (idx < 0)
                         continue;
@@ -632,13 +662,27 @@ internal sealed class MouseReceiverAdapter(SafetyGateStore? gates = null) : IDev
                     try
                     {
                         int count = await listener.Read.ConfigureAwait(false);
+                        if (count == 0)
+                        {
+                            listener.Session.Dispose();
+                            siblingListeners.RemoveAt(idx);
+                            continue;
+                        }
                         // 旁路集合可能包含 DPI/按键等非电量事件帧，不置位 sawReply，避免主集合休眠超时时误判 InvalidResponse 并拉黑正常鼠标。
                         trace?.Invoke(FrameDirection.Received, listener.Buffer.AsSpan(0, count));
                         if (MouseBatteryProtocol.TryCompxFromCollection(listener.Buffer.AsSpan(0, count),
                             out int level, out var compxCharging))
                             return new(level, compxCharging, FromPrimary: false);
-                        siblingListeners[idx] = (listener.Session, listener.Buffer,
-                            listener.Session.ReadInputAsync(listener.Buffer, token).AsTask());
+                        if (++siblingNoise < 64)
+                        {
+                            siblingListeners[idx] = (listener.Session, listener.Buffer,
+                                listener.Session.ReadInputAsync(listener.Buffer, token).AsTask());
+                        }
+                        else
+                        {
+                            listener.Session.Dispose();
+                            siblingListeners.RemoveAt(idx);
+                        }
                     }
                     catch (TransportException)
                     {

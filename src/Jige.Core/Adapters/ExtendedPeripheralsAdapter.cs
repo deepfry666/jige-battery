@@ -143,13 +143,27 @@ internal static class ExtendedPeripheralProtocol
         return frame;
     }
 
+    private static int MinRequestLength(ExtendedProtocolKind protocol) => protocol switch
+    {
+        ExtendedProtocolKind.PulsarSonix => 65,
+        ExtendedProtocolKind.MchoseV3_4D or ExtendedProtocolKind.AudezeMaxwell => 9,
+        ExtendedProtocolKind.AulaF87Kb => 3,
+        _ => 2
+    };
+
     public static bool AllowsRequest(ExtendedProtocolKind protocol, ReadOnlySpan<byte> frame) =>
-        frame.Length > 0 && frame.SequenceEqual(EncodeRequest(protocol, frame.Length));
+        frame.Length >= MinRequestLength(protocol) && frame.SequenceEqual(EncodeRequest(protocol, frame.Length));
 
     public static bool TryDecodePulsarSonix(ReadOnlySpan<byte> r, out int level)
     {
         level = 0;
         if (r.Length < 8 || r[2] != 0x08 || r[3] != 0x81 || r[4] != 0x01 || r[7] > 100)
+            return false;
+        // 拒绝原样请求回显（含完整 65B 特征回显，以及尾部校验为 0x8A 0x00 且 [5..7] 全零的回显）及无载荷零填充头。
+        if (r.Length >= 65 && (AllowsRequest(ExtendedProtocolKind.PulsarSonix, r) ||
+            (r[5] == 0 && r[6] == 0 && r[7] == 0 && r[63] == 0x8A && r[64] == 0x00)))
+            return false;
+        if (r[7] == 0 && !r[5..].ContainsAnyExcept((byte)0))
             return false;
         level = r[7];
         return true;
@@ -171,7 +185,7 @@ internal static class ExtendedPeripheralProtocol
             asleep = true;
             return true;
         }
-        if (r[0] != 0x30 || r[1] != 0x00 || r[13] > 100)
+        if (r[0] != 0x30 || r[1] != 0x00 || r[13] > 100 || !r[1..].ContainsAnyExcept((byte)0))
             return false;
         level = r[13];
         charging = r[12] != 0 ? ChargingState.Charging : ChargingState.NotCharging;
@@ -499,7 +513,8 @@ internal sealed class ExtendedPeripheralsAdapter(SafetyGateStore? gates = null, 
         int featLen = endpoint.FeatureLength!.Value;
         int inLen = endpoint.InputLength!.Value;
         var req = VerifiedRequest(ExtendedProtocolKind.KeychronB3, featLen);
-        using var session = transport.OpenHid(endpoint with { RequiredFeatureReportId = 0xB3, RequiredInputReportId = 0xB4 }, token);
+        using var inputSession = transport.OpenHid(endpoint with { InputOnly = true, RequiredInputReportId = 0xB4 }, token);
+        using var featureSession = transport.OpenHid(endpoint with { FeatureOnly = true, RequiredFeatureReportId = 0xB3 }, token);
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(800);
         var dt = deadline.Token;
@@ -507,16 +522,16 @@ internal sealed class ExtendedPeripheralsAdapter(SafetyGateStore? gates = null, 
         Task<int>? pending = null;
         try
         {
-            pending = session.ReadInputAsync(buffer, dt).AsTask();
+            pending = inputSession.ReadInputAsync(buffer, dt).AsTask();
             if (pending.IsFaulted || pending.IsCanceled)
                 await pending.ConfigureAwait(false);
-            await session.WriteFeatureAsync(req, dt).ConfigureAwait(false);
+            await featureSession.WriteFeatureAsync(req, dt).ConfigureAwait(false);
             trace?.Invoke(FrameDirection.Sent, req);
             for (int attempt = 0; attempt < 6; attempt++)
             {
                 dt.ThrowIfCancellationRequested();
                 int count = pending is null
-                    ? await session.ReadInputAsync(buffer, dt).ConfigureAwait(false)
+                    ? await inputSession.ReadInputAsync(buffer, dt).ConfigureAwait(false)
                     : await pending.ConfigureAwait(false);
                 pending = null;
                 var frame = count == buffer.Length ? buffer : buffer[..count];

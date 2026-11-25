@@ -296,6 +296,8 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
 
         private unsafe ValueTask Feature(byte[] report, bool write, CancellationToken token)
         {
+            if (!featureOnly)
+                throw new TransportException(ReadIssue.IoError, "特征报告需通过 FeatureOnly 会话访问");
             CheckLength(report, caps.FeatureLength);
             token.ThrowIfCancellationRequested();
             if (!write)

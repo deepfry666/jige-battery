@@ -23,6 +23,7 @@ public sealed class HeadsetReadPathTests
             steps.Add(new(DiagnosticOperation.OpenHid, Issue: ReadIssue.IoError, Code: unchecked((int)0xC0110010)));
         steps.AddRange([
             new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.OpenHid),
             new(DiagnosticOperation.SetFeature, Pad("6689", 65)),
             new(DiagnosticOperation.HidInput, "66890ED730"),
             new(DiagnosticOperation.SetFeature, Pad("668A", 65)),
@@ -41,12 +42,22 @@ public sealed class HeadsetReadPathTests
                 Assert.Equal((byte)0x66, output.RequiredOutputReportId);
                 Assert.Equal((byte)0x66, output.RequiredInputReportId);
                 Assert.Null(output.RequiredFeatureReportId);
+                Assert.False(output.FeatureOnly);
             },
             feature =>
             {
+                Assert.True(feature.FeatureOnly);
                 Assert.Equal((byte)0x66, feature.RequiredFeatureReportId);
-                Assert.Equal((byte)0x66, feature.RequiredInputReportId);
+                Assert.Null(feature.RequiredInputReportId);
                 Assert.Null(feature.RequiredOutputReportId);
+            },
+            input =>
+            {
+                Assert.True(input.InputOnly);
+                Assert.False(input.FeatureOnly);
+                Assert.Equal((byte)0x66, input.RequiredInputReportId);
+                Assert.Null(input.RequiredFeatureReportId);
+                Assert.Null(input.RequiredOutputReportId);
             });
         replay.AssertComplete();
     }
@@ -81,7 +92,7 @@ public sealed class HeadsetReadPathTests
         ReceiverStep readCharge = new(DiagnosticOperation.HidOutput, Pad("0C0203010048", 64));
         var replay = onSibling
             ? new FakeReceiverTransport((output.Path, [new(DiagnosticOperation.OpenHid), readLevel, readCharge]),
-                (input.Path, [new(DiagnosticOperation.OpenHid), level, new(DiagnosticOperation.OpenHid), charge]))
+                (input.Path, [new(DiagnosticOperation.OpenHid), level, charge]))
             : new FakeReceiverTransport((output.Path, [new(DiagnosticOperation.OpenHid), level, readLevel, charge, readCharge]));
         var registry = AdapterRegistry.CreateDefault();
         var target = Assert.Single(registry.Detect(new(onSibling ? [output, input] : [output], [], [])));
@@ -106,7 +117,7 @@ public sealed class HeadsetReadPathTests
             ]),
             (input.Path, [
                 new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidInput, "0D0000000130"),
-                new(DiagnosticOperation.OpenHid), new(DiagnosticOperation.HidInput, "0D0000000A01")
+                new(DiagnosticOperation.HidInput, "0D0000000A01")
             ]));
         var registry = AdapterRegistry.CreateDefault();
         var target = Assert.Single(registry.Detect(new([output, input], [], [])));

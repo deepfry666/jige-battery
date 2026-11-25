@@ -210,6 +210,7 @@ public sealed class BrandExpansionTests
         var npTarget = Assert.Single(registry.Detect(new([novaPro], [], [])));
         var npReply = new byte[64];
         npReply[0] = 0x06;
+        npReply[1] = 0xB0;
         npReply[6] = 6;
         npReply[15] = 0x08;
         var npTransport = new FakeReceiverTransport((novaPro.Path,
@@ -326,7 +327,6 @@ public sealed class BrandExpansionTests
             [
                 new(DiagnosticOperation.OpenHid),
                 new(DiagnosticOperation.HidInput, Pad("0C02030100065E", 64)),
-                new(DiagnosticOperation.OpenHid),
                 new(DiagnosticOperation.HidInput, Pad("0C020301004801", 64))
             ]));
         var c3sReading = await registry.ReadAsync(c3sTarget, c3sTransport, null, CancellationToken.None);
@@ -567,6 +567,7 @@ public sealed class BrandExpansionTests
         kcReply[0] = 0xB4; kcReply[1] = 0x06; kcReply[20] = 63;
         var kcTransport = new FakeReceiverTransport((kc.Path,
         [
+            new(DiagnosticOperation.OpenHid),
             new(DiagnosticOperation.OpenHid),
             new(DiagnosticOperation.HidInput, Convert.ToHexString(kcReply)),
             new(DiagnosticOperation.SetFeature, Pad("B306", 64))
