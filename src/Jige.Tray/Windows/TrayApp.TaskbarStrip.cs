@@ -25,8 +25,8 @@ internal sealed partial class TrayApp
     private TaskbarStripPalette stripPalette = TaskbarStripPalette.Create(true);
     private HWND stripOwner;
     private bool stripFullscreen, stripZOrderPending, openedFromStrip, appBarSubscribed, stripWindowUnavailable,
-        stripGeometryPending, stripFallbackLogged, stripBackdropSampled, stripBackdropDeferSample;
-    private long stripGeometryPendingSinceMs, stripBackdropDueMs;
+        stripGeometryPending, stripFallbackLogged, stripBackdropSampled, stripBackdropDeferSample, stripRetryReconnect;
+    private long stripGeometryPendingSinceMs, stripBackdropDueMs, stripRetryDueMs, stripFallbackReconnectMs;
     private int stripAutomationFailures;
     private long stripAutomationNextRetryMs;
     private bool StripGeometryPending => model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
@@ -57,7 +57,7 @@ internal sealed partial class TrayApp
         }
         if (!forceRecreate && now < stripAutomationNextRetryMs)
         {
-            ArmTimer(StripRetryTimer, (uint)Math.Clamp(stripAutomationNextRetryMs - now, 500, 15_000));
+            ScheduleStripRetry((uint)Math.Clamp(stripAutomationNextRetryMs - now, 500, 15_000), reconnect: false);
             return null;
         }
 
@@ -72,7 +72,7 @@ internal sealed partial class TrayApp
         (stripOwner.IsNull || stripWindowUnavailable || stripDisplay.IsFallback ||
          stripGeometryPending || stripAutomation is not { Alive: true });
 
-    private void RefreshStripGeometry(bool forcePublish = false)
+    private void RefreshStripGeometry(bool forcePublish = false, bool resetAutomation = false)
     {
         if (model.Settings.DisplayLocation == TrayDisplayLocation.TrayIcons)
         {
@@ -89,6 +89,8 @@ internal sealed partial class TrayApp
             stripOwner = owner;
             stripGeometry = default;
             stripStabilizer.Reset();
+            StopStripRetryTimer();
+            stripFallbackReconnectMs = 0;
             stripBackdropSampled = false;
             DestroyStripWindow();
         }
@@ -102,7 +104,20 @@ internal sealed partial class TrayApp
         if (!owner.IsNull && !appBarSubscribed)
             appBarSubscribed = TaskbarStripShell.Subscribe(host, StripAppBarMessage);
         if (stripAutomation is not null || !owner.IsNull)
-            EnsureStripAutomation()?.Request(owner, reset: retryWindow, forcePublish: forcePublish);
+        {
+            bool shouldReset = retryWindow || resetAutomation;
+            if (!shouldReset &&
+                stripDisplay.Reason is TaskbarStripReason.UnknownButtonBounds or TaskbarStripReason.MissingNotificationArea)
+            {
+                long now = Environment.TickCount64;
+                if (now - stripFallbackReconnectMs >= 2_000)
+                {
+                    stripFallbackReconnectMs = now;
+                    shouldReset = true;
+                }
+            }
+            EnsureStripAutomation()?.Request(owner, reset: shouldReset, forcePublish: forcePublish || shouldReset);
+        }
     }
 
     private void RecoverStrip()
@@ -115,6 +130,8 @@ internal sealed partial class TrayApp
         stripGeometryPending = false;
         stripZOrderPending = true;
         stripStabilizer.Reset();
+        StopStripRetryTimer();
+        stripFallbackReconnectMs = 0;
         stripBackdropSampled = false;
         stripBackdropDeferSample = false;
         StopStripBackdropTimer();
@@ -166,14 +183,22 @@ internal sealed partial class TrayApp
             return;
         }
         stripAutomationFailures = 0;
-        var (stableControls, retry) = stripStabilizer.Apply(
+        long now = Environment.TickCount64;
+        var stabilized = stripStabilizer.Apply(
             geometry.Bar, geometry.Dpi, geometry.Visible, geometry.BottomEdge,
-            geometry.Controls, Environment.TickCount64);
-        geometry = geometry with { Controls = stableControls };
-        if (retry)
-            ArmTimer(StripRetryTimer, 400);
+            geometry.Controls, now);
+        geometry = geometry with { Controls = stabilized.Controls };
+        if (stabilized.RetryDelayMs is uint retryDelay)
+            ScheduleStripRetry(retryDelay, stabilized.ReconnectAutomation);
+        else
+            StopStripRetryTimer();
+
         bool wasPending = stripGeometryPending;
-        stripGeometryPending = false;
+        bool holdStartupPending = stripGeometryPending &&
+            stabilized.RetryDelayMs is <= 500 &&
+            now - stripGeometryPendingSinceMs < 1_000;
+        if (!holdStartupPending)
+            stripGeometryPending = false;
         var previous = stripWindow?.VisibleBounds;
         var previousReason = stripDisplay.Reason;
         stripGeometry = geometry;
@@ -308,10 +333,43 @@ internal sealed partial class TrayApp
         previous?.Dispose();
     }
 
-    private void StopStripTracking()
+    private void ScheduleStripRetry(uint delayMs, bool reconnect)
     {
+        if (host.IsNull || model.Settings.DisplayLocation != TrayDisplayLocation.Taskbar || stripFullscreen)
+            return;
+        uint padded = Math.Clamp(delayMs + 20u, 50u, 15_000u);
+        long due = Environment.TickCount64 + padded;
+        stripRetryReconnect |= reconnect;
+        if (stripRetryDueMs == 0 || due < stripRetryDueMs)
+        {
+            stripRetryDueMs = due;
+            ArmTimer(StripRetryTimer, padded);
+        }
+    }
+
+    private void StopStripRetryTimer()
+    {
+        stripRetryDueMs = 0;
+        stripRetryReconnect = false;
         if (!host.IsNull)
             PInvoke.KillTimer(host, StripRetryTimer);
+    }
+
+    private void HandleStripRetryTimer()
+    {
+        bool reconnect = stripRetryReconnect;
+        stripRetryDueMs = 0;
+        stripRetryReconnect = false;
+        if (stripFullscreen || model.Settings.DisplayLocation != TrayDisplayLocation.Taskbar)
+            return;
+        RefreshStripGeometry(forcePublish: true, resetAutomation: reconnect);
+        RefreshIcon();
+    }
+
+    private void StopStripTracking()
+    {
+        StopStripRetryTimer();
+        stripFallbackReconnectMs = 0;
         StopStripBackdropTimer();
         stripBackdropSampled = false;
         stripBackdropDeferSample = false;

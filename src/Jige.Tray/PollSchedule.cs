@@ -320,6 +320,115 @@ internal readonly record struct GameMode(DiagnosticGameState Status)
     }
 }
 
+internal readonly record struct StabilizedGameState(
+    GameMode Game,
+    bool StripFullscreen,
+    uint? ExitCheckDelayMs);
+
+/// <summary>
+/// 过滤全屏游戏启动、切换显示模式或前景过渡瞬间（几十毫秒）产生的游戏模式/全屏退出抖动：
+/// 进入游戏与隐藏直读条立即生效；自动退出需连续维持一段稳定时间，用户主动交互或切换设置则立即退出。
+/// </summary>
+internal sealed class GameModeStabilizer
+{
+    public const long ExitDebounceMs = 400;
+
+    private GameMode effectiveGame;
+    private bool effectiveStripFullscreen;
+    private long? gameExitPendingSinceMs;
+    private long? stripExitPendingSinceMs;
+
+    public StabilizedGameState Update(
+        GameMode rawGame, bool rawStripFullscreen, bool taskbarMode, long nowMs, bool immediateExit = false)
+    {
+        uint? delay = null;
+
+        if (rawGame.Game)
+        {
+            effectiveGame = rawGame;
+            gameExitPendingSinceMs = null;
+        }
+        else if (effectiveGame.Game)
+        {
+            if (immediateExit)
+            {
+                effectiveGame = rawGame;
+                gameExitPendingSinceMs = null;
+            }
+            else
+            {
+                gameExitPendingSinceMs ??= nowMs;
+                long elapsed = nowMs - gameExitPendingSinceMs.Value;
+                if (elapsed < 0)
+                {
+                    gameExitPendingSinceMs = nowMs;
+                    elapsed = 0;
+                }
+                if (elapsed >= ExitDebounceMs)
+                {
+                    effectiveGame = rawGame;
+                    gameExitPendingSinceMs = null;
+                }
+                else
+                {
+                    delay = (uint)(ExitDebounceMs - elapsed);
+                }
+            }
+        }
+        else
+        {
+            effectiveGame = rawGame;
+            gameExitPendingSinceMs = null;
+        }
+
+        if (!taskbarMode)
+        {
+            effectiveStripFullscreen = false;
+            stripExitPendingSinceMs = null;
+        }
+        else if (rawStripFullscreen)
+        {
+            effectiveStripFullscreen = true;
+            stripExitPendingSinceMs = null;
+        }
+        else if (effectiveStripFullscreen)
+        {
+            if (immediateExit)
+            {
+                effectiveStripFullscreen = false;
+                stripExitPendingSinceMs = null;
+            }
+            else
+            {
+                stripExitPendingSinceMs ??= nowMs;
+                long elapsed = nowMs - stripExitPendingSinceMs.Value;
+                if (elapsed < 0)
+                {
+                    stripExitPendingSinceMs = nowMs;
+                    elapsed = 0;
+                }
+                if (elapsed >= ExitDebounceMs)
+                {
+                    effectiveStripFullscreen = false;
+                    stripExitPendingSinceMs = null;
+                }
+                else
+                {
+                    uint remaining = (uint)(ExitDebounceMs - elapsed);
+                    delay = delay is uint existing ? Math.Min(existing, remaining) : remaining;
+                }
+            }
+        }
+        else
+        {
+            stripExitPendingSinceMs = null;
+        }
+
+        bool stripHidden = taskbarMode && (effectiveGame.Game || effectiveStripFullscreen);
+        return new(effectiveGame, stripHidden, delay);
+    }
+}
+
 /// <summary>
 /// 当本机未检测到任何蓝牙设备时，对全机 PnP 蓝牙扫描（SetupDiGetClassDevsW ALLCLASSES）降频，
 /// 避免每 30 秒遍历整机所有设备；有蓝牙设备、上次失败、收到插拔/恢复或超过 5 分钟兜底周期时照常扫描。

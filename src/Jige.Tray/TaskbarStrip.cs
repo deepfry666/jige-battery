@@ -782,7 +782,7 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
             : taskbarFrameRight > bar.Left ? Math.Max(right, taskbarFrameRight)
             : sawFrame ? right
             : null;
-        return new(effectiveNotification, sawStart ? occupied : null);
+        return new(effectiveNotification, (sawStart || sawModernTaskList) ? occupied : null);
 
         static bool IsModernTaskListClass(TaskbarControl control) =>
             control.ClassName is "TaskListButton" or "Taskbar.TaskListButton" or
@@ -802,57 +802,96 @@ internal readonly record struct TaskbarControls(Bounds? NotificationArea, int? O
     }
 }
 
+internal readonly record struct TaskbarControlsStabilization(
+    TaskbarControls Controls,
+    uint? RetryDelayMs,
+    bool ReconnectAutomation);
+
 /// <summary>
-/// 过滤 Windows 11 任务栏 UIA 在瞬态重排期间偶发丢失应用按钮边界导致的直读条↔托盘闪烁。
-/// 仅在任务栏位置、DPI 与可见状态均未变化时，对连续短暂缺失应用按钮边界给予宽限并触发快速重试。
+/// 过滤 Windows 10/11 任务栏 UIA 在瞬态重排或全屏切回期间偶发丢失控件边界导致的直读条↔托盘闪烁与卡死回退：
+/// 1) 几何与 DPI 未变时，按时间宽限（GraceMs）保留上次有效的应用按钮右边界，不受短时间密集 UIA 事件打穿；
+/// 2) 宽限耗尽、首次漏检或通知区暂不可见时，安排有上限的退避重试并重连 UIA 根节点以自动恢复。
 /// </summary>
 internal sealed class TaskbarControlsStabilizer
 {
-    public const int MaxTransientMisses = 2;
     public const long GraceMs = 1_500;
+    public const uint TransientRetryMs = 400;
+    public static readonly uint[] RecoveryBackoffMs = [500, 1_500, 4_000, 10_000];
 
     private Bounds lastBar;
     private uint lastDpi;
     private TaskbarControls? lastValid;
-    private int transientMisses;
-    private long firstMissMs;
+    private long? firstMissMs;
+    private int recoveryAttempts;
+    private long? nextRecoveryDueMs;
 
     public void Reset()
     {
         lastValid = null;
-        transientMisses = 0;
-        firstMissMs = 0;
+        firstMissMs = null;
+        recoveryAttempts = 0;
+        nextRecoveryDueMs = null;
     }
 
-    public (TaskbarControls Controls, bool Retry) Apply(
+    public TaskbarControlsStabilization Apply(
         Bounds bar, uint dpi, bool visible, bool bottomEdge, TaskbarControls incoming, long nowMs)
     {
-        if (!visible || !bottomEdge || incoming.NotificationArea is null)
+        if (!visible || !bottomEdge)
         {
             Reset();
-            return (incoming, false);
+            return new(incoming, null, false);
         }
 
-        if (incoming.OccupiedRight is not null)
+        if (incoming.NotificationArea is not null && incoming.OccupiedRight is not null)
         {
             lastBar = bar;
             lastDpi = dpi;
             lastValid = incoming;
-            transientMisses = 0;
-            firstMissMs = 0;
-            return (incoming, false);
+            firstMissMs = null;
+            recoveryAttempts = 0;
+            nextRecoveryDueMs = null;
+            return new(incoming, null, false);
         }
 
-        if (lastValid is { } cached && lastBar == bar && lastDpi == dpi)
+        bool geometryChanged = lastBar != bar || lastDpi != dpi;
+        if (incoming.NotificationArea is not null && lastValid is { } cached && !geometryChanged)
         {
-            if (transientMisses == 0)
+            firstMissMs ??= nowMs;
+            long elapsed = nowMs - firstMissMs.Value;
+            if (elapsed < 0)
+            {
                 firstMissMs = nowMs;
-            transientMisses++;
-            if (transientMisses <= MaxTransientMisses && nowMs - firstMissMs <= GraceMs)
-                return (cached with { NotificationArea = incoming.NotificationArea }, true);
+                elapsed = 0;
+            }
+            if (elapsed <= GraceMs)
+                return new(cached with { NotificationArea = incoming.NotificationArea }, TransientRetryMs, true);
         }
 
-        Reset();
-        return (incoming, false);
+        lastValid = null;
+        firstMissMs = null;
+        if (geometryChanged)
+        {
+            lastBar = bar;
+            lastDpi = dpi;
+            recoveryAttempts = 0;
+            nextRecoveryDueMs = null;
+        }
+
+        uint? recoveryDelay = NextRecoveryDelay(nowMs);
+        return new(incoming, recoveryDelay, recoveryDelay is not null);
+    }
+
+    private uint? NextRecoveryDelay(long nowMs)
+    {
+        if (nextRecoveryDueMs is long due && nowMs < due)
+            return (uint)Math.Clamp(due - nowMs, 50, RecoveryBackoffMs[^1]);
+        if (recoveryAttempts >= RecoveryBackoffMs.Length)
+        {
+            nextRecoveryDueMs = null;
+            return null;
+        }
+        uint delay = RecoveryBackoffMs[recoveryAttempts++];
+        nextRecoveryDueMs = nowMs + delay;
+        return delay;
     }
 }

@@ -41,7 +41,8 @@ internal sealed partial class TrayApp : IDisposable
     private const uint LocationEvent = 0x800B;
     private const nuint WorkTimer = 1, GameSettleTimer = 2, CloseTimer = 3, UpdateCleanupTimer = 4,
         IconRetryTimer = 5, DeviceChangeTimer = 6, DesktopRefreshTimer = 7, HoverCloseTimer = 8,
-        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12, StripBackdropTimer = 13;
+        MenuCloseTimer = 9, AutoUpdateTimer = 10, StripRetryTimer = 11, BannerTimer = 12, StripBackdropTimer = 13,
+        GameExitTimer = 14;
     private static readonly Guid HidInterfaceGuid = new("4D1E55B2-F16F-11CF-88CB-001111000030");
     private static readonly Guid ComInterfaceGuid = new("86E0D1E0-8089-11D0-9CE4-08003E301F73");
     private static readonly TimeSpan GameRecheck = TimeSpan.FromSeconds(10);
@@ -62,6 +63,7 @@ internal sealed partial class TrayApp : IDisposable
     private readonly TrayEventTracker events = new(Desktop.Log);
     private readonly DiagnosticExport diagnostics;
     private readonly PollSchedule schedule = new(Environment.TickCount64);
+    private readonly GameModeStabilizer gameStabilizer = new();
     private readonly DesktopRefreshDebouncer desktopRefresh = new();
     private readonly DevicePoll poll;
     private readonly ConcurrentQueue<(PollResult? Result, DetectedDevice[] PushTargets, bool Targeted)> results = new();
@@ -273,13 +275,19 @@ internal sealed partial class TrayApp : IDisposable
         return exitCode;
     }
 
-    private static void WakeExistingInstance()
+    private static unsafe void WakeExistingInstance()
     {
         uint wake = PInvoke.RegisterWindowMessage("Jige.Tray.Wake");
         if (wake == 0)
             return;
         var existing = PInvoke.FindWindow(HostClass, null);
-        if (!existing.IsNull && !PInvoke.PostMessage(existing, wake, 1u, default))
+        if (existing.IsNull)
+            return;
+        uint pid = 0;
+        PInvoke.GetWindowThreadProcessId(existing, &pid);
+        if (pid != 0)
+            PInvoke.AllowSetForegroundWindow(pid);
+        if (!PInvoke.PostMessage(existing, wake, 1u, default))
             Desktop.Log($"唤醒已有实例失败（Win32 {Marshal.GetLastPInvokeError()}）");
     }
 
@@ -572,6 +580,8 @@ internal sealed partial class TrayApp : IDisposable
         }
         if (wakeMessage != 0 && message == wakeMessage)
         {
+            Desktop.Log("收到重复启动唤醒，显示面板");
+            ReadGameMode(immediateExit: true);
             DestroyMenu();
             DestroyPopup();
             ShowPopup(null, null);
@@ -616,7 +626,7 @@ internal sealed partial class TrayApp : IDisposable
                 return true;
             case MoveMessage:
                 locationPosted = false;
-                if (popup?.IsNotice == true || model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar)
+                if (game.Game || popup?.IsNotice == true || model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar)
                     ReadGameMode();
                 NotifyStripBackdropTransition();
                 ArmTimer(GameSettleTimer, 350);
@@ -689,8 +699,7 @@ internal sealed partial class TrayApp : IDisposable
                 }
                 if (wParam.Value == StripRetryTimer)
                 {
-                    RefreshStripGeometry(forcePublish: true);
-                    RefreshIcon();
+                    HandleStripRetryTimer();
                     return true;
                 }
                 if (wParam.Value == StripBackdropTimer)
@@ -883,10 +892,20 @@ internal sealed partial class TrayApp : IDisposable
         iconFailures = 0;
     }
 
-    private void ReadGameMode()
+    private void ReadGameMode(bool immediateExit = false)
     {
         HWND currentForeground = PInvoke.GetForegroundWindow();
-        var next = Desktop.GameMode(currentForeground, model.Settings);
+        var rawGame = Desktop.GameMode(currentForeground, model.Settings);
+        bool taskbarMode = model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar;
+        bool rawHideStrip = taskbarMode &&
+            (rawGame.Game || !model.Settings.GameSilent && Desktop.IsFullscreen(currentForeground));
+        var stabilized = gameStabilizer.Update(rawGame, rawHideStrip, taskbarMode, Environment.TickCount64, immediateExit);
+        if (stabilized.ExitCheckDelayMs is uint exitDelay)
+            ArmTimer(GameExitTimer, Math.Clamp(exitDelay + 20u, 20u, (uint)GameModeStabilizer.ExitDebounceMs + 20u));
+        else if (!host.IsNull)
+            PInvoke.KillTimer(host, GameExitTimer);
+
+        var next = stabilized.Game;
         bool changed = next.BlockPopups != game.BlockPopups;
         bool enteredGame = next.Game && !game.Game;
         game = next;
@@ -907,19 +926,22 @@ internal sealed partial class TrayApp : IDisposable
                 DestroyPopup();
             }
         }
-        bool hideStrip = model.Settings.DisplayLocation == TrayDisplayLocation.Taskbar &&
-            (game.Game || !model.Settings.GameSilent && Desktop.IsFullscreen(currentForeground));
+        bool hideStrip = stabilized.StripFullscreen;
         if (changed || stripFullscreen != hideStrip)
         {
             bool stripStateChanged = stripFullscreen != hideStrip;
             bool exitingFullscreen = stripFullscreen && !hideStrip;
             stripFullscreen = hideStrip;
+            if (stripFullscreen)
+                StopStripRetryTimer();
             if (stripStateChanged)
                 stripAutomation?.SetPaused(stripFullscreen);
             if (exitingFullscreen)
             {
                 stripZOrderPending = true;
                 ArmTimer(GameSettleTimer, 750);
+                if (stripAutomation is not { Alive: true })
+                    RefreshStripGeometry();
             }
             RefreshIcon();
         }
@@ -1447,7 +1469,10 @@ internal sealed partial class TrayApp : IDisposable
         if (remove is not null)
             model.RemoveOffline(remove);
         if (gameSettingChanged)
+        {
             SetForegroundTracking();
+            ReadGameMode(immediateExit: true);
+        }
         if (displayLocationChanged)
             RefreshStripGeometry();
         if (stripAppearanceChanged)
@@ -1741,7 +1766,7 @@ internal sealed partial class TrayApp : IDisposable
     private void RequestTrayAction(TrayAction action, Point point)
     {
         // 用户能点到托盘图标，说明并不在独占全屏游戏里；游戏判定只拦截几格主动弹出的提醒，不拦截用户的点击。
-        ReadGameMode();
+        ReadGameMode(immediateExit: true);
         Desktop.Log($"托盘{(action == TrayAction.Panel ? "单击" : "右键")} game={game.Game} block={game.BlockPopups}");
         ExecuteTrayAction(action, point);
         ScheduleWork(DateTimeOffset.UtcNow, Environment.TickCount64);
@@ -1797,7 +1822,7 @@ internal sealed partial class TrayApp : IDisposable
             HWND window = MakeWindow(PopupClass, extra, WS_POPUP | WS_THICKFRAME);
             popup = new(window, model, noticeId, anchor, page);
             RenderPopup();
-            ReadGameMode();
+            ReadGameMode(immediateExit: !automatic);
             if (popup is not { } active)
                 return false;
             active.Show();

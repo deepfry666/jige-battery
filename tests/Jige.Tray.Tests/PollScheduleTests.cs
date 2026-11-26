@@ -237,4 +237,74 @@ public sealed class PollScheduleTests
         Assert.True(unknownFull);
         Assert.Empty(unknownIds);
     }
+
+    [Fact]
+    public void GameModeStabilizerAbsorbsTransientExitFlickerAndExitsCleanlyAfterDebounce()
+    {
+        var stabilizer = new GameModeStabilizer();
+        var desktop = GameMode.Evaluate(5, ForegroundGame.None, gameSilent: true);
+        var busyGame = GameMode.Evaluate(2, ForegroundGame.Fullscreen, gameSilent: true);
+
+        // 进入游戏与隐藏直读条立即生效。
+        var entered = stabilizer.Update(busyGame, rawStripFullscreen: true, taskbarMode: true, nowMs: 1_000);
+        Assert.True(entered.Game.Game);
+        Assert.True(entered.StripFullscreen);
+        Assert.Null(entered.ExitCheckDelayMs);
+
+        // 17 ms 后瞬态闪退、再过 31 ms 回到全屏：完全吸收抖动，不退出游戏模式也不闪现直读条。
+        var flickerOut = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 1_017);
+        Assert.True(flickerOut.Game.Game);
+        Assert.True(flickerOut.StripFullscreen);
+        Assert.Equal((uint)GameModeStabilizer.ExitDebounceMs, flickerOut.ExitCheckDelayMs);
+
+        var flickerBack = stabilizer.Update(busyGame, rawStripFullscreen: true, taskbarMode: true, nowMs: 1_048);
+        Assert.True(flickerBack.Game.Game);
+        Assert.True(flickerBack.StripFullscreen);
+        Assert.Null(flickerBack.ExitCheckDelayMs);
+
+        // 真正退出游戏后，持续非游戏满 400 ms 才一次性同步退出游戏模式与直读条全屏隐藏。
+        var exiting = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 50_000);
+        Assert.True(exiting.Game.Game);
+        Assert.True(exiting.StripFullscreen);
+        Assert.Equal(400u, exiting.ExitCheckDelayMs);
+
+        var midExit = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 50_250);
+        Assert.True(midExit.Game.Game);
+        Assert.True(midExit.StripFullscreen);
+        Assert.Equal(150u, midExit.ExitCheckDelayMs);
+
+        var exited = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 50_400);
+        Assert.False(exited.Game.Game);
+        Assert.False(exited.StripFullscreen);
+        Assert.Null(exited.ExitCheckDelayMs);
+    }
+
+    [Fact]
+    public void GameModeStabilizerHonorsImmediateExitAndNonGameSilentFullscreenDebounce()
+    {
+        var stabilizer = new GameModeStabilizer();
+        var desktop = GameMode.Evaluate(5, ForegroundGame.None, gameSilent: false);
+        var busyGame = GameMode.Evaluate(2, ForegroundGame.Fullscreen, gameSilent: false);
+
+        // 用户主动点击托盘或关闭游戏免打扰时，非游戏状态立即退出，不等待 400 ms 滞回。
+        stabilizer.Update(busyGame, rawStripFullscreen: true, taskbarMode: true, nowMs: 1_000);
+        var immediate = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 1_020, immediateExit: true);
+        Assert.False(immediate.Game.Game);
+        Assert.False(immediate.StripFullscreen);
+        Assert.Null(immediate.ExitCheckDelayMs);
+
+        // 关闭游戏中不打扰时，普通全屏视频的直读条隐藏同样防退出抖动；切回托盘图标模式时立即清零直读条隐藏状态。
+        var videoEnter = stabilizer.Update(desktop, rawStripFullscreen: true, taskbarMode: true, nowMs: 2_000);
+        Assert.False(videoEnter.Game.Game);
+        Assert.True(videoEnter.StripFullscreen);
+        Assert.Null(videoEnter.ExitCheckDelayMs);
+
+        var videoFlicker = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: true, nowMs: 2_050);
+        Assert.True(videoFlicker.StripFullscreen);
+        Assert.Equal(400u, videoFlicker.ExitCheckDelayMs);
+
+        var switchedToTrayIcons = stabilizer.Update(desktop, rawStripFullscreen: false, taskbarMode: false, nowMs: 2_100);
+        Assert.False(switchedToTrayIcons.StripFullscreen);
+        Assert.Null(switchedToTrayIcons.ExitCheckDelayMs);
+    }
 }

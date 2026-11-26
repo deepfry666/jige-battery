@@ -1063,36 +1063,95 @@ public sealed class TaskbarStripTests
     }
 
     [Fact]
-    public void TaskbarControlsStabilizerHoldsTransientUnknownBoundsThenFallsBack()
+    public void TaskbarControlsAcceptsModernTaskListWithoutStartButtonButRejectsEmptyContainers()
+    {
+        TaskbarControl[] missingStartWithModernApps =
+        [
+            new(Bar, "", "Taskbar.TaskbarFrameAutomationPeer", false),
+            new(new(864, 1036, 912, 1076), "Appid: Chrome", "Taskbar.TaskListButtonAutomationPeer", true),
+            new(new(916, 1036, 964, 1076), "Appid: Code", "Taskbar.TaskListButtonAutomationPeer", true),
+            new(Tray, "", "SystemTray.SystemTrayFrame", false)
+        ];
+        Assert.Equal(new TaskbarControls(Tray, 964), TaskbarControls.Locate(Bar, Tray, missingStartWithModernApps));
+
+        // 缺少开始按钮且也没有枚举到任何应用按钮时，空框架与空经典容器仍保持保守回退。
+        TaskbarControl[] emptyModernFrame =
+        [
+            new(Bar, "", "Taskbar.TaskbarFrameAutomationPeer", false),
+            new(Tray, "", "SystemTray.SystemTrayFrame", false)
+        ];
+        Assert.Equal(new TaskbarControls(Tray, null), TaskbarControls.Locate(Bar, Tray, emptyModernFrame));
+
+        TaskbarControl[] emptyLegacyList =
+        [
+            new(new(440, 1036, 1720, 1076), "", "MSTaskListWClass", false)
+        ];
+        Assert.Equal(new TaskbarControls(Tray, null), TaskbarControls.Locate(Bar, Tray, emptyLegacyList));
+    }
+
+    [Fact]
+    public void TaskbarControlsStabilizerHoldsTransientUnknownBoundsThenRecoversWithBackoff()
     {
         var stabilizer = new TaskbarControlsStabilizer();
         var valid = new TaskbarControls(Tray, 1300);
         var missingButtons = new TaskbarControls(Tray, null);
 
-        var (first, retry1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 1_000);
-        Assert.Equal(valid, first);
-        Assert.False(retry1);
+        var first = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 1_000);
+        Assert.Equal(valid, first.Controls);
+        Assert.Null(first.RetryDelayMs);
+        Assert.False(first.ReconnectAutomation);
 
-        // 连续两次瞬态丢失应用按钮边界时，宽限保留上次位置并要求快速重试，避免直读条↔托盘闪烁。
-        var (miss1, retryMiss1) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_200);
-        Assert.Equal(1300, miss1.OccupiedRight);
-        Assert.True(retryMiss1);
+        // 短时间内的密集 UIA 动画事件（120 ms 间隔）不会提前打穿 1500 ms 宽限期。
+        foreach (long tick in new[] { 1_120L, 1_240L, 1_360L, 1_480L, 1_600L, 2_200L, 2_620L })
+        {
+            var held = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: tick);
+            Assert.Equal(1300, held.Controls.OccupiedRight);
+            Assert.Equal(TaskbarControlsStabilizer.TransientRetryMs, held.RetryDelayMs);
+            Assert.True(held.ReconnectAutomation);
+        }
 
-        var (miss2, retryMiss2) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 1_600);
-        Assert.Equal(1300, miss2.OccupiedRight);
-        Assert.True(retryMiss2);
+        // 超过 1500 ms 宽限期后正常回退，同时进入有上限的退避重连恢复，避免永久卡在托盘回退态。
+        var fallback1 = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 2_621);
+        Assert.Null(fallback1.Controls.OccupiedRight);
+        Assert.Equal(500u, fallback1.RetryDelayMs);
+        Assert.True(fallback1.ReconnectAutomation);
 
-        // 超过宽限次数后正常回退。
-        var (miss3, retryMiss3) = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 2_000);
-        Assert.Null(miss3.OccupiedRight);
-        Assert.False(retryMiss3);
+        // 退避未到期前的中间 UIA 噪声不会消耗后续退避次数。
+        var intermediate = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 2_800);
+        Assert.Null(intermediate.Controls.OccupiedRight);
+        Assert.Equal(321u, intermediate.RetryDelayMs);
+        Assert.True(intermediate.ReconnectAutomation);
 
-        // 任务栏几何变化后不沿用旧缓存。
-        stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 3_000);
+        var fallback2 = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 3_121);
+        Assert.Equal(1_500u, fallback2.RetryDelayMs);
+        var fallback3 = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 4_621);
+        Assert.Equal(4_000u, fallback3.RetryDelayMs);
+        var fallback4 = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 8_621);
+        Assert.Equal(10_000u, fallback4.RetryDelayMs);
+        var exhausted = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 18_621);
+        Assert.Null(exhausted.RetryDelayMs);
+        Assert.False(exhausted.ReconnectAutomation);
+
+        // 一旦重新读到完整控件边界，恢复计数清空；任务栏几何变化后也不沿用旧缓存，但仍启动退避恢复。
+        var recovered = stabilizer.Apply(Bar, 96, visible: true, bottomEdge: true, valid, nowMs: 19_000);
+        Assert.Equal(valid, recovered.Controls);
+        Assert.Null(recovered.RetryDelayMs);
+
         var movedBar = new Bounds(0, 1000, 1920, 1080);
-        var (afterMove, retryMove) = stabilizer.Apply(movedBar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 3_100);
-        Assert.Null(afterMove.OccupiedRight);
-        Assert.False(retryMove);
+        var afterMove = stabilizer.Apply(movedBar, 96, visible: true, bottomEdge: true, missingButtons, nowMs: 19_100);
+        Assert.Null(afterMove.Controls.OccupiedRight);
+        Assert.Equal(500u, afterMove.RetryDelayMs);
+        Assert.True(afterMove.ReconnectAutomation);
+
+        // 通知区暂不可见时不沿用旧缓存，但同样触发有上限的 UIA 重连恢复；隐藏或非底部任务栏则停止重试。
+        var missingTray = stabilizer.Apply(movedBar, 96, visible: true, bottomEdge: true, default, nowMs: 19_600);
+        Assert.Null(missingTray.Controls.NotificationArea);
+        Assert.Equal(1_500u, missingTray.RetryDelayMs);
+        Assert.True(missingTray.ReconnectAutomation);
+
+        var hidden = stabilizer.Apply(movedBar, 96, visible: false, bottomEdge: true, missingButtons, nowMs: 20_000);
+        Assert.Null(hidden.RetryDelayMs);
+        Assert.False(hidden.ReconnectAutomation);
     }
 
     private static TaskbarStripPlacement Place(int occupiedRight = 1300, bool visible = true, bool bottom = true) =>
