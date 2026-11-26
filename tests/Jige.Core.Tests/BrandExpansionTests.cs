@@ -599,6 +599,217 @@ public sealed class BrandExpansionTests
     }
 
     [Fact]
+    public async Task Scyrox395A_2EReadOnlyProtocolMatchesDecodesAndScrubsSerial()
+    {
+        // 1) 编码校验和与严格只读白名单（支持不同 Report ID，拒绝一切复位/配对/设置/OTA 写命令）
+        foreach (byte rid in new byte[] { 0x00, 0x05, 0x08, 0xF0 })
+        {
+            byte[] req = ExtendedPeripheralProtocol.EncodeScyrox2E(rid);
+            Assert.Equal(64, req.Length);
+            Assert.Equal(rid, req[0]);
+            Assert.Equal(0x2E, req[1]);
+            Assert.Equal(0x00, req[2]);
+            Assert.Equal(0x03, req[3]);
+            Assert.Equal(unchecked((byte)(rid + 0x31)), req[63]);
+            Assert.True(ExtendedPeripheralProtocol.AllowsScyrox2E(req));
+
+            byte[] badChecksum = (byte[])req.Clone();
+            badChecksum[63] ^= 1;
+            Assert.False(ExtendedPeripheralProtocol.AllowsScyrox2E(badChecksum));
+
+            byte[] badSubCmd = (byte[])req.Clone();
+            badSubCmd[3] = 0x04;
+            badSubCmd[63] = unchecked((byte)(rid + 0x2E + 0x04));
+            Assert.False(ExtendedPeripheralProtocol.AllowsScyrox2E(badSubCmd));
+        }
+        foreach (byte forbiddenCmd in new byte[] { 0x10, 0x14, 0x0A, 0x29, 0x85, 0x8A })
+        {
+            var writeFrame = new byte[64];
+            writeFrame[0] = 0x05;
+            writeFrame[1] = forbiddenCmd;
+            writeFrame[63] = unchecked((byte)(0x05 + forbiddenCmd));
+            Assert.False(ExtendedPeripheralProtocol.AllowsScyrox2E(writeFrame));
+        }
+        Assert.False(ExtendedPeripheralProtocol.AllowsScyrox2E(new byte[63]));
+        Assert.False(ExtendedPeripheralProtocol.AllowsScyrox2E(new byte[65]));
+
+        // 2) 描述符识别、唯一 Report ID 校验与厂商名称
+        Assert.True(AdapterRegistry.IsKnownHidReceiver(0x395A, 0x0004));
+        Assert.True(AdapterRegistry.IsKnownHidReceiver(0x395A, 0x000D));
+        Assert.Equal("Scyrox", DiagnosticPrivacy.KnownVendorName(0x395A));
+        Assert.True(ExtendedPeripheralProtocol.NeedsReportIds(0x395A, 0x0004, 0xFF00, 64, 64));
+        Assert.False(ExtendedPeripheralProtocol.NeedsReportIds(0x395A, 0x0004, 0xFF01, 64, 64));
+        Assert.False(ExtendedPeripheralProtocol.NeedsReportIds(0x395A, 0xFFFF, 0xFF00, 64, 64));
+
+        var registry = AdapterRegistry.CreateDefault();
+        var receiver = new HidInterface("scy-rx", "p-scy-rx", 0x395A, 0x0004, "Scyrox Receiver", 0xFF00, 0x0002, 64, 64, 0, 2)
+        {
+            InputReportIds = "05",
+            OutputReportIds = "05"
+        };
+        var rxTarget = Assert.Single(registry.Detect(new([receiver], [], [])));
+        Assert.Equal("Scyrox 鼠标", rxTarget.Target.Device.Name);
+        Assert.Equal(DeviceKind.Mouse, rxTarget.Target.Device.Kind);
+        Assert.Equal(DeviceConnection.Receiver, rxTarget.Target.Device.Connection);
+        Assert.Equal(VerificationTier.DocsOnly, rxTarget.Target.Device.Verification);
+
+        // 有线鼠标支持 00(raw) 无编号报告 ID
+        var wired = new HidInterface("scy-usb", "p-scy-usb", 0x395A, 0x000D, "Scyrox V8S", 0xFF00, 0x0002, 64, 64, 0, 2)
+        {
+            InputReportIds = "00(raw)",
+            OutputReportIds = "00(raw)"
+        };
+        var wiredTarget = Assert.Single(registry.Detect(new([wired], [], [])));
+        Assert.Equal("Scyrox V8S", wiredTarget.Target.Device.Name);
+        Assert.Equal(DeviceConnection.UsbCable, wiredTarget.Target.Device.Connection);
+
+        // 缺少唯一报告 ID、多报告 ID、错误使用页/长度或未收录 PID 均必须跳过
+        Assert.Empty(registry.Detect(new([receiver with { InputReportIds = null, OutputReportIds = null }], [], [])));
+        Assert.Empty(registry.Detect(new([receiver with { InputReportIds = "01,05" }], [], [])));
+        Assert.Empty(registry.Detect(new([receiver with { OutputReportIds = "" }], [], [])));
+        Assert.Empty(registry.Detect(new([receiver with { UsagePage = 0xFF01 }], [], [])));
+        Assert.Empty(registry.Detect(new([receiver with { InputLength = 65 }], [], [])));
+        Assert.Empty(registry.Detect(new([receiver with { ProductId = 0xFFFF }], [], [])));
+
+        static byte[] BuildReply(byte rid, byte battery, byte charging, byte connected, ushort linkVid, ushort linkPid,
+            string serial = "SCYROX1234567", byte errorFlag = 0)
+        {
+            var frame = new byte[64];
+            frame[0] = rid;
+            frame[1] = 0x2E;
+            frame[4] = battery;
+            frame[5] = charging;
+            frame[6] = connected;
+            frame[7] = 0x02; frame[8] = 0x00; // 版本字节，诊断必须清除
+            frame[11] = 0x03;                 // 颜色字节，诊断必须清除
+            frame[12] = (byte)(linkVid & 0xFF);
+            frame[13] = (byte)(linkVid >> 8);
+            frame[14] = (byte)(linkPid & 0xFF);
+            frame[15] = (byte)(linkPid >> 8);
+            System.Text.Encoding.ASCII.GetBytes(serial).AsSpan(0, Math.Min(serial.Length, 13)).CopyTo(frame.AsSpan(16, 13));
+            frame[62] = errorFlag;
+            frame[63] = 0xAB;
+            return frame;
+        }
+
+        // 3) 跳过 0x0E / 0x2A 主动推送帧，正确解析 0x2E 在线电量、动态识别 V8S 型号，并核对报告 ID 约束
+        string req05 = Convert.ToHexString(ExtendedPeripheralProtocol.EncodeScyrox2E(0x05));
+        var pushBattery = new byte[64]; pushBattery[0] = 0x05; pushBattery[1] = 0x0E; pushBattery[4] = 50;
+        var pushConnect = new byte[64]; pushConnect[0] = 0x05; pushConnect[1] = 0x2A; pushConnect[4] = 1;
+        byte[] onlineReply = BuildReply(0x05, 84, 0, 1, 0x395A, 0x000D);
+
+        var onlineTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(pushBattery)),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(pushConnect)),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(onlineReply))
+        ]));
+        var onlineReading = await registry.ReadAsync(rxTarget, onlineTransport, null, CancellationToken.None);
+        Assert.Equal("Scyrox V8S", onlineReading.Device.Name);
+        Assert.Equal(84, onlineReading.Percentage);
+        Assert.False(onlineReading.IsEstimated);
+        Assert.Equal(ChargingState.NotCharging, onlineReading.Charging);
+        Assert.Equal(LinkState.Online, onlineReading.Link);
+        var opened = Assert.Single(onlineTransport.OpenedHids);
+        Assert.Equal((byte)0x05, opened.RequiredInputReportId);
+        Assert.Equal((byte)0x05, opened.RequiredOutputReportId);
+        onlineTransport.AssertComplete();
+
+        // 4) 充电态 + 动态识别 V6S + 心跳在线
+        byte[] chargingReply = BuildReply(0x05, 100, 1, 1, 0x395A, 0x000B);
+        var chargingTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(chargingReply))
+        ]));
+        var presenceOnline = await registry.CheckPresenceAsync(rxTarget, chargingTransport, CancellationToken.None);
+        Assert.NotNull(presenceOnline);
+        Assert.Equal(LinkState.Online, presenceOnline!.Link);
+        Assert.NotNull(presenceOnline.Battery);
+        Assert.Equal("Scyrox V6S", presenceOnline.Battery!.Device.Name);
+        Assert.Equal(100, presenceOnline.Battery.Percentage);
+        Assert.Equal(ChargingState.Charging, presenceOnline.Battery.Charging);
+        chargingTransport.AssertComplete();
+
+        // 5) 未连接 (raw[6]=0)、错误标志 (raw[62]=1) 与原样请求回显均归为休眠，绝不误报脏电量
+        var asleepTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(BuildReply(0x05, 99, 0, 0, 0x395A, 0x000D)))
+        ]));
+        var asleepReading = await registry.ReadAsync(rxTarget, asleepTransport, null, CancellationToken.None);
+        Assert.Equal(LinkState.Asleep, asleepReading.Link);
+        Assert.Null(asleepReading.Percentage);
+        asleepTransport.AssertComplete();
+
+        var errTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(BuildReply(0x05, 99, 0, 1, 0x395A, 0x000D, errorFlag: 1)))
+        ]));
+        var errReading = await registry.ReadAsync(rxTarget, errTransport, null, CancellationToken.None);
+        Assert.Equal(LinkState.Asleep, errReading.Link);
+        Assert.Null(errReading.Percentage);
+        errTransport.AssertComplete();
+
+        var echoTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, req05),
+            new(DiagnosticOperation.HidInput, Issue: ReadIssue.Timeout)
+        ]));
+        var echoReading = await registry.ReadAsync(rxTarget, echoTransport, null, CancellationToken.None);
+        Assert.Equal(LinkState.Asleep, echoReading.Link);
+        Assert.Equal(ReadIssue.Timeout, echoReading.Issue);
+        echoTransport.AssertComplete();
+
+        // 6) 诊断报告脱敏：彻底清除 raw[16..28] 中的 13 字节 ASCII 序列号，同时保持完整无损回放
+        var diagTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(onlineReply))
+        ]));
+        string report = await DiagnosticReport.GenerateAsync(new([receiver], [], []), diagTransport, CancellationToken.None);
+        diagTransport.AssertComplete();
+        Assert.Contains("验证=仅按资料", report);
+        Assert.Contains("厂商=Scyrox", report);
+        Assert.Contains("报告ID|H1|FF00:0002|in=05|out=05|feat=-", report);
+        Assert.DoesNotContain("SCYROX1234567", report, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Convert.ToHexString("SCYROX1234567"u8), report, StringComparison.OrdinalIgnoreCase);
+
+        var (replayInventory, replayTransport, _) = FakeReceiverTransport.FromReport(report);
+        var replayTarget = Assert.Single(registry.Detect(replayInventory));
+        var replayReading = await registry.ReadAsync(replayTarget, replayTransport, null, CancellationToken.None);
+        Assert.Equal("Scyrox V8S", replayReading.Device.Name);
+        Assert.Equal(84, replayReading.Percentage);
+        Assert.Equal(ChargingState.NotCharging, replayReading.Charging);
+        Assert.Equal(LinkState.Online, replayReading.Link);
+        replayTransport.AssertComplete();
+
+        // 未通过解码的畸形帧仅输出固定协议头摘要，绝不泄露序列号载荷
+        byte[] badFlagReply = BuildReply(0x05, 84, 0, 2, 0x395A, 0x000D, serial: "SECRET9876543");
+        var badFlagTransport = new FakeReceiverTransport((receiver.Path,
+        [
+            new(DiagnosticOperation.OpenHid),
+            new(DiagnosticOperation.HidOutput, req05),
+            new(DiagnosticOperation.HidInput, Convert.ToHexString(badFlagReply)),
+            new(DiagnosticOperation.HidInput, Issue: ReadIssue.Timeout)
+        ]));
+        string badReport = await DiagnosticReport.GenerateAsync(new([receiver], [], []), badFlagTransport, CancellationToken.None);
+        badFlagTransport.AssertComplete();
+        Assert.Contains("Scyrox2E len=64 rid=05 cmd=2E conn=02 chg=00 err=00", badReport);
+        Assert.DoesNotContain("SECRET9876543", badReport, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(Convert.ToHexString("SECRET9876543"u8), badReport, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task NewBrandDiagnosticsAreSanitizedAndReplayable()
     {
         var nova7 = new HidInterface("ss-diag", "p-ss", 0x1038, 0x22A1, "Nova 7", 0xFFC0, 1, 65, 65, 0, 3);

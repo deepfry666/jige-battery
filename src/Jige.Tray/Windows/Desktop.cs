@@ -338,15 +338,12 @@ internal static unsafe class Desktop
         if (kind != ForegroundKind.Other || !PInvoke.IsWindowVisible(foreground))
             return ForegroundGame.None;
 
-        if (fullscreenOnly)
-        {
-            var exStyle = (WINDOW_EX_STYLE)PInvoke.GetWindowLong(foreground, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
-            if ((exStyle & (WINDOW_EX_STYLE.WS_EX_TOOLWINDOW | WINDOW_EX_STYLE.WS_EX_NOACTIVATE)) != 0)
-                return ForegroundGame.None;
-        }
-
         if (!fullscreenOnly && gameProcessNames.Length > 0 && ProcessMatches(processId, gameProcessNames))
             return ForegroundGame.ProcessName;
+
+        var exStyle = (WINDOW_EX_STYLE)PInvoke.GetWindowLong(foreground, WINDOW_LONG_PTR_INDEX.GWL_EXSTYLE);
+        if ((exStyle & (WINDOW_EX_STYLE.WS_EX_TOOLWINDOW | WINDOW_EX_STYLE.WS_EX_NOACTIVATE)) != 0)
+            return ForegroundGame.None;
         RECT frame;
         if (PInvoke.DwmGetWindowAttribute(foreground, DWMWINDOWATTRIBUTE.DWMWA_EXTENDED_FRAME_BOUNDS,
             &frame, (uint)sizeof(RECT)).Failed && !PInvoke.GetWindowRect(foreground, out frame))

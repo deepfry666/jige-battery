@@ -48,6 +48,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
             if (!paused && !requested.IsNull)
             {
                 lastPublished = null;
+                reconnect = true;
                 urgent = true;
                 try { changed.Set(); }
                 catch (ObjectDisposedException) { }
@@ -126,6 +127,8 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
         IUIAutomationCacheRequest* cache = null;
         IUIAutomationCondition* condition = null;
         IUIAutomationElement* root = null;
+        HWND lastOwner = default;
+        bool hadValidControlsForOwner = false;
         try
         {
             while (changed.WaitOne())
@@ -166,6 +169,11 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                     firstEventMs = 0;
                 }
 
+                if (owner != lastOwner)
+                {
+                    lastOwner = owner;
+                    hadValidControlsForOwner = false;
+                }
                 if (reset)
                     Disconnect(automation, ref root);
                 if (owner.IsNull || isPaused)
@@ -191,6 +199,7 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                         cache = null;
                         CreateReadQuery(automation, out cache, out condition);
                     }
+                    bool reusedRoot = root != null;
                     if (root == null)
                     {
                         root = automation->ElementFromHandle(owner);
@@ -199,7 +208,22 @@ internal sealed unsafe class TaskbarStripAutomation : IDisposable
                         TrySubscribeEvents(automation, root);
                     }
                     var controls = ReadControls(root, cache, condition);
-                    geometry = geometry with { Controls = TaskbarControls.Locate(geometry.Bar, nativeTray, controls) };
+                    var located = TaskbarControls.Locate(geometry.Bar, nativeTray, controls);
+                    if (reusedRoot && hadValidControlsForOwner && geometry.Visible && geometry.BottomEdge &&
+                        located.OccupiedRight is null)
+                    {
+                        // Windows 11 Explorer 重建 XAML 任务栏岛后，旧 UIA root 可能不抛异常却返回空子树；立即重连一次自愈。
+                        Disconnect(automation, ref root);
+                        root = automation->ElementFromHandle(owner);
+                        if (root == null)
+                            throw new COMException();
+                        TrySubscribeEvents(automation, root);
+                        controls = ReadControls(root, cache, condition);
+                        located = TaskbarControls.Locate(geometry.Bar, nativeTray, controls);
+                    }
+                    if (located.NotificationArea is not null && located.OccupiedRight is not null)
+                        hadValidControlsForOwner = true;
+                    geometry = geometry with { Controls = located };
                     lastErrorLog = null;
                 }
                 catch (Exception error) when (error is ExternalException or UnauthorizedAccessException or InvalidOperationException)

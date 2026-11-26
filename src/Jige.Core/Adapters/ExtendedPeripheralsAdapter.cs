@@ -9,7 +9,8 @@ internal enum ExtendedProtocolKind
     MchoseV3_4D,
     AulaF87Kb,
     KeychronB3,
-    AudezeMaxwell
+    AudezeMaxwell,
+    Scyrox2E
 }
 
 internal sealed record ExtendedPeripheralModel(
@@ -23,11 +24,14 @@ internal sealed record ExtendedPeripheralModel(
     byte? InterfaceNumber = null);
 
 /// <summary>
-/// 扩展品牌只读电量协议集合：Pulsar Sonix、EWEADN 前行者、AJAZZ 黑爵、MCHOSE V3 4D、AULA 狼蛛键盘、Keychron、Audeze Maxwell。
+/// 扩展品牌只读电量协议集合：Pulsar Sonix、EWEADN 前行者、AJAZZ 黑爵、MCHOSE V3 4D、AULA 狼蛛键盘、Keychron、Audeze Maxwell、Scyrox 0x395A。
 /// 每条协议均有严格白名单，绝不发送任何设置/配对/模式切换命令。
 /// </summary>
 internal static class ExtendedPeripheralProtocol
 {
+    public const ushort ScyroxVendorId = 0x395A;
+    public const int ScyroxReportLength = 64;
+
     private static readonly byte[] AudezeBatteryOnlyPrefix = [0x06, 0x07, 0x80, 0x05, 0x5A, 0x03, 0x00, 0xD6, 0x0C];
     private static readonly byte[] AudezeBatteryMarker = [0xD6, 0x0C, 0x00, 0x00];
     private static readonly byte[] MchoseV3Prefix = [0x4D, 0x01, 0x01, 0x00, 0x00, 0x09, 0x00, 0x00, 0x08];
@@ -88,7 +92,39 @@ internal static class ExtendedPeripheralProtocol
         new(0x3329, 0x4B29, "Audeze Maxwell 2", DeviceKind.Headset, ExtendedProtocolKind.AudezeMaxwell,
             "HeadsetControl / HaloBattery（MIT）"),
         new(0x3329, 0x4B28, "Audeze Maxwell 2 (Xbox)", DeviceKind.Headset, ExtendedProtocolKind.AudezeMaxwell,
-            "HeadsetControl / HaloBattery（MIT）")
+            "HeadsetControl / HaloBattery（MIT）"),
+
+        // Scyrox 新代 0x395A（64B Output/Input 只读状态查询 0x2E 00 03；出处：Scyrox 官方网页驱动 gaming.scyrox.net）
+        new(ScyroxVendorId, 0x0002, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x0004, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x0006, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x0008, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x000A, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x000C, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x000E, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x0010, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）"),
+        new(ScyroxVendorId, 0x0003, "Scyrox V12L", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x0005, "Scyrox V12M", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x0007, "Scyrox V12L-U", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x0009, "Scyrox V12M-U", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x000B, "Scyrox V6S", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x000D, "Scyrox V8S", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable),
+        new(ScyroxVendorId, 0x000F, "Scyrox 鼠标", DeviceKind.Mouse, ExtendedProtocolKind.Scyrox2E,
+            "Scyrox 官方网页驱动（gaming.scyrox.net）", DeviceConnection.UsbCable)
     ];
 
     public static IReadOnlyList<ExtendedPeripheralModel> AllModels => Models;
@@ -325,6 +361,101 @@ internal static class ExtendedPeripheralProtocol
         return false;
     }
 
+    public static bool NeedsReportIds(ushort? vid, ushort? pid, ushort usagePage, ushort inputLength, ushort outputLength) =>
+        vid == ScyroxVendorId && Find(vid, pid) is { Protocol: ExtendedProtocolKind.Scyrox2E } &&
+        usagePage == 0xFF00 && inputLength == ScyroxReportLength && outputLength == ScyroxReportLength;
+
+    public static bool TryResolveSingleReportId(string? declaredIds, out byte reportId)
+    {
+        reportId = 0;
+        if (string.IsNullOrWhiteSpace(declaredIds))
+            return false;
+        if (declaredIds.Equals("00(raw)", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (declaredIds.Contains(','))
+            return false;
+        return byte.TryParse(declaredIds.Trim(), System.Globalization.NumberStyles.HexNumber,
+            System.Globalization.CultureInfo.InvariantCulture, out reportId);
+    }
+
+    public static bool TryResolveScyroxReportIds(HidInterface hid, out byte inputReportId, out byte outputReportId)
+    {
+        inputReportId = 0;
+        outputReportId = 0;
+        return TryResolveSingleReportId(hid.InputReportIds, out inputReportId) &&
+               TryResolveSingleReportId(hid.OutputReportIds, out outputReportId);
+    }
+
+    /// <summary>
+    /// 构造 Scyrox 0x395A 64B 只读状态查询帧（[rid, 0x2E, 0x00, 0x03, 0x00×59, sum]）。
+    /// 校验和按官方网页驱动 gaming.scyrox.net 规则为 (reportId + payload 字节累加) &amp; 0xFF。
+    /// </summary>
+    public static byte[] EncodeScyrox2E(byte outputReportId)
+    {
+        var frame = new byte[ScyroxReportLength];
+        frame[0] = outputReportId;
+        frame[1] = 0x2E;
+        frame[2] = 0x00;
+        frame[3] = 0x03;
+        frame[63] = unchecked((byte)(outputReportId + 0x2E + 0x00 + 0x03));
+        return frame;
+    }
+
+    public static bool AllowsScyrox2E(ReadOnlySpan<byte> frame) =>
+        frame.Length == ScyroxReportLength && frame.SequenceEqual(EncodeScyrox2E(frame[0]));
+
+    /// <summary>依据 gaming.scyrox.net 的 mouseNameMap 将 0x2E 回复中的 linkPid 映射为具体型号。</summary>
+    public static string? LookupScyroxModel(ushort linkPid) => linkPid switch
+    {
+        0x0003 => "Scyrox V12L",
+        0x0005 => "Scyrox V12M",
+        0x0007 => "Scyrox V12L-U",
+        0x0009 => "Scyrox V12M-U",
+        0x000B => "Scyrox V6S",
+        0x000D => "Scyrox V8S",
+        _ => null
+    };
+
+    /// <summary>
+    /// 解析 Scyrox 0x395A 64B 线帧回复（raw[0]=Input Report ID，raw[1..63] 对应 WebHID payload[0..62]）：
+    /// raw[1]=0x2E，raw[4]=电量(0..100)，raw[5]=充电(0/1)，raw[6]=连接(0/1)，raw[12..15]=linkVid/linkPid(LE)，raw[62]=错误标志(1)。
+    /// 不读取 raw[16..28] 中的设备序列号。
+    /// </summary>
+    public static bool TryDecodeScyrox2E(
+        ReadOnlySpan<byte> raw, byte expectedInputReportId,
+        out bool asleep, out int level, out ChargingState charging, out string? resolvedName)
+    {
+        asleep = false;
+        level = 0;
+        charging = ChargingState.Unknown;
+        resolvedName = null;
+        if (raw.Length != ScyroxReportLength || raw[0] != expectedInputReportId || raw[1] != 0x2E)
+            return false;
+        if (raw.SequenceEqual(EncodeScyrox2E(raw[0])))
+            return false;
+        if (raw[62] == 1)
+        {
+            asleep = true;
+            return true;
+        }
+        if (raw[62] != 0 || raw[5] > 1 || raw[6] > 1)
+            return false;
+        if (raw[6] == 0)
+        {
+            asleep = true;
+            return true;
+        }
+        if (raw[4] > 100)
+            return false;
+        level = raw[4];
+        charging = MouseBatteryProtocol.Charge(raw[5]);
+        ushort linkVid = (ushort)(raw[12] | (raw[13] << 8));
+        ushort linkPid = (ushort)(raw[14] | (raw[15] << 8));
+        if (linkVid is 0 or ScyroxVendorId)
+            resolvedName = LookupScyroxModel(linkPid);
+        return true;
+    }
+
     public static string FamilyName(ExtendedProtocolKind protocol) => protocol switch
     {
         ExtendedProtocolKind.PulsarSonix => "Pulsar Sonix Feature",
@@ -335,6 +466,7 @@ internal static class ExtendedPeripheralProtocol
         ExtendedProtocolKind.AulaF87Kb => "AULA AA10 键盘",
         ExtendedProtocolKind.KeychronB3 => "Keychron B3/B4",
         ExtendedProtocolKind.AudezeMaxwell => "Audeze 0CD6",
+        ExtendedProtocolKind.Scyrox2E => "Scyrox 2E (64B)",
         _ => "扩展外设"
     };
 }
@@ -366,6 +498,8 @@ internal sealed class ExtendedPeripheralsAdapter(SafetyGateStore? gates = null, 
             ExtendedProtocolKind.AulaF87Kb => hid is { UsagePage: 0xFF80, Usage: 0x0001, InputLength: 33, OutputLength: 33 } ? model : null,
             ExtendedProtocolKind.KeychronB3 => hid is { UsagePage: >= 0xFF00, FeatureLength: >= 64, InputLength: >= 64 } ? model : null,
             ExtendedProtocolKind.AudezeMaxwell => hid is { UsagePage: 0xFF13, Usage: 0x0001, InputLength: 62, OutputLength: 62 } ? model : null,
+            ExtendedProtocolKind.Scyrox2E => hid is { UsagePage: 0xFF00, InputLength: ExtendedPeripheralProtocol.ScyroxReportLength, OutputLength: ExtendedPeripheralProtocol.ScyroxReportLength } &&
+                ExtendedPeripheralProtocol.TryResolveScyroxReportIds(hid, out _, out _) ? model : null,
             _ => null
         };
     }
@@ -404,6 +538,7 @@ internal sealed class ExtendedPeripheralsAdapter(SafetyGateStore? gates = null, 
             ExtendedProtocolKind.AulaF87Kb => await ReadAulaF87Async(target, endpoint, transport, trace, token).ConfigureAwait(false),
             ExtendedProtocolKind.KeychronB3 => await ReadKeychronAsync(target, endpoint, transport, trace, token).ConfigureAwait(false),
             ExtendedProtocolKind.AudezeMaxwell => await ReadAudezeAsync(target, endpoint, model, transport, trace, token).ConfigureAwait(false),
+            ExtendedProtocolKind.Scyrox2E => await ReadScyrox2EAsync(target, endpoint, transport, trace, token).ConfigureAwait(false),
             _ => AdapterRegistry.Failure(target, ReadIssue.IoError, "不支持的扩展协议")
         };
     }
@@ -573,6 +708,28 @@ internal sealed class ExtendedPeripheralsAdapter(SafetyGateStore? gates = null, 
             return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, ReadIssue.Timeout);
         var charging = model.Connection == DeviceConnection.UsbCable ? ChargingState.Charging : ChargingState.NotCharging;
         return new(target.Device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow);
+    }
+
+    private static async ValueTask<BatteryReading> ReadScyrox2EAsync(
+        DeviceTarget target, HidInterface endpoint, IReceiverTransport transport, FrameTrace? trace, CancellationToken token)
+    {
+        if (!ExtendedPeripheralProtocol.TryResolveScyroxReportIds(endpoint, out byte inputReportId, out byte outputReportId))
+            return AdapterRegistry.Failure(target, ReadIssue.IoError, "Scyrox 集合未声明唯一的输入/输出报告 ID");
+        var req = ExtendedPeripheralProtocol.EncodeScyrox2E(outputReportId);
+        if (!ExtendedPeripheralProtocol.AllowsScyrox2E(req))
+            throw new TransportException(ReadIssue.IoError, "报文未通过只读白名单");
+        using var session = transport.OpenHid(
+            endpoint with { RequiredInputReportId = inputReportId, RequiredOutputReportId = outputReportId }, token);
+        var frame = await HidQuery.OutputAsync(session, session, req, ExtendedPeripheralProtocol.ScyroxReportLength,
+            p => ExtendedPeripheralProtocol.TryDecodeScyrox2E(p, inputReportId, out _, out _, out _, out _),
+            trace, token, milliseconds: 700).ConfigureAwait(false);
+        if (frame is null || !ExtendedPeripheralProtocol.TryDecodeScyrox2E(
+            frame, inputReportId, out bool asleep, out int level, out var charging, out var resolvedName))
+            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, ReadIssue.Timeout);
+        if (asleep)
+            return new(target.Device, null, false, ChargingState.Unknown, LinkState.Asleep, DateTimeOffset.UtcNow, Detail: "Scyrox 鼠标未连接或正在休眠");
+        var device = resolvedName is not null ? target.Device with { Name = resolvedName } : target.Device;
+        return new(device, level, false, charging, LinkState.Online, DateTimeOffset.UtcNow);
     }
 
     public async ValueTask<PresenceUpdate?> CheckPresenceAsync(

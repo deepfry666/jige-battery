@@ -257,7 +257,7 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | Corsair Void v2 Wireless、Virtuoso Max Wireless、HS80 Max Wireless | `1B1C:2A08`、`1B1C:2A02`、`1B1C:0A97` | Corsair Void v2（`MI_04` 纯只读握手与 `0F`） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
 | Corsair Sabre v2 Pro Ultralight | `1B1C:2B2A` | Compx-OUT（`FF02:0002`） | 仅按资料 | HaloBattery（MIT） |
 
-### 更多国际与国产外设品牌（Pulsar · Hitscan · Glorious · Endgame Gear · Cougar · Redragon · Audeze · Keychron · DAREU · EWEADN · AJAZZ · AULA · MCHOSE V3）
+### 更多国际与国产外设品牌（Pulsar · Hitscan · Glorious · Endgame Gear · Cougar · Redragon · Audeze · Keychron · DAREU · EWEADN · AJAZZ · AULA · MCHOSE V3 · Scyrox `395A`）
 
 | 设备 | 接收器 / 有线 VID:PID | 协议家族 | 验证状态 | 来源 |
 | --- | --- | --- | --- | --- |
@@ -273,6 +273,8 @@ Razer 90B 全量对齐 OpenRazer（`razermouse_driver.c` / `razerkbd_driver.c`�
 | AJAZZ 黑爵 AJ179 V2 MAX（无线/有线） | `249A:5C2F`、`248A:5D2E` | AJAZZ `10/C0`（`MI_02` 33B） | 仅按资料 | aj179-linux（MIT）/ HaloBattery（MIT） |
 | AJAZZ 黑爵 AJ179 Pro | `3151:402D` | GearHub V5 Feature（`FFFF:0002` 65B `F7`） | 仅按资料 | OpenMouse 实机记录（`research/domestic-mice-webdriver.md`） |
 | MCHOSE 迈从 V3 鼠标（共享接收器） | `3837:1014/1016/1018` | MCHOSE V3 `4D`（`FF01:0001` 64B） | 仅按资料 | OpenMouse（`research/domestic-mice-webdriver.md`） |
+| Scyrox 新代无线鼠标（接收器，按 `linkPid` 自动识别 V6S / V8S / V12 系列） | `395A:0002/0004/0006/0008/000A/000C/000E/0010` | Scyrox 2E (64B)（`FF00` 64B Output/Input） | 仅按资料 | Scyrox 官方网页驱动（`gaming.scyrox.net`） |
+| Scyrox V12L / V12M / V12L-U / V12M-U / V6S / V8S（有线） | `395A:0003/0005/0007/0009/000B/000D/000F` | Scyrox 2E (64B)（`FF00` 64B Output/Input） | 仅按资料 | Scyrox 官方网页驱动（`gaming.scyrox.net`） |
 | AULA 狼蛛 F87 Pro V2C 键盘 | `0C45:FEFC` | AULA `AA 10` 键盘（`FF80:0001` 33B） | 仅按资料 | AULA HUB / HaloBattery（MIT） |
 | Keychron Ultra-Link 8K / M5 / Nape Pro | `3434:D028/D048/D026` | Keychron `B3/B4`（64B Feature → Input） | 仅按资料 | keychron-battery-dkms / HaloBattery（MIT） |
 | Audeze Maxwell / Maxwell 2（无线/有线） | `3329:4B19/4B18/4B1A/4B1E/4B29/4B28` | Audeze `0CD6`（`FF13:0001` 单帧只读查询） | 仅按资料 | HeadsetControl / HaloBattery（MIT） |
