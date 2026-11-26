@@ -614,6 +614,27 @@ public static partial class DiagnosticPrivacy
                 result[4] = 0x00;
                 result[5] = (byte)level;
                 break;
+            case ExtendedProtocolKind.Scyrox2E when raw.Length == ExtendedPeripheralProtocol.ScyroxReportLength &&
+                ExtendedPeripheralProtocol.TryDecodeScyrox2E(raw, raw[0], out bool scyroxAsleep, out _, out _, out _):
+                // 仅保留状态查询必需字段，彻底清除 raw[16..28] 中的 13 字节 ASCII 序列号及其他无关载荷。
+                result[0] = raw[0];
+                result[1] = raw[1];
+                if (raw[62] == 1)
+                {
+                    result[62] = 1;
+                }
+                else if (scyroxAsleep)
+                {
+                    result[6] = 0;
+                }
+                else
+                {
+                    result[4] = raw[4];
+                    result[5] = raw[5];
+                    result[6] = raw[6];
+                    raw[12..16].CopyTo(result.Slice(12, 4));
+                }
+                break;
         }
     }
 
@@ -641,6 +662,7 @@ public static partial class DiagnosticPrivacy
         0x0B05 => "ASUS",
         0x41E4 or 0x2023 or 0x5253 or 0x3837 => "MCHOSE",
         0x3554 => "Compx（VXE / VGN / Scyrox / Lamzu 等）",
+        0x395A => "Scyrox",
         0x36A7 => "WLmouse",
         0x3710 => "Pulsar",
         0x3770 => "Hitscan",
@@ -729,6 +751,10 @@ public static partial class DiagnosticPrivacy
                 return FormattableString.Invariant(
                     $"MchoseKb len=20 rid={raw[0]:X2} cmd={raw[1]:X2} b2={raw[2]:X2} b5={raw[5]:X2} cksum={(cksum ? "OK" : "FAIL")}");
             }
+            case ExtendedPeripheralsAdapter when raw.Length == ExtendedPeripheralProtocol.ScyroxReportLength &&
+                ExtendedPeripheralProtocol.Find(hid.VendorId, hid.ProductId) is { Protocol: ExtendedProtocolKind.Scyrox2E }:
+                return FormattableString.Invariant(
+                    $"Scyrox2E len=64 rid={raw[0]:X2} cmd={raw[1]:X2} conn={raw[6]:X2} chg={raw[5]:X2} err={raw[62]:X2}");
             default:
                 return FormattableString.Invariant($"len={raw.Length} rid={raw[0]:X2}");
         }

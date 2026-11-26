@@ -124,7 +124,9 @@ public sealed class WindowsReceiverTransport : IReceiverTransport
             bool inspectUlx = FinalmouseAdapter.NeedsReportIds(attributes.VendorId, attributes.ProductId, attributes.Version) &&
                 caps is { UsagePage: 0xFF00, Usage: 1, FeatureLength: 0,
                     InputLength: FinalmouseProtocol.ReportLength, OutputLength: FinalmouseProtocol.ReportLength };
-            if (inspectUlx || includeReportIds &&
+            bool inspectScyrox = ExtendedPeripheralProtocol.NeedsReportIds(
+                attributes.VendorId, attributes.ProductId, caps.UsagePage, caps.InputLength, caps.OutputLength);
+            if (inspectUlx || inspectScyrox || includeReportIds &&
                 (caps.UsagePage >= 0xFF00 || attributes.VendorId == 0x1532 && caps.FeatureLength == RazerFeatureProtocol.ReportLength ||
                  domesticRoute is not null))
             {

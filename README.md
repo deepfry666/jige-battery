@@ -103,7 +103,7 @@ Get-FileHash .\Jige-Setup-0.2.26-x64.exe -Algorithm SHA256
 | Pulsar · Hitscan · Glorious · Endgame Gear | Pulsar X2 V2 / V3 / CrazyLight，Hitscan Hyperlight，Glorious Model O Wireless，Endgame Gear XM2we | 按协议资料 |
 | Cougar · Redragon · Audeze · Keychron | Cougar Revenger Pro，Redragon M991，Audeze Maxwell 耳机，Keychron Ultra-Link 8K / M5 / Nape Pro | 按协议资料 |
 | ATK | F1 Ultimate、ATK ZERO、A9 Plus NK、A9 Pro Max 2.0 NK 及多款共用/同家族接收器 | 按协议资料 |
-| VXE · VGN · Scyrox | VXE R1 系列、MAD，VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master，Scyrox V8 等 | 按协议资料 |
+| VXE · VGN · Scyrox | VXE R1 系列、MAD，VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master，Scyrox V8 / V6S / V8S / V12 系列等 | 按协议资料 |
 | Lamzu · WLmouse | Lamzu Maya X，WLmouse Beast X 系列 | 按协议资料 |
 | 迈从 MCHOSE | A5 Pro Max 初代、M7 Ultra、L7 Pro、A7 V2 Ultra、V3 鼠标，K87 键盘 | 按协议资料 |
 | 达尔优 · 黑爵 · 前行者 · 狼蛛 | DAREU A950，AJAZZ AJ179 V2 MAX / Pro，EWEADN S9 / H2，AULA F87 Pro V2C 键盘 | 按协议资料 |
@@ -128,7 +128,7 @@ Get-FileHash .\Jige-Setup-0.2.26-x64.exe -Algorithm SHA256
 | ATK BitMouse | ATK ZERO `373B:1155`、NK NANO 接收器 `373B:1216`、A9 Pro Max 2.0 NK `373B:11DC/11DB`（`FF05:0001`），以及同家族 `373B` + `FF05:0001`（64/64）通用识别 | 多方开源实现一致 / 单一来源 / 通用适配 | 仅按资料 |
 | 游狼 XVI-OLD | 从官方网页驱动型号表导入 21 款 `XVI=1` 旧协议型号（如 HTX Mini 8K `33E4:2717`、VUK `33E4:3917`、HT-S2 / HTS Plus / HSK Pro 等），`MI_02 / FFFF:0000` | 依据官方网页驱动型号表 | 仅按资料 |
 | VXE R1 系列 / MAD | `3554:F58A`、`3554:F505`、`3554:F58E`、`373B:1040`、`373B:1085`，Compx-OUT | atk-control / HaloBattery / mouse_tray | 仅按资料 |
-| Scyrox / Compx 共享接收器 | `3554:F5F7`、`3554:F5F4`、`3554:F517`、`3554:F50D`，Compx-OUT | Scyrox S-center / HaloBattery / Lamzu Aurora / Control HUB | 仅按资料 |
+| Scyrox / Compx 共享接收器 | Compx-OUT：`3554:F5F7`、`3554:F5F4`、`3554:F517`、`3554:F50D`；Scyrox 新代 64B `2E`：`395A:0002..0010`（接收器，自动识别 V6S / V8S / V12 系列）及 `395A:0003..000F`（有线） | Scyrox 官方网页驱动（gaming.scyrox.net）/ Scyrox S-center / HaloBattery / Lamzu Aurora / Control HUB | 仅按资料 |
 | VGN 蜻蜓 F1 / F2 Master / Y2 / Dragonfly 3 Master | `3554:F503`、`3554:F50B`、`3554:F505`、`3554:FB56`、`3554:FB3E`、`3554:FB52`、`3554:FB54`、`3554:FB58`，Compx-OUT | VGN HUB | 仅按资料 |
 | Lamzu Maya X | `373E:001D`（1K）、`373E:001E`（8K），XVI-NEW | Lamzu Aurora / HaloBattery | 仅按资料 |
 | WLmouse Beast X 系列 | `36A7:A880`、`36A7:A868`、`36A7:A883`、`36A7:A887`、`36A7:A882`，XVI-NEW | WL MOUSE HUB / HaloBattery | 仅按资料 |
