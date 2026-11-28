@@ -338,33 +338,51 @@ internal sealed unsafe class Canvas : IDisposable
         }
     }
 
-    public void DeviceTile(DeviceKind kind, float x, float y, float size, Color fill, Color ink)
+    public void BrandTile(DeviceBrand brand, float x, float y, float size, Color fill, Color ink)
     {
-        float radius = size >= 36 ? 8 : size >= 30 ? 7 : 6;
+        float radius = size >= 36 ? 9 : size >= 30 ? 8 : 6;
         Fill(x, y, size, size, radius, fill);
-        float cx = x + size / 2, cy = y + size / 2;
-        float k = size <= 26 ? 0.78f : 1f;
-        float stroke = size <= 26 ? 1.15f : 1.2f;
-        switch (kind)
+        var icon = BrandIconData.Get(brand);
+        if (icon.Contours.Length == 0)
+            return;
+
+        ID2D1Factory* factory = null;
+        ID2D1PathGeometry* geometry = null;
+        ID2D1GeometrySink* sink = null;
+        try
         {
-            case DeviceKind.Mouse:
-                Stroke(cx - 4.5f * k, cy - 7.2f * k, 9 * k, 14.3f * k, 4.5f * k, ink, stroke);
-                Line(cx, cy - 7.2f * k, cx, cy - 2.3f * k, ink, stroke);
-                break;
-            case DeviceKind.Headset:
-                Arc(cx, cy, 6 * k, MathF.PI, 2 * MathF.PI, ink, stroke);
-                Stroke(cx - 7 * k, cy + 1.5f * k, 3.4f * k, 5.2f * k, 1.2f * k, ink, stroke);
-                Stroke(cx + 3.6f * k, cy + 1.5f * k, 3.4f * k, 5.2f * k, 1.2f * k, ink, stroke);
-                break;
-            case DeviceKind.Keyboard:
-                Stroke(cx - 7 * k, cy - 4.5f * k, 14 * k, 9 * k, 2 * k, ink, stroke);
-                for (int i = -2; i <= 2; i++)
-                    Dot(cx + i * 2.3f * k, cy - 1 * k, .5f * k, ink);
-                Line(cx - 3 * k, cy + 2 * k, cx + 3 * k, cy + 2 * k, ink, stroke);
-                break;
-            default:
-                Battery(cx - 8 * k, cy - 8 * k, k, ink);
-                break;
+            target->GetFactory(&factory);
+            if (factory == null)
+                return;
+            factory->CreatePathGeometry(&geometry);
+            if (geometry == null)
+                return;
+            geometry->Open(&sink);
+            if (sink == null)
+                return;
+            sink->SetFillMode(icon.EvenOdd
+                ? D2D1_FILL_MODE.D2D1_FILL_MODE_ALTERNATE
+                : D2D1_FILL_MODE.D2D1_FILL_MODE_WINDING);
+            float scale = size / BrandIconData.DesignSize * BrandIconData.CoordinateScale;
+            foreach (short[] contour in icon.Contours)
+            {
+                if (contour.Length < 6)
+                    continue;
+                sink->BeginFigure(
+                    Graphics.Point(x + contour[0] * scale, y + contour[1] * scale),
+                    D2D1_FIGURE_BEGIN.D2D1_FIGURE_BEGIN_FILLED);
+                for (int i = 2; i + 1 < contour.Length; i += 2)
+                    sink->AddLine(Graphics.Point(x + contour[i] * scale, y + contour[i + 1] * scale));
+                sink->EndFigure(D2D1_FIGURE_END.D2D1_FIGURE_END_CLOSED);
+            }
+            sink->Close();
+            target->FillGeometry((ID2D1Geometry*)geometry, Brush(ink), null);
+        }
+        finally
+        {
+            Graphics.Release(sink);
+            Graphics.Release(geometry);
+            Graphics.Release(factory);
         }
     }
 

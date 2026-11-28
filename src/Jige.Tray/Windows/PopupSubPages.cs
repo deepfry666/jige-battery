@@ -511,7 +511,7 @@ internal sealed partial class PopupScene
 
         if (hoverRow == index)
             canvas.Fill(5, y, 334, PanelLayout.DeviceRowHeight, 6, colors.Hover);
-        DeviceIcon(canvas, device.Device.Kind, 17, y + 11.125f, 32, Dim(colors.Chip), Dim(colors.Secondary));
+        DeviceIcon(canvas, device.Device, 17, y + 11.125f, 32, Dim(colors.Chip), Dim(colors.Ink));
         bool removable = model.CanRemove(id);
         var name = new HitBox(new PopupTarget(PopupAction.Rename, DeviceId: id),
             new(55, y + 7, removable ? 149 : 192, 22.25f));

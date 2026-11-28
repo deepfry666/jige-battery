@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="zh-CN" data-guides="off" data-tile="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>几格 · 外设品牌官方 logo 统一单色重绘方案（v2 忠实还原版）</title>
+<style>
+  :root {
+    --accent-ink: #d45226;
+    --guide-grid: rgba(0, 95, 184, 0.30);
+    --guide-safe: rgba(212, 82, 38, 0.58);
+    --tile-bg: #f0f0f0;
+    --tile-ink: #1b1b1b;
+    --tile-border: rgba(0, 0, 0, 0.08);
+    --font-num: "Segoe UI Variable Display", "SF Pro Display", "Segoe UI", var(--font-sans, system-ui), sans-serif;
+  }
+
+  :root[data-tile="dark"] {
+    --accent-ink: #ff7a4d;
+    --tile-bg: #333333;
+    --tile-ink: #f3f3f3;
+    --tile-border: rgba(255, 255, 255, 0.10);
+    --guide-grid: rgba(96, 205, 255, 0.34);
+    --guide-safe: rgba(255, 122, 77, 0.68);
+  }
+
+  * { box-sizing: border-box; }
+  :root { --background:#f4f1ea; --foreground:#191715; --muted-foreground:#5d5850; --card:#fbf9f5; --secondary:#ece7dd; --border:rgba(25,23,21,0.12); --primary:#d45226; --radius:10px; }
+  @media (prefers-color-scheme: dark) { :root { --background:#141413; --foreground:#f3f1ec; --muted-foreground:#a8a49c; --card:#1d1d1b; --secondary:#262523; --border:rgba(255,255,255,0.12); --primary:#ff7a4d; } }
+  html, body { margin: 0; padding: 0; background: var(--background); }
+  body {
+    font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--foreground, #191715);
+    font-feature-settings: "tnum";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; width: 100%; display: flex; flex-direction: column; gap: 14px; }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .tabs {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    padding: 3px;
+    background: var(--secondary, rgba(128,128,128,0.12));
+    border: 1px solid var(--border, rgba(128,128,128,0.22));
+    border-radius: var(--radius, 8px);
+    max-width: 100%;
+  }
+  .tabs button {
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground, #6b6b6b);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 10px;
+    border-radius: calc(var(--radius, 8px) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .tabs button[aria-selected="true"] {
+    background: var(--card, #fff);
+    color: var(--foreground, #111);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+  }
+
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .seg {
+    display: inline-flex;
+    gap: 2px;
+    padding: 2px;
+    background: var(--secondary, rgba(128,128,128,0.12));
+    border: 1px solid var(--border, rgba(128,128,128,0.22));
+    border-radius: var(--radius, 8px);
+  }
+  .seg button {
+    border: 0;
+    background: transparent;
+    color: var(--muted-foreground, #6b6b6b);
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 4px 8px;
+    border-radius: calc(var(--radius, 8px) - 2px);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .seg button[aria-pressed="true"] {
+    background: var(--card, #fff);
+    color: var(--foreground, #111);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+  }
+  .chip-btn {
+    border: 1px solid var(--border, rgba(128,128,128,0.22));
+    background: var(--card, transparent);
+    color: var(--muted-foreground, #6b6b6b);
+    font: inherit;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 5px 9px;
+    border-radius: var(--radius, 8px);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .chip-btn[aria-pressed="true"] {
+    border-color: var(--primary, #0070f3);
+    color: var(--foreground, #111);
+    background: var(--secondary, rgba(128,128,128,0.14));
+  }
+
+  .tab-panel { display: none; flex-direction: column; gap: 12px; }
+  .tab-panel.active { display: flex; }
+
+  .filter-bar { display: flex; flex-wrap: wrap; gap: 5px; }
+  .filter-btn {
+    border: 1px solid var(--border, rgba(128,128,128,0.22));
+    background: transparent;
+    color: var(--muted-foreground, #6b6b6b);
+    font: inherit;
+    font-size: 11.5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .filter-btn[aria-pressed="true"] {
+    background: var(--foreground, #111);
+    color: var(--background, #fff);
+    border-color: var(--foreground, #111);
+  }
+
+  .inspector {
+    display: none;
+    background: var(--card, rgba(128,128,128,0.08));
+    border: 1px solid var(--border, rgba(128,128,128,0.22));
+    border-radius: var(--radius, 10px);
+    padding: 16px;
+    gap: 12px;
+    flex-direction: column;
+  }
+  .inspector.open { display: flex; }
+  .insp-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .insp-title { font-size: 14px; font-weight: 600; color: var(--foreground); }
+  .insp-title span { font-weight: 400; color: var(--muted-foreground); margin-left: 6px; font-size: 12px; }
+  .insp-close {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted-foreground);
+    border-radius: 6px;
+    padding: 2px 8px;
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    flex: none;
+  }
+  .insp-stages { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .insp-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 10px;
+    border-radius: var(--radius, 8px);
+    border: 1px solid var(--border);
+  }
+  .insp-box.is-light { background: #f9f9f9; color: #444; --tile-bg: #f0f0f0; --tile-ink: #1b1b1b; --tile-border: rgba(0,0,0,0.06); }
+  .insp-box.is-dark { background: #2b2b2b; color: #ccc; --tile-bg: #333333; --tile-ink: #f3f3f3; --tile-border: rgba(255,255,255,0.08); }
+  .insp-box .stage-pair { display: flex; align-items: flex-end; gap: 8px; }
+  .insp-box .sz-96 svg { width: 88px; height: 88px; display: block; }
+  .insp-box .sz-36 svg { width: 36px; height: 36px; display: block; }
+  .insp-box .sz-32 svg { width: 32px; height: 32px; display: block; }
+  .insp-box small { font-size: 10.5px; font-family: var(--font-mono, monospace); opacity: 0.8; }
+  .insp-meta { font-size: 12px; color: var(--muted-foreground); line-height: 1.55; }
+  .insp-meta strong { color: var(--foreground); }
+  .insp-meta a { color: var(--primary, #3b82f6); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 11.5px; }
+
+  .hint-line { font-size: 11.5px; color: var(--muted-foreground); }
+
+  .grid-icons {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+  }
+  @media (max-width: 620px) { .grid-icons { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+  @media (max-width: 440px) { .grid-icons { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; } }
+
+  .brand-card {
+    background: var(--card, rgba(128,128,128,0.07));
+    border: 1px solid var(--border, rgba(128,128,128,0.2));
+    border-radius: var(--radius, 10px);
+    padding: 10px 6px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .12s;
+  }
+  .brand-card:hover, .brand-card.selected { border-color: var(--primary, #3b82f6); }
+  .icon-stage {
+    width: 68px;
+    height: 68px;
+    position: relative;
+    display: grid;
+    place-items: center;
+    margin-bottom: 6px;
+  }
+  @media (max-width: 440px) { .icon-stage { width: 60px; height: 60px; } }
+  .icon-stage .brand-svg { width: 100%; height: 100%; display: block; }
+  .guide-overlay { position: absolute; inset: 0; pointer-events: none; display: none; }
+  :root[data-guides="on"] .guide-overlay { display: block; }
+
+  .brand-name {
+    font-size: 11.5px; font-weight: 600; color: var(--foreground); line-height: 1.25;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .brand-cn {
+    font-size: 10.5px; color: var(--muted-foreground); line-height: 1.25; margin-top: 1px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mini-tag {
+    margin-top: 4px; font-size: 9.5px; padding: 1px 5px; border-radius: 4px;
+    background: var(--secondary, rgba(128,128,128,0.14)); color: var(--muted-foreground); line-height: 1.4;
+  }
+
+  /* 实际尺寸 32/36px */
+  .actual-tray { border-radius: var(--radius, 10px); padding: 16px; border: 1px solid var(--border); }
+  .actual-tray.light-tray { background: #f9f9f9; color: #1b1b1b; border-color: rgba(0,0,0,0.12); --tile-bg: #f0f0f0; --tile-ink: #1b1b1b; --tile-border: rgba(0,0,0,0.05); }
+  .actual-tray.dark-tray { background: #2b2b2b; color: #f3f3f3; border-color: rgba(255,255,255,0.12); --tile-bg: #333333; --tile-ink: #f3f3f3; --tile-border: rgba(255,255,255,0.07); }
+  .tray-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 10px; margin-bottom: 10px; font-size: 12px; font-weight: 600; }
+  .tray-head code { font-family: var(--font-mono, monospace); font-size: 10.5px; font-weight: 400; opacity: 0.72; }
+  .size-row-label { font-size: 11px; font-family: var(--font-mono, monospace); opacity: 0.68; margin: 10px 0 6px; }
+  .size-row-label:first-of-type { margin-top: 0; }
+  .actual-strip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .actual-item svg { display: block; }
+  .actual-item.s32 svg { width: 32px; height: 32px; }
+  .actual-item.s36 svg { width: 36px; height: 36px; }
+
+  /* 面板实景 */
+  .panel-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+  .panel-bar h3 { margin: 0; font-size: 13px; font-weight: 600; }
+  .panel-stage { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  @media (max-width: 680px) { .panel-stage { grid-template-columns: 1fr; } }
+  .desktop-backdrop { border-radius: var(--radius, 10px); padding: 16px 10px; display: flex; flex-direction: column; align-items: center; gap: 10px; border: 1px solid var(--border); }
+  .desktop-backdrop.bd-light { background: radial-gradient(120% 90% at 85% 110%, #f6e7d8, transparent 60%), radial-gradient(90% 80% at 10% 10%, #b4c9ef, transparent 65%), radial-gradient(80% 90% at 75% 20%, #e9d5f2, transparent 70%), #c6d6f0; }
+  .desktop-backdrop.bd-dark { background: radial-gradient(120% 90% at 85% 110%, #442f22, transparent 60%), radial-gradient(90% 80% at 10% 10%, #1c2a4d, transparent 65%), radial-gradient(80% 90% at 75% 20%, #372245, transparent 70%), #182035; }
+  .bd-caption { font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+  .bd-light .bd-caption { background: rgba(255,255,255,0.75); color: #1b1b1b; }
+  .bd-dark .bd-caption { background: rgba(25,25,25,0.68); color: #f3f3f3; }
+
+  .flyout { width: 100%; max-width: 344px; border-radius: 8px; font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif; overflow: hidden; }
+  .flyout.f-light { --p-ink:#1b1b1b;--p-sec:#5e5e5e;--p-muted:#6b6b6b;--p-flyout:rgba(249,249,249,0.92);--p-border:rgba(0,0,0,0.10);--p-layer:rgba(255,255,255,0.76);--p-layer-s:rgba(0,0,0,0.06);--p-chip:#f0f0f0;--p-accent:#005fb8;--p-accent-soft:rgba(0,95,184,0.12);--p-low:#c42b1c;--p-chg:#0f7b0f;--p-empty:rgba(0,0,0,0.09);--tile-bg:#f0f0f0;--tile-ink:#1b1b1b;--tile-border:transparent; background:var(--p-flyout);color:var(--p-ink);border:1px solid var(--p-border);box-shadow:0 12px 28px rgba(0,0,0,0.16); }
+  .flyout.f-dark { --p-ink:#f3f3f3;--p-sec:#c5c5c5;--p-muted:#a0a0a0;--p-flyout:rgba(40,40,40,0.94);--p-border:rgba(255,255,255,0.09);--p-layer:rgba(255,255,255,0.055);--p-layer-s:rgba(255,255,255,0.065);--p-chip:#333333;--p-accent:#60cdff;--p-accent-soft:rgba(96,205,255,0.14);--p-low:#ff99a4;--p-chg:#6ccb5f;--p-empty:rgba(255,255,255,0.12);--tile-bg:#333333;--tile-ink:#f3f3f3;--tile-border:transparent; background:var(--p-flyout);color:var(--p-ink);border:1px solid var(--p-border);box-shadow:0 14px 32px rgba(0,0,0,0.45); }
+  .fo-head { height:46px;padding:0 10px 0 13px;display:flex;align-items:center;gap:7px; }
+  .fo-brand-ico { width:18px;height:18px;border-radius:5px;background:#f6f3ee;border:1px solid rgba(0,0,0,0.10);display:grid;place-items:center;flex:none; }
+  .fo-title { font-size:13px;font-weight:600; }
+  .fo-time { margin-left:auto;font-size:11px;color:var(--p-muted);margin-right:2px; }
+  .fo-iconbtn { width:26px;height:26px;display:grid;place-items:center;color:var(--p-sec); }
+  .fo-hero { margin:0 8px 6px;padding:12px 13px 10px;border-radius:7px;background:var(--p-layer);border:1px solid var(--p-layer-s);display:flex;flex-direction:column;gap:10px; }
+  .fo-hero-top { display:flex;align-items:center;gap:9px;min-width:0; }
+  .fo-hero-tile { width:36px;height:36px;flex:none; }
+  .fo-hero-tile svg { width:36px;height:36px;display:block; }
+  .fo-hero-name { font-size:13px;font-weight:600;color:var(--p-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .fo-conn { font-size:10px;font-weight:600;line-height:16px;height:16px;padding:0 5px;border-radius:4px;background:var(--p-chip);color:var(--p-sec);flex:none; }
+  .fo-hero-mid { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+  .fo-big { font-family:var(--font-num);font-size:38px;font-weight:600;line-height:1;letter-spacing:-0.02em;font-variant-numeric:tabular-nums; }
+  .fo-big small { font-size:16px;font-weight:600;margin-left:1px; }
+  .fo-cells10 { display:flex;gap:2.5px;align-items:center; }
+  .fo-cells10 i { display:block;width:10px;height:20px;border-radius:2.5px;background:var(--p-empty); }
+  .fo-hero-st { display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:16px; }
+  .fo-dot { width:6px;height:6px;border-radius:50%;flex:none; }
+  .fo-list { padding:0 4px 4px; }
+  .fo-row { height:46px;padding:0 10px;display:flex;align-items:center;gap:10px; }
+  .fo-row-tile { width:32px;height:32px;flex:none; }
+  .fo-row-tile svg { width:32px;height:32px;display:block; }
+  .fo-row-meta { flex:1;min-width:0; }
+  .fo-row-nm { font-size:12.5px;line-height:17px;color:var(--p-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .fo-row-st { font-size:11px;line-height:15px;color:var(--p-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+  .fo-cells5 { display:flex;gap:2.5px;align-items:center;flex:none; }
+  .fo-cells5 i { display:block;width:4.5px;height:13px;border-radius:1.5px;background:var(--p-empty); }
+  .fo-row-num { width:42px;text-align:right;font-family:var(--font-num);font-size:18px;font-weight:600;font-variant-numeric:tabular-nums;flex:none; }
+  .fo-row-num small { font-size:11px;font-weight:600;margin-left:1px; }
+  .fo-foot { height:34px;border-top:1px solid var(--p-border);padding:0 14px;display:flex;align-items:center;justify-content:flex-end;font-size:11.5px;color:var(--p-accent); }
+  .c-low { color:var(--p-low)!important; }
+  .c-chg { color:var(--p-chg)!important; }
+  .bg-low { background:var(--p-low)!important; }
+  .bg-chg { background:var(--p-chg)!important; }
+  .bg-chg-pulse { background:var(--p-chg)!important;opacity:0.48; }
+  .bg-ok { background:var(--p-accent)!important; }
+
+  /* 重绘规范 */
+  .spec-card { background: var(--card, rgba(128,128,128,0.07)); border: 1px solid var(--border); border-radius: var(--radius, 10px); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .blueprint-wrap { background: var(--secondary, rgba(128,128,128,0.10)); border: 1px solid var(--border); border-radius: var(--radius, 8px); padding: 10px; display: grid; place-items: center; }
+  .blueprint-wrap svg { width: 100%; max-width: 520px; height: auto; display: block; }
+  .spec-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  @media (max-width: 440px) { .spec-rules { grid-template-columns: 1fr; } }
+  .rule-box { background: var(--secondary, rgba(128,128,128,0.10)); border: 1px solid var(--border); border-radius: var(--radius, 8px); padding: 10px 12px; }
+  .rule-k { font-size: 10.5px; font-weight: 600; color: var(--muted-foreground); }
+  .rule-v { margin-top: 2px; font-size: 12.5px; font-weight: 600; color: var(--foreground); }
+  .rule-d { margin-top: 2px; font-size: 11.5px; color: var(--muted-foreground); line-height: 1.45; }
+  .keylines-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .keyline-item { background: var(--secondary, rgba(128,128,128,0.10)); border: 1px solid var(--border); border-radius: var(--radius, 8px); padding: 10px 6px 8px; text-align: center; }
+  .keyline-item svg { width: 52px; height: 52px; display: block; margin: 0 auto 5px; }
+  .keyline-item b { display: block; font-size: 11.5px; }
+  .keyline-item span { display: block; font-size: 10.5px; color: var(--muted-foreground); font-family: var(--font-mono, monospace); }
+
+  /* 出处列表 */
+  .scope-note { background: var(--card, rgba(128,128,128,0.07)); border: 1px solid var(--border); border-radius: var(--radius, 10px); padding: 12px 16px; font-size: 12px; color: var(--muted-foreground); line-height: 1.6; }
+  .scope-note strong { color: var(--foreground); }
+  .prov-list { display: flex; flex-direction: column; gap: 6px; }
+  .prov-item { background: var(--card, rgba(128,128,128,0.07)); border: 1px solid var(--border); border-radius: var(--radius, 10px); padding: 10px 12px; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; align-items: start; }
+  .prov-ico svg { width: 32px; height: 32px; display: block; }
+  .prov-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+  .prov-brand { font-weight: 600; font-size: 12.5px; color: var(--foreground); }
+  .prov-cn { font-size: 11.5px; color: var(--muted-foreground); }
+  .prov-type { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--secondary, rgba(128,128,128,0.14)); color: var(--muted-foreground); }
+  .prov-body { margin-top: 3px; font-size: 11.5px; color: var(--muted-foreground); line-height: 1.5; }
+  .prov-body strong { color: var(--foreground); font-weight: 500; }
+  .prov-body a { color: var(--primary, #3b82f6); text-decoration: none; font-family: var(--font-mono, monospace); font-size: 11px; word-break: break-all; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar">
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" data-tab="icons" aria-selected="true">全部图标 (38)</button>
+      <button type="button" role="tab" data-tab="actual" aria-selected="false">32/36px 与面板</button>
+      <button type="button" role="tab" data-tab="spec" aria-selected="false">重绘规范</button>
+      <button type="button" role="tab" data-tab="prov" aria-selected="false">出处表</button>
+    </div>
+
+    <div class="controls">
+      <div class="seg" role="group" aria-label="底块明暗">
+        <button type="button" data-set-tile="light" aria-pressed="false">亮底</button>
+        <button type="button" data-set-tile="dark" aria-pressed="false">暗底</button>
+      </div>
+      <button type="button" class="chip-btn" id="btnGuides" aria-pressed="false">辅助网格</button>
+    </div>
+  </div>
+
+  <!-- Tab 1: 全部图标 -->
+  <div class="tab-panel active" id="tab-icons">
+    <div class="filter-bar" id="filterBar">
+      <button type="button" class="filter-btn" data-filter="all" aria-pressed="true">全部 38</button>
+      <button type="button" class="filter-btn" data-filter="graphic" aria-pressed="false">官方图形标 27</button>
+      <button type="button" class="filter-btn" data-filter="wordmark" aria-pressed="false">官方字标 9</button>
+      <button type="button" class="filter-btn" data-filter="fallback" aria-pressed="false">系统兜底 2</button>
+    </div>
+
+    <div class="inspector" id="inspector"></div>
+    <div class="hint-line">全部基于各品牌官网真实 SVG / 高清原图归一重绘，零虚构变形。点任意图标可放大对照亮/暗底与 32px 实寸。</div>
+    <div class="grid-icons" id="grid4x"></div>
+  </div>
+
+  <!-- Tab 2: 实际尺寸与面板 -->
+  <div class="tab-panel" id="tab-actual">
+    <div class="actual-tray light-tray">
+      <div class="tray-head"><span>明亮面板环境</span><code>#f9f9f9 · Chip #f0f0f0 · Ink #1b1b1b</code></div>
+      <div class="size-row-label">32 × 32px（列表行）</div>
+      <div class="actual-strip" id="actualLight32"></div>
+      <div class="size-row-label">36 × 36px（顶部卡片）</div>
+      <div class="actual-strip" id="actualLight36"></div>
+    </div>
+
+    <div class="actual-tray dark-tray">
+      <div class="tray-head"><span>深色面板环境</span><code>#2b2b2b · Chip #333333 · Ink #f3f3f3</code></div>
+      <div class="size-row-label">32 × 32px（列表行）</div>
+      <div class="actual-strip" id="actualDark32"></div>
+      <div class="size-row-label">36 × 36px（顶部卡片）</div>
+      <div class="actual-strip" id="actualDark36"></div>
+    </div>
+
+    <div class="panel-bar">
+      <h3>主面板实景模拟</h3>
+      <div class="seg" role="group" aria-label="面板图标模式">
+        <button type="button" data-panel-mode="brand" aria-pressed="true">品牌图标</button>
+        <button type="button" data-panel-mode="legacy" aria-pressed="false">现有设备图标</button>
+      </div>
+    </div>
+    <div class="panel-stage" id="panelStage"></div>
+  </div>
+
+  <!-- Tab 3: 重绘规范 -->
+  <div class="tab-panel" id="tab-spec">
+    <div class="spec-card">
+      <div class="blueprint-wrap"><svg viewBox="0 0 480 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="32px 底块、24px 网格、18px 安全区与笔画留白标注图">
+          <!-- 左侧放大底块（1px = 5.5 单位，32px = 176 单位，起点 x=46, y=42） -->
+          <rect x="46" y="42" width="176" height="176" rx="44" fill="var(--tile-bg)" stroke="var(--border)" stroke-width="1"/>
+          <!-- 24px 图标网格 (4..28 -> x=68..200, y=64..196) -->
+          <rect x="68" y="64" width="132" height="132" fill="none" stroke="var(--guide-grid)" stroke-width="1.2" stroke-dasharray="4 3"/>
+          <!-- 18px 安全区 (7..25 -> x=84.5..183.5, y=80.5..179.5) -->
+          <rect x="84.5" y="80.5" width="99" height="99" fill="none" stroke="var(--guide-safe)" stroke-width="1.3" stroke-dasharray="3 2.5"/>
+          <!-- 十字中心线 -->
+          <line x1="134" y1="54" x2="134" y2="206" stroke="var(--border)" stroke-width="0.9"/>
+          <line x1="58" y1="130" x2="210" y2="130" stroke="var(--border)" stroke-width="0.9"/>
+          <!-- 示例图形：官方 Corsair 三帆（5.5x 映射） --><g transform="translate(46 42) scale(5.5)" style="color:var(--tile-ink)"><g fill="currentColor" transform="translate(16 16) scale(0.8543) translate(-12.000 -12.000)"><path d="M13.073.411s1.912 3.883 1.56 5.5c0 0 4.988 1.615 5.543 4.275 0 0 2.731-3.595-7.103-9.775m-1.922 5.825c.487 1.021.707 2.118.994 3.264L9.301 8.42c.264-1.726-1.416-4.354-1.416-4.354zM6.107 8.91c.314.83.672 1.87.862 2.768l-2.564-.638c.263-1.726-1.362-3.813-1.362-3.813zm5.585-4.15s11.436 8.031 12.19 11.147c.568 2.344-1.085 4.51-1.085 4.51s-.881-6.12-22.796 3.172c2.218-2.475 3.426-5.635 3.107-9.045a11.5 11.5 0 0 0-1.076-3.93l5.136 2.722.02.244c.195 2.085.043 4.112-.428 5.99a14.1 14.1 0 0 0 1.306-7.348A14.1 14.1 0 0 0 6.907 7.76l5.49 3.657c.023.182.035.366.052.55.216 2.307.001 4.545-.592 6.587 1.291-2.393 1.925-5.155 1.655-8.04a14.1 14.1 0 0 0-1.82-5.753"/></g></g>
+
+          <!-- 尺寸标注：顶 32px -->
+          <line x1="46" y1="24" x2="222" y2="24" stroke="var(--muted-foreground)" stroke-width="1"/>
+          <line x1="46" y1="19" x2="46" y2="36" stroke="var(--muted-foreground)" stroke-width="1"/>
+          <line x1="222" y1="19" x2="222" y2="36" stroke="var(--muted-foreground)" stroke-width="1"/>
+          <text x="134" y="18" text-anchor="middle" font-size="11" font-family="var(--font-mono)" fill="var(--foreground)">32 × 32px 底块（rx = 8px）</text>
+
+          <!-- 尺寸标注：左 24px 网格 -->
+          <line x1="26" y1="64" x2="26" y2="196" stroke="var(--guide-grid)" stroke-width="1.2"/>
+          <line x1="21" y1="64" x2="64" y2="64" stroke="var(--guide-grid)" stroke-width="0.9" stroke-dasharray="2 2"/>
+          <line x1="21" y1="196" x2="64" y2="196" stroke="var(--guide-grid)" stroke-width="0.9" stroke-dasharray="2 2"/>
+          <text x="18" y="134" text-anchor="middle" font-size="10.5" font-family="var(--font-mono)" fill="var(--muted-foreground)" transform="rotate(-90 18 134)">24px 网格</text>
+
+          <!-- 尺寸标注：底 18px 安全区 -->
+          <line x1="84.5" y1="234" x2="183.5" y2="234" stroke="var(--guide-safe)" stroke-width="1.2"/>
+          <line x1="84.5" y1="184" x2="84.5" y2="239" stroke="var(--guide-safe)" stroke-width="0.9" stroke-dasharray="2 2"/>
+          <line x1="183.5" y1="184" x2="183.5" y2="239" stroke="var(--guide-safe)" stroke-width="0.9" stroke-dasharray="2 2"/>
+          <text x="134" y="250" text-anchor="middle" font-size="11" font-family="var(--font-mono)" fill="var(--accent-ink)">19–25px 光学安全区</text>
+
+          <!-- 右侧引出标注线 -->
+          <g font-size="11.5" fill="var(--foreground)">
+            <!-- 圆角标注 -->
+            <line x1="208" y1="54" x2="254" y2="54" stroke="var(--border)" stroke-width="1"/>
+            <circle cx="208" cy="54" r="2.5" fill="var(--muted-foreground)"/>
+            <text x="262" y="51" font-weight="600">底块圆角 rx = 8px</text>
+            <text x="262" y="66" font-size="10.5" fill="var(--muted-foreground)">36px 顶部卡片等比放大（rx = 9px）</text>
+
+            <!-- 最小笔画 -->
+            <line x1="168" y1="108" x2="254" y2="108" stroke="var(--border)" stroke-width="1"/>
+            <circle cx="168" cy="108" r="2.5" fill="var(--accent-ink)"/>
+            <text x="262" y="105" font-weight="600">忠实还原官方轮廓</text>
+            <text x="262" y="120" font-size="10.5" fill="var(--muted-foreground)">矢量直取或高清官方图精描，不改原比例</text>
+
+            <!-- 内留白 -->
+            <line x1="158" y1="156" x2="254" y2="156" stroke="var(--border)" stroke-width="1"/>
+            <circle cx="158" cy="156" r="2.5" fill="var(--accent-ink)"/>
+            <text x="262" y="153" font-weight="600">统一视觉重心与单色</text>
+            <text x="262" y="168" font-size="10.5" fill="var(--muted-foreground)">方标 19–21px · 宽字标 23–25px 光学对齐</text>
+
+            <!-- 微圆角与单色 -->
+            <line x1="176" y1="173" x2="226" y2="204" stroke="var(--border)" stroke-width="1"/>
+            <line x1="226" y1="204" x2="254" y2="204" stroke="var(--border)" stroke-width="1"/>
+            <circle cx="176" cy="173" r="2.5" fill="var(--muted-foreground)"/>
+            <text x="262" y="201" font-weight="600">真镂空 · 单色 Ink</text>
+            <text x="262" y="216" font-size="10.5" fill="var(--muted-foreground)">亮 #1b1b1b / 暗 #f3f3f3，支持强调色底块</text>
+          </g>
+        </svg></div>
+      <div class="spec-rules">
+        <div class="rule-box">
+          <div class="rule-k">品牌忠实度原则</div>
+          <div class="rule-v">基于真实官方 logo，不改形态</div>
+          <div class="rule-d">全部从官网矢量 SVG 或官方高清图精确提取轮廓，杜绝凭印象简化变形。</div>
+        </div>
+        <div class="rule-box">
+          <div class="rule-k">统一风格手段</div>
+          <div class="rule-v">统一底块 + 单色墨水 + 光学对齐</div>
+          <div class="rule-d">32×32 rx=8 统一底块、亮 <code>#1b1b1b</code> / 暗 <code>#f3f3f3</code> 单色、按形体分配光学面积。</div>
+        </div>
+        <div class="rule-box">
+          <div class="rule-k">图形+文字品牌</div>
+          <div class="rule-v">只取官方图形标</div>
+          <div class="rule-d">如 ATK 闪电翼、AJAZZ 斜 A、Delux 闪电、Inphic「in」、Cougar 狮头、Endgame Gear 几何标。</div>
+        </div>
+        <div class="rule-box">
+          <div class="rule-k">纯文字标品牌</div>
+          <div class="rule-v">保留完整官方字标</div>
+          <div class="rule-d">如 logi、SONY、astro、VGN、Scyrox、LAMZU、rΛpoo、incott、VXE，不做生硬截断。</div>
+        </div>
+      </div>
+      <div class="keylines-row">
+  <div class="keyline-item">
+    <svg viewBox="0 0 32 32" style="color:var(--tile-ink)">
+      <rect width="32" height="32" rx="8" fill="var(--tile-bg)"/>
+      <circle cx="16" cy="16" r="10.2" fill="none" stroke="var(--guide-safe)" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+      <g fill="currentColor" transform="translate(16 16) scale(0.8333) translate(-12.000 -12.000)"><path d="M14.08008 0c-1.00234 0-1.8125.80893-1.8125 1.8086v2.57226c-4.01871.7444-7.19505 3.9119-7.93946 7.91992H1.8125c-1.001 0-1.8125.80698-1.8125 1.80664 0 .99833.8115 1.8086 1.8125 1.8086h2.51563C5.18077 20.5094 9.22875 24 14.08008 24 19.54884 24 24 19.56148 24 14.10742c0-4.83662-3.50067-8.87524-8.10742-9.72656V1.80859C15.89258.80893 15.08108 0 14.08008 0ZM4.69336 3.17578c-1.00368 0-1.8164.80955-1.8164 1.81055 0 .99966.81272 1.8125 1.8164 1.8125 1.001 0 1.8164-.81284 1.8164-1.8125 0-1.001-.8154-1.81055-1.8164-1.81055zm9.38672 4.65625c3.46809 0 6.29297 2.81398 6.29297 6.2754 0 3.46006-2.82488 6.27734-6.29297 6.27734-3.46943 0-6.29297-2.81728-6.29297-6.27735 0-3.4614 2.82354-6.27539 6.29297-6.27539zm-.01758 2.4043c-2.14634 0-3.89258 1.73986-3.89258 3.88086S11.91616 18 14.0625 18c2.14634 0 3.89258-1.74182 3.89258-3.88281 0-2.141-1.74624-3.88086-3.89258-3.88086zm0 2.7168c.6455 0 1.16797.51989 1.16797 1.16406 0 .64283-.52246 1.16797-1.16797 1.16797-.64417 0-1.16992-.52514-1.16992-1.16797 0-.64417.52575-1.16407 1.16992-1.16407z"/></g>
+    </svg>
+    <b>圆形 / 有机类</b>
+    <span>Ø ≈ 20–22.5px</span>
+  </div>
+  <div class="keyline-item">
+    <svg viewBox="0 0 32 32" style="color:var(--tile-ink)">
+      <rect width="32" height="32" rx="8" fill="var(--tile-bg)"/>
+      <rect x="6.5" y="6.5" width="19" height="19" rx="1" fill="none" stroke="var(--guide-safe)" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+      <g fill="currentColor" transform="translate(16 16) scale(0.1220) translate(-77.856 -77.856)"><path d="M0.3,135.4l54.3-48.8c0.3-0.3,0.9-0.3,1.2,0l13.3,13.3c0.3,0.3,0.3,0.9,0,1.2l-48.8,54.3
+				c-0.3,0.4-0.9,0.4-1.3,0L0.3,136.7C-0.1,136.3-0.1,135.7,0.3,135.4L0.3,135.4z"/><path d="M135.4,155.4l-48.8-54.3c-0.3-0.3-0.3-0.9,0-1.2l13.3-13.3c0.3-0.3,0.9-0.3,1.2,0l54.3,48.8
+				c0.4,0.3,0.4,0.9,0,1.3l-18.8,18.8C136.3,155.8,135.7,155.8,135.4,155.4L135.4,155.4z"/><path d="M155.4,20.4l-54.3,48.8c-0.3,0.3-0.9,0.3-1.2,0L86.6,55.8c-0.3-0.3-0.3-0.9,0-1.2l48.8-54.3
+				c0.3-0.4,0.9-0.4,1.3,0l18.8,18.8C155.8,19.4,155.8,20,155.4,20.4z"/><path d="M20.4,0.3l48.8,54.3c0.3,0.3,0.3,0.9,0,1.2L55.8,69.1c-0.3,0.3-0.9,0.3-1.2,0L0.3,20.4
+				c-0.4-0.3-0.4-0.9,0-1.3L19,0.3C19.4-0.1,20-0.1,20.4,0.3L20.4,0.3z"/></g>
+    </svg>
+    <b>方形 / 紧凑类</b>
+    <span>≈ 19–20px</span>
+  </div>
+  <div class="keyline-item">
+    <svg viewBox="0 0 32 32" style="color:var(--tile-ink)">
+      <rect width="32" height="32" rx="8" fill="var(--tile-bg)"/>
+      <rect x="4.5" y="8" width="23" height="16" rx="1" fill="none" stroke="var(--guide-safe)" stroke-width="0.8" stroke-dasharray="2 1.5"/>
+      <g fill="currentColor" transform="translate(16 16) scale(0.9583) translate(-12.000 -11.999)"><path d="M24 5.098a1.35 1.35 0 0 1-1.35 1.35 1.35 1.35 0 0 1-1.352-1.35 1.35 1.35 0 0 1 1.351-1.351A1.35 1.35 0 0 1 24 5.097zM16.549 18.31a2.289 2.289 0 0 1-2.322-2.322H12.2c0 2.449 1.9 4.264 4.306 4.264s4.348-1.857 4.348-4.264H18.87c-.043 1.351-1.056 2.322-2.322 2.322zm5.108-2.828h1.984V7.377h-1.984zM0 15.483h1.984V4H0v11.483zm7.135-8.359c-2.449 0-4.307 1.858-4.307 4.264a4.27 4.27 0 0 0 4.307 4.306c2.406 0 4.306-1.858 4.306-4.264S9.583 7.124 7.135 7.124zm0 6.628c-1.31 0-2.322-1.013-2.322-2.364a2.289 2.289 0 0 1 2.322-2.322 2.289 2.289 0 0 1 2.321 2.322c0 1.309-.97 2.364-2.321 2.364zm13.635-4.77V7.377h-2.828c-.464-.21-.929-.253-1.393-.253-2.449 0-4.348 1.858-4.348 4.306 0 2.449 1.9 4.264 4.306 4.264s4.306-1.858 4.306-4.264c0-.844-.254-1.604-.676-2.195zm-4.221 4.77c-1.309 0-2.322-1.013-2.322-2.364a2.289 2.289 0 0 1 2.322-2.322 2.289 2.289 0 0 1 2.322 2.322c0 1.309-1.056 2.364-2.322 2.364Z"/></g>
+    </svg>
+    <b>横宽 / 字标类</b>
+    <span>W ≈ 23–25.5px</span>
+  </div>
+</div>
+    </div>
+  </div>
+
+  <!-- Tab 4: 出处表 -->
+  <div class="tab-panel" id="tab-prov">
+    <div class="scope-note">
+      <strong>覆盖核对：</strong>完整覆盖 <code>README.md</code> 与 <code>docs/devices.md</code> 全部外设品牌（35 个品牌，另附 <strong>Logitech G</strong> 区分游戏线；华硕天选 TX 归入 <strong>ASUS TUF</strong>），加 <strong>Windows 蓝牙</strong> 与 <strong>未知品牌</strong> 2 个系统兜底，总计 <strong>38 枚</strong>。所有官方原图仅用于离线对照提取，零原图嵌入仓库。
+    </div>
+    <div class="prov-list" id="provList"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  const BRANDS = [{"id": "razer", "name": "Razer", "cn": "雷蛇", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.razer.com/", "sourceLabel": "razer.com / Simple Icons", "element": "官方三头蛇（THS）实心剪影", "brief": "官方三头蛇实心剪影", "note": "基于官方三头蛇矢量轮廓转为单色实心剪影并保留中心三重镂空，彻底消除空心细线与变形，32px 下依然一眼识别。", "solid": "<g fill=\"currentColor\" fill-rule=\"evenodd\" transform=\"translate(16 16) scale(0.9375) translate(-12.096 -12.000)\"><path d=\"M23.4 0a.385.385 0 00-.278.125L22.91.35l-.401.182a.711.711 0 00-.417 0 .305.305 0 01-.171 0 1.005 1.005 0 00-.567 0A.936.936 0 0021 .596a.877.877 0 00-.412.337l-.037.048a1.246 1.246 0 00-.898.684 1.07 1.07 0 00-.07.225 1.935 1.935 0 00-.337-.193 2.026 2.026 0 00-2.063.305 2.08 2.08 0 00-.69 2.139c.086.376.23.737.428 1.069.496.776 1.079 1.494 1.737 2.138.526.512.996 1.078 1.401 1.69l.053.096c.396.754.321 1.31-.219 1.647a1.358 1.358 0 01-.572.198 2.491 2.491 0 00-.144-2.07 2.342 2.342 0 00-.3-.406c-.79-.866-1.63-.674-1.962-.449a.385.385 0 00-.15.455l.027.058a.385.385 0 00.38.188 1.07 1.07 0 01.962.582c.23.384.23.862 0 1.246a4.812 4.812 0 01-.534-.535l-.07-.07-.037-.042a3.368 3.368 0 00-1.92-1.208 3.09 3.09 0 00-.406-1.455 4.368 4.368 0 00-1.358-1.48 2.673 2.673 0 00-.267-.16 3.085 3.085 0 00-2.251-2.717 2.7 2.7 0 00-2.968 1.139c-.053.086-.112.171-.165.267a12.26 12.26 0 00-1.038 2.78 11.64 11.64 0 01-.775 2.187l-.059.107c-.213.374-.406.583-.609.647a.406.406 0 01-.374-.064c-.203-.14-.155-.423 0-.973a3.33 3.33 0 00.128-.45c.07-.33-.005-.673-.203-.946a1.07 1.07 0 00-.786-.411c-.49-.018-.94.27-1.128.722l-.08.15a.968.968 0 00-.316-.46.936.936 0 00-.294-.129 1.016 1.016 0 00-.535-.198.342.342 0 01-.17-.053.711.711 0 00-.434-.097l-.326-.256-.144-.278c-.18-.35-.707-.238-.727.155a.385.385 0 00.032.727l.305.075.342.267c.026.14.093.268.192.37.043.04.072.092.086.149.058.184.167.347.315.47a.877.877 0 00.727.465h.06c.262.313.662.477 1.068.439a1.07 1.07 0 00.23-.054 1.935 1.935 0 000 .38 2.026 2.026 0 001.3 1.636 2.08 2.08 0 002.208-.481c.276-.26.51-.562.695-.893.422-.817.75-1.68.978-2.572.179-.711.433-1.401.76-2.058l.058-.096c.454-.722.973-.936 1.535-.637.18.096.338.231.46.396-.714.12-1.34.543-1.717 1.16-.084.146-.152.3-.203.46-.353 1.117.23 1.748.593 1.925.16.077.353.035.466-.102l.037-.053a.385.385 0 000-.423 1.07 1.07 0 010-1.128c.218-.384.627-.62 1.07-.615-.04.245-.1.486-.177.722l-.034.093a3.533 3.533 0 00-.084 2.324 3.09 3.09 0 00-1.07 1.07 4.368 4.368 0 00-.603 1.913 2.674 2.674 0 000 .31 3.085 3.085 0 00-1.23 3.31 2.7 2.7 0 002.47 2h.31a12.26 12.26 0 002.925-.493 11.64 11.64 0 012.283-.422h.117c.304-.037.61.035.866.203.102.09.152.224.134.358 0 .246-.289.348-.855.466a3.33 3.33 0 00-.45.117 1.192 1.192 0 00-.721.647 1.07 1.07 0 00.037.888c.229.435.704.683 1.193.62h.165a.968.968 0 00-.235.502.936.936 0 000 .364c-.019.183.013.368.091.535.03.054.045.115.043.176-.002.151.045.3.133.422l-.058.412-.166.262a.385.385 0 00.497.535c.287.265.74-.016.63-.39l-.085-.3.064-.433a.711.711 0 00.22-.353.305.305 0 01.085-.15c.131-.141.218-.318.252-.508a.936.936 0 00.122-.336.877.877 0 00-.085-.535v-.053c.134-.376.08-.794-.144-1.123a1.07 1.07 0 00-.16-.171c.115-.05.226-.11.33-.182a2.026 2.026 0 00.77-1.94 2.08 2.08 0 00-1.518-1.674 3.71 3.71 0 00-1.123-.155c-.919.043-1.83.19-2.716.438-.697.198-1.414.322-2.138.369h-.112c-.85-.032-1.294-.374-1.316-1.01-.007-.204.031-.407.113-.594.459.559 1.138.89 1.86.909.17 0 .338-.018.503-.054 1.144-.25 1.4-1.069 1.374-1.475a.385.385 0 00-.321-.353h-.064a.385.385 0 00-.353.235 1.07 1.07 0 01-.984.535 1.214 1.214 0 01-1.069-.631c.233-.088.473-.158.716-.209h.155a3.368 3.368 0 002.01-1.069c.449.243.95.372 1.46.374.679.01 1.35-.138 1.962-.433.094-.044.185-.094.273-.15a3.085 3.085 0 003.48-.587 2.7 2.7 0 00.498-3.139 6.884 6.884 0 00-.15-.273 12.259 12.259 0 00-1.887-2.288 11.64 11.64 0 01-1.508-1.764l-.064-.102a1.294 1.294 0 01-.257-.85.406.406 0 01.16-.267c.225-.107.444.08.83.508.1.118.21.228.326.331.25.225.584.334.92.3a1.07 1.07 0 00.748-.476c.263-.416.24-.951-.06-1.342l-.085-.145c.18.035.365.019.535-.048a.936.936 0 00.32-.197c.178-.076.33-.2.44-.359a.342.342 0 01.133-.123.711.711 0 00.3-.326l.384-.155h.31a.385.385 0 00.353-.577l-.005.01a.385.385 0 00-.118-.128A.385.385 0 0023.4 0z M13.1090 6.6580 c-.065.53-.348 1.647-.187 2.332.155.871.823.823 1.069.395.163-.332.2-.711.107-1.069a3.106 3.106 0 00-.984-1.636z M15.0920 10.1910 c-.517.012-.67.472-.47.82.207.31.521.534.882.63a3.106 3.106 0 001.908-.037c-.422-.32-1.25-1.123-1.903-1.342a1.255 1.255 0 00-.417-.07z M12.8950 10.7750 a1.54 1.54 0 00-.984.45 3.106 3.106 0 00-.936 1.673c.535-.203 1.604-.519 2.139-.973.663-.588.251-1.166-.22-1.15z\"/></g>"}, {"id": "asus-rog", "name": "ASUS ROG", "cn": "玩家国度", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://rog.asus.com/", "sourceLabel": "rog.asus.com / Simple Icons", "element": "官方败家之眼（Fearless Eye）", "brief": "官方败家之眼矢量", "note": "直接基于官方 ROG Fearless Eye 矢量轮廓归一至单色底块，完整保留锐利眼眶与内嵌 G 瞳孔比例。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.9375) translate(-12.000 -12.000)\"><path d=\"M21.3906 5.5833c-1.3467.0115-3.4338.19541-5.9375.97657-1.6024.49851-3.916 2.74203-8.22459 6.90823-.56973.3204-2.67017-.8912-3.88085-1.461 0 0 1.9929 3.1699 2.70507 4.0957 1.06825 1.46 3.02735 2.3145 3.02735 2.3145-.17804-.1781-1.53019-1.6029-1.92188-2.4219-.24926-.3917.03418-.9624 1.95703-2.3867C10.86 12.3268 17.0569 7.09358 23.0391 5.66924c0 0-.601-.09488-1.6485-.08593V5.5833ZM24 7.7708c-2.0653.21366-4.06.81878-5.9473 1.70899C14.2783 11.2602 7.9043 15.8177 7.9043 15.8177c.28486.178.5706.3556.85546.498 3.06234 1.3531 7.58484 2.1716 8.43944 1.8867 2.3858-.7833 5.056-5.8026 5.875-8.1172 0 0-2.4933.9968-5.0215 2.1719-2.1009.9971-4.414 2.1368-4.414 2.1368l5.875-1.7813s-1.5676 3.7036-3.6328 4.1309c-2.0653.4273-5.6973-1.0332-5.6973-1.0332.2849-.2493 4.1302-3.0629 13.1035-6.73051.3917-.28487.6417-.74608.7129-1.20898V7.7708ZM0 11.2942c.35608.9615.8194 1.8525 1.35352 2.7071.64094.819 3.27477 1.4952 3.63086 1.5664C3.34638 14.4282 0 11.2942 0 11.2942Z\"/></g>"}, {"id": "asus-tuf", "name": "ASUS TUF", "cn": "电竞特工 / 天选", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.asus.com/tuf-gaming/", "sourceLabel": "asus.com/tuf-gaming", "element": "官方 TUF 五瓣机甲翼盾（含天选 TX）", "brief": "官方 TUF 五瓣翼盾", "note": "提取自官方 TUF Gaming 标志上方五瓣机甲翼盾并去除文字；华硕天选 TX 属 TUF 国内系列，统一归入本标不再虚构字母。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M5.54 7.60L9.93 10.16L9.91 18.63L5.50 16.09Z M26.48 7.63L26.50 11.32L22.11 13.85L22.09 10.16Z M11.08 10.71L15.44 13.27L15.46 24.35L15.36 24.39L11.03 21.82Z M20.90 10.72L20.97 10.84L20.97 21.82L16.62 24.40L16.56 13.27Z M26.48 12.39L26.50 16.09L22.11 18.61L22.09 14.92Z\"/>"}, {"id": "gwolves", "name": "G-Wolves", "cn": "游狼", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://shop.g-wolves.com/", "sourceLabel": "g-wolves.com", "element": "官方倾斜菱角 G 徽标", "brief": "官方倾斜菱角 G 标", "note": "取自 shop.g-wolves.com 官方主标志上方倾斜菱角 G 徽标，完整还原原始倾角与切口比例。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M21.13 7.40L19.37 10.83L10.89 15.74L12.61 12.34L17.28 9.61L15.96 8.85L9.86 12.39L9.86 18.33L21.16 11.87L19.34 15.29L6.01 22.96L7.73 19.57L7.74 11.21L15.96 6.43L19.44 8.36Z M26.00 13.56L24.31 16.84L24.29 20.79L16.06 25.58L9.22 21.63L11.27 20.44L16.06 23.15L22.20 19.57L22.16 18.10L16.06 21.57L17.75 18.24L25.82 13.54Z\"/>"}, {"id": "logitech", "name": "Logitech", "cn": "罗技", "category": "wordmark", "officialType": "官方字标（矢量归一）", "sourceUrl": "https://www.logitech.com/", "sourceLabel": "logitech.com / Simple Icons", "element": "官方 logi 字标", "brief": "官方 logi 矢量字标", "note": "采用罗技官方 logi 矢量字标（含标志性微笑弧线 g 尾），兼顾 MX 办公键鼠与通用罗技无线设备。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.9583) translate(-12.000 -11.999)\"><path d=\"M24 5.098a1.35 1.35 0 0 1-1.35 1.35 1.35 1.35 0 0 1-1.352-1.35 1.35 1.35 0 0 1 1.351-1.351A1.35 1.35 0 0 1 24 5.097zM16.549 18.31a2.289 2.289 0 0 1-2.322-2.322H12.2c0 2.449 1.9 4.264 4.306 4.264s4.348-1.857 4.348-4.264H18.87c-.043 1.351-1.056 2.322-2.322 2.322zm5.108-2.828h1.984V7.377h-1.984zM0 15.483h1.984V4H0v11.483zm7.135-8.359c-2.449 0-4.307 1.858-4.307 4.264a4.27 4.27 0 0 0 4.307 4.306c2.406 0 4.306-1.858 4.306-4.264S9.583 7.124 7.135 7.124zm0 6.628c-1.31 0-2.322-1.013-2.322-2.364a2.289 2.289 0 0 1 2.322-2.322 2.289 2.289 0 0 1 2.321 2.322c0 1.309-.97 2.364-2.321 2.364zm13.635-4.77V7.377h-2.828c-.464-.21-.929-.253-1.393-.253-2.449 0-4.348 1.858-4.348 4.306 0 2.449 1.9 4.264 4.306 4.264s4.306-1.858 4.306-4.264c0-.844-.254-1.604-.676-2.195zm-4.221 4.77c-1.309 0-2.322-1.013-2.322-2.364a2.289 2.289 0 0 1 2.322-2.322 2.289 2.289 0 0 1 2.322 2.322c0 1.309-1.056 2.364-2.322 2.364Z\"/></g>"}, {"id": "logitech-g", "name": "Logitech G", "cn": "罗技 G", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.logitechg.com/", "sourceLabel": "logitechg.com / Wikimedia", "element": "官方 Logitech G 徽标", "brief": "官方罗技 G 徽标", "note": "罗技 G 游戏系列（G PRO X / G533 / G733 / LIGHTSPEED 鼠标）专属官方 G 标志，可按型号区分办公与游戏线。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.1167) translate(-83.516 -83.516)\"><path d=\"m 128.75863,143.48741 h 34.69195 V 68.460106 H 87.927649 V 102.72745 H 128.75863 Z M 87.459929,7.8840332e-5 C 41.220466,7.8840332e-5 3.5814188,37.277199 3.5814188,83.517342 c 0,46.239448 37.6390472,83.514578 83.8785102,83.514578 v -34.76691 c -27.242972,0 -48.752347,-22.2219 -48.752347,-48.747668 0,-27.244993 21.509375,-48.748333 48.752347,-48.748333 z\"/></g>"}, {"id": "astro", "name": "ASTRO", "cn": "ASTRO（罗技 G）", "category": "wordmark", "officialType": "官方字标（官方图精描）", "sourceUrl": "https://www.logitechg.com/", "sourceLabel": "logitechg.com / ASTRO", "element": "官方 astro 字标（含 a 内四角星芒）", "brief": "官方 astro 含星芒字标", "note": "精描自 ASTRO Gaming 官方字标，完整还原首字母 a 内的标志性四角星芒镂空与窄体字形。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M9.28 13.27L9.42 13.36L9.48 13.62L9.65 13.87L10.12 13.90L10.09 14.08L9.72 14.43L9.83 14.78L9.77 14.89L9.31 14.67L8.83 14.90L8.76 14.78L8.89 14.43L8.47 13.97L8.55 13.85L8.96 13.87Z M9.19 13.92L9.12 13.97L9.13 14.32L9.42 14.38L9.49 13.97Z M14.38 14.32L14.55 14.25L15.48 14.31L15.52 15.02L15.59 15.14L18.74 15.18L18.80 15.95L18.74 16.26L15.71 16.28L15.59 16.30L15.52 16.41L15.51 16.65L15.59 17.18L15.83 17.44L16.06 17.55L18.74 17.62L18.80 17.81L18.81 18.51L18.74 18.71L15.83 18.72L15.25 18.53L14.89 18.28L14.54 17.81L14.38 17.35Z M8.49 18.72L7.56 18.73L7.44 18.63L7.43 17.46L7.33 17.30L6.28 18.32L5.69 18.65L5.23 18.74L3.36 18.73L3.25 18.51L3.26 16.76L3.44 16.06L3.95 15.47L4.65 15.18L8.49 15.16L8.58 15.37L8.58 18.39Z M14.08 15.25L14.09 16.06L13.96 16.28L13.27 16.36L12.68 16.63L11.39 17.93L10.70 18.41L10.00 18.67L8.96 18.72L8.87 18.39L8.88 17.70L8.96 17.61L9.77 17.49L10.24 17.26L11.63 15.88L12.33 15.42L13.27 15.17L13.96 15.16Z M23.40 15.20L23.40 16.24L20.95 16.29L20.49 16.51L20.32 16.76L20.27 17.00L20.25 18.63L20.14 18.73L19.21 18.72L19.12 18.51L19.14 16.53L19.29 16.06L19.67 15.58L20.02 15.33L20.60 15.17Z M28.41 18.04L27.94 18.48L27.36 18.70L25.15 18.74L24.68 18.66L24.03 18.28L23.62 17.70L23.49 17.00L23.61 16.18L24.10 15.54L24.80 15.19L28.64 15.16L28.75 15.37L28.74 17.11L28.66 17.58Z M4.53 17.58L5.00 17.59L5.34 17.47L6.32 16.53L6.43 16.41L6.40 16.30L5.11 16.29L4.76 16.41L4.53 16.65L4.41 17.00L4.41 17.46Z M24.66 16.88L24.85 17.35L25.03 17.49L25.38 17.59L26.89 17.59L27.24 17.46L27.54 17.11L27.58 16.41L27.36 16.29L25.26 16.31L24.85 16.53Z\"/>"}, {"id": "sony-inzone", "name": "Sony INZONE", "cn": "索尼 INZONE", "category": "wordmark", "officialType": "官方字标（矢量归一）", "sourceUrl": "https://www.sony.com/", "sourceLabel": "sony.com / Simple Icons", "element": "官方 SONY 衬线字标", "brief": "官方 SONY 衬线字标", "note": "采用索尼官方 SONY 衬线矢量字标，替代此前脱离品牌的 Z/O 缩写，在 32px 下品牌辨识度明确。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(1.0417) translate(-12.000 -12.000)\"><path d=\"M8.5505 9.8881c.921 0 1.6574.2303 2.2209.7423.3848.3485.5999.8454.5939 1.3665a1.9081 1.9081 0 0 1-.5939 1.3726c-.5272.4848-1.3483.7423-2.221.7423-.8725 0-1.6785-.2575-2.2148-.7423-.3908-.3485-.609-.8484-.603-1.3726 0-.518.2182-1.015.603-1.3665.5-.4545 1.3847-.7423 2.2149-.7423zm.003 3.6692c.4606 0 .8878-.1606 1.1878-.4575.2999-.2999.4332-.6605.4332-1.1029 0-.4242-.1484-.821-.4333-1.1029-.2938-.2908-.7332-.4545-1.1877-.4545s-.8938.1637-1.1907.4545c-.2848.2818-.4333.6787-.4333 1.103-.006.409.1485.806.4333 1.1029.2969.2939.7332.4575 1.1907.4575zm-4.8418-1.9665c.1605.0424.315.094.4666.1636a1.352 1.352 0 0 1 .3787.2576c.197.206.309.4817.306.7665a.9643.9643 0 0 1-.3787.7788 2.0662 2.0662 0 0 1-.709.3485 3.7231 3.7231 0 0 1-1.1938.1697c-.352 0-.5467-.0406-.8138-.0962l-.077-.016c-.294-.0666-.5817-.1575-.8575-.2787a.0695.0695 0 0 0-.0424-.0121c-.0454 0-.0818.0394-.0818.0848v.203H.1212v-1.4786h.5242a.7559.7559 0 0 0 .1363.418c.2121.2607.4394.3607.6575.4395.3666.1212.7514.1848 1.1362.1969.5526 0 .8756-.134.9455-.163l.009-.0037.0062-.0023c.0616-.0226.3119-.1143.3119-.3916 0-.2743-.2338-.334-.387-.373l-.022-.0058c-.1708-.046-.562-.0872-.9897-.1323l-.1526-.016c-.4848-.0515-.9696-.1273-1.1968-.1758-.4977-.1097-.6942-.2917-.816-.4045l-.0082-.0076A1.0192 1.0192 0 0 1 0 11.1608c0-.497.3394-.797.7575-.9817.4454-.2.9756-.288 1.4392-.288.8211.0031 1.4877.2697 1.727.394.097.0515.1455-.0121.1455-.0606v-.1484h.5272v1.2876h-.4727a.9056.9056 0 0 0-.2939-.4909 1.289 1.289 0 0 0-.297-.1787c-.3968-.1667-.821-.2515-1.2513-.2455-.4423 0-.8665.085-1.0786.2153-.1333.0818-.2.1848-.2.306 0 .1727.1454.2424.2182.2636.1967.0597.6328.103.972.1369.0736.0073.1426.0142.2036.0206.3272.0334 1.012.1243 1.315.2zm18.1673-.9966v-.4787H24v.4696h-.4757c-.1727 0-.2424.0334-.3727.1788l-1.4271 1.63a.098.098 0 0 0-.0182.0698v.7423a1.106 1.106 0 0 0 .0121.103.1496.1496 0 0 0 .1.0909.9368.9368 0 0 0 .1303.009h.4848v.4698h-2.5724v-.4697h.4606a.9343.9343 0 0 0 .1302-.0091.1627.1627 0 0 0 .1031-.091.5626.5626 0 0 0 .009-.1v-.7422c0-.0242 0-.0242-.0333-.0636a606.7592 606.7592 0 0 0-1.4119-1.6028c-.0758-.0788-.2061-.2061-.406-.2061h-.4576v-.4696h2.5876v.4696h-.3121c-.0697 0-.1182.0697-.0576.1455 0 0 .8696 1.0392.8787 1.0513.0091.0122.0152.0122.0273.003.0121-.009.8938-1.0453.8999-1.0543a.0912.0912 0 0 0-.0182-.1273.1095.1095 0 0 0-.0606-.0182zm-6.284-.0031h.4848c.2212 0 .2606.0848.2636.2909l.0273 1.5664-2.5815-2.324H11.944v.4697h.412c.297 0 .3182.1636.3182.309v2.2138c.0004.1285.0009.295-.1818.295h-.506v.4667h2.1634v-.4697h-.5273c-.212 0-.2211-.097-.2242-.303v-1.8816l2.9724 2.6511h.7575l-.0394-2.9966c.003-.218.0182-.2908.2424-.2908h.4726v-.4697H15.595Z\"/></g>"}, {"id": "steelseries", "name": "SteelSeries", "cn": "赛睿", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://steelseries.com/", "sourceLabel": "steelseries.com / Simple Icons", "element": "官方赛睿同心环与三点标志", "brief": "官方赛睿环点标志", "note": "直接基于官方 SteelSeries 矢量轮廓归一，精准还原双环厚度与外侧三枚圆点方位。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.8333) translate(-12.000 -12.000)\"><path d=\"M14.08008 0c-1.00234 0-1.8125.80893-1.8125 1.8086v2.57226c-4.01871.7444-7.19505 3.9119-7.93946 7.91992H1.8125c-1.001 0-1.8125.80698-1.8125 1.80664 0 .99833.8115 1.8086 1.8125 1.8086h2.51563C5.18077 20.5094 9.22875 24 14.08008 24 19.54884 24 24 19.56148 24 14.10742c0-4.83662-3.50067-8.87524-8.10742-9.72656V1.80859C15.89258.80893 15.08108 0 14.08008 0ZM4.69336 3.17578c-1.00368 0-1.8164.80955-1.8164 1.81055 0 .99966.81272 1.8125 1.8164 1.8125 1.001 0 1.8164-.81284 1.8164-1.8125 0-1.001-.8154-1.81055-1.8164-1.81055zm9.38672 4.65625c3.46809 0 6.29297 2.81398 6.29297 6.2754 0 3.46006-2.82488 6.27734-6.29297 6.27734-3.46943 0-6.29297-2.81728-6.29297-6.27735 0-3.4614 2.82354-6.27539 6.29297-6.27539zm-.01758 2.4043c-2.14634 0-3.89258 1.73986-3.89258 3.88086S11.91616 18 14.0625 18c2.14634 0 3.89258-1.74182 3.89258-3.88281 0-2.141-1.74624-3.88086-3.89258-3.88086zm0 2.7168c.6455 0 1.16797.51989 1.16797 1.16406 0 .64283-.52246 1.16797-1.16797 1.16797-.64417 0-1.16992-.52514-1.16992-1.16797 0-.64417.52575-1.16407 1.16992-1.16407z\"/></g>"}, {"id": "hyperx", "name": "HyperX", "cn": "极度未知", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://hyperx.com/", "sourceLabel": "hyperx.com / Simple Icons", "element": "官方 HX + 贯穿弧刃标志", "brief": "官方 HX + 贯穿弧刃", "note": "直接基于官方 HyperX 矢量轮廓归一，完整保留斜体 HX 与底部标志性弧形切刃。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.9583) translate(-12.000 -12.000)\"><path d=\"M22.428 5.234c-.036-.005-.055.05-.055.05-.935 2.297-2.446 4.096-4.25 5.503-2.157-1.445-4.476-2.16-6.477-2.5l.508-1.695H10.56l-.445 1.496c-2.12-.194-3.61.004-3.664.008-.085.007-.108.027-.106.056.004.042.084.043.084.043 4.228.324 7.684 1.789 10.367 3.528C9.926 16.098.15 15.826.15 15.826c-.123-.002-.149.019-.15.065-.004.07.113.07.113.07 12.395 1.527 17.776-2.796 18.238-3.143 3.685 2.82 5.513 5.867 5.513 5.867.034.05.069.092.105.079.056-.02.02-.106.02-.106-1.062-3.053-2.666-5.243-4.475-6.808 2.846-2.757 2.926-6.242 2.945-6.499.01-.113-.01-.115-.03-.117zM4.939 6.592l-1.313 4.384h1.582l1.314-4.384Zm1.39 2.023-.222.748h3.625c-.09.297-.483 1.613-.483 1.613h1.594l.422-1.414a21.95 21.949 0 0 0-4.936-.947z\"/></g>"}, {"id": "corsair", "name": "Corsair", "cn": "海盗船", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.corsair.com/", "sourceLabel": "corsair.com / Simple Icons", "element": "官方三帆海盗船标志", "brief": "官方三帆海盗船", "note": "直接基于官方 Corsair 三帆矢量轮廓归一，精准保留风帆弧线与底部斜切收尾。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.8543) translate(-12.000 -12.000)\"><path d=\"M13.073.411s1.912 3.883 1.56 5.5c0 0 4.988 1.615 5.543 4.275 0 0 2.731-3.595-7.103-9.775m-1.922 5.825c.487 1.021.707 2.118.994 3.264L9.301 8.42c.264-1.726-1.416-4.354-1.416-4.354zM6.107 8.91c.314.83.672 1.87.862 2.768l-2.564-.638c.263-1.726-1.362-3.813-1.362-3.813zm5.585-4.15s11.436 8.031 12.19 11.147c.568 2.344-1.085 4.51-1.085 4.51s-.881-6.12-22.796 3.172c2.218-2.475 3.426-5.635 3.107-9.045a11.5 11.5 0 0 0-1.076-3.93l5.136 2.722.02.244c.195 2.085.043 4.112-.428 5.99a14.1 14.1 0 0 0 1.306-7.348A14.1 14.1 0 0 0 6.907 7.76l5.49 3.657c.023.182.035.366.052.55.216 2.307.001 4.545-.592 6.587 1.291-2.393 1.925-5.155 1.655-8.04a14.1 14.1 0 0 0-1.82-5.753\"/></g>"}, {"id": "finalmouse", "name": "Finalmouse", "cn": "Finalmouse", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://finalmouse.com/", "sourceLabel": "finalmouse.com", "element": "官方飞翼 f 徽标", "brief": "官方飞翼 f 徽标", "note": "直接取自 finalmouse.com 官方矢量 SVG，精准保留三层羽翼与斜体 f 轮廓。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.0279) translate(-384.900 -282.085)\"><path d=\"M261.1,326.1c-7,0-13.5,0-19.9,0c-33.3,0.1-66.7-0.1-100,0.4c-10.7,0.1-21.3,1.3-31.7,3.5\n\tc-18.1,3.8-24.5,12-26,30.3c-0.1,0.8-0.2,1.6-0.4,3.3c-2.4-1.7-4.3-2.8-6-4.3c-22.4-19.3-28.9-43.5-21.8-71.7\n\tc9.8-38.7,35.2-61.1,73.8-69.5c21.6-4.7,43.5-6.1,65.5-6.3c4.5,0,6.3-1.6,7.8-5.6c7-19.1,13.8-38.2,21.6-57\n\tc21.4-51.5,60.3-83.9,112.6-101.1c21.2-7,43.2-9.7,65.5-9.7c55.7-0.1,111.3,0.1,167-0.4c43.8-0.4,87.6-2.5,130.8-11\n\tc17.5-3.4,34.8-8,50.8-16c6.2-3.1,12-6.9,19.1-11c-3,11.1-5.3,21.6-8.7,31.7c-16.3,48.9-49.1,83.5-94.4,106.9\n\tc-34.8,18-72.1,27.2-110.7,32.5c-32.6,4.4-65.5,4.4-98.3,4.4c-17.1,0-34,1.3-50.1,7.6c-13.5,5.3-24.2,13.8-30.1,28.4h276.6\n\tc-1.5,2.8-2.4,4.6-3.4,6.4C620,271.1,574,303.7,515,318.8c-20.2,5.1-41,7.6-61.9,7.5c-38,0-76,0.1-114-0.1c-4,0-5.8,1.2-7.2,4.9\n\tc-12.9,34.1-26,68.1-39.2,102.1c-23.6,61-68.6,98.5-130.1,117.5c-36.7,11.3-74.5,14.5-112.7,13.2c-16.6-0.6-33.2-2.2-49.8-3.4L0,559\n\tc1-0.6,1.9-1.2,2.9-1.8c10.1-5.1,20.4-9.8,30.2-15.4c33.2-19,56-47.6,71.4-81.9c11.1-24.7,20.1-50.4,30.1-75.6\n\tc3.1-7.9,6.2-15.8,9-23.8c1.2-3.3,2.8-4.6,6.4-4.5c17.8,0.2,35.7,0.2,53.5,0c12.9-0.1,25.6-1.8,37.7-6.6\n\tC251.7,345.2,258.8,338.2,261.1,326.1z M119.2,278.2c12.1-0.1,22.4-8.9,24.3-20.9c0.5-3.3-0.5-4.8-3.6-5.9c-11.2-4-24.4,1-29.5,12.1\n\tC105,274.9,106.3,277.1,119.2,278.2z\"/></g>"}, {"id": "pulsar", "name": "Pulsar", "cn": "脉冲星", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.pulsar.gg/", "sourceLabel": "pulsar.gg", "element": "官方脉冲星双喷流徽标", "brief": "官方脉冲星徽标", "note": "直接取自 pulsar.gg 官方 32×32 矢量图标，精准还原星核直径与双极射线倾角。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.6467) translate(-16.000 -15.950)\"><path d=\"M20.6,9.7l2.8-8.1l-4.3-1.5l-2.8,8.1C13.1,8,9.9,9.8,8.7,13.4c-1.3,3.6,0.1,7,2.7,8.8l-2.8,8.1l4.3,1.5l2.8-8.1\n\tc3.2,0.2,6.4-1.6,7.6-5.2C24.6,15,23.2,11.6,20.6,9.7z\"/></g>"}, {"id": "hitscan", "name": "Hitscan", "cn": "Hitscan", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://hitscan.com/", "sourceLabel": "hitscan.com", "element": "官方四向斜准星标志", "brief": "官方四向准星标", "note": "直接提取自 hitscan.com 官方 logo SVG 左侧准星图形，去除右侧文字，比例丝毫不差。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.1220) translate(-77.856 -77.856)\"><path d=\"M0.3,135.4l54.3-48.8c0.3-0.3,0.9-0.3,1.2,0l13.3,13.3c0.3,0.3,0.3,0.9,0,1.2l-48.8,54.3\n\t\t\t\tc-0.3,0.4-0.9,0.4-1.3,0L0.3,136.7C-0.1,136.3-0.1,135.7,0.3,135.4L0.3,135.4z\"/><path d=\"M135.4,155.4l-48.8-54.3c-0.3-0.3-0.3-0.9,0-1.2l13.3-13.3c0.3-0.3,0.9-0.3,1.2,0l54.3,48.8\n\t\t\t\tc0.4,0.3,0.4,0.9,0,1.3l-18.8,18.8C136.3,155.8,135.7,155.8,135.4,155.4L135.4,155.4z\"/><path d=\"M155.4,20.4l-54.3,48.8c-0.3,0.3-0.9,0.3-1.2,0L86.6,55.8c-0.3-0.3-0.3-0.9,0-1.2l48.8-54.3\n\t\t\t\tc0.3-0.4,0.9-0.4,1.3,0l18.8,18.8C155.8,19.4,155.8,20,155.4,20.4z\"/><path d=\"M20.4,0.3l48.8,54.3c0.3,0.3,0.3,0.9,0,1.2L55.8,69.1c-0.3,0.3-0.9,0.3-1.2,0L0.3,20.4\n\t\t\t\tc-0.4-0.3-0.4-0.9,0-1.3L19,0.3C19.4-0.1,20-0.1,20.4,0.3L20.4,0.3z\"/></g>"}, {"id": "glorious", "name": "Glorious", "cn": "Glorious", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.gloriousgaming.com/", "sourceLabel": "gloriousgaming.com", "element": "官方奥丁侧脸头像（Headmark）", "brief": "官方奥丁侧脸标", "note": "直接取自 gloriousgaming.com 官方 logo-headmark.svg，仅移除左下角极小 TM 符号，流畅度远胜手绘。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.3143) translate(-34.997 -23.493)\"><path d=\"M48.3377 6.71523C36.296 6.71523 28.4853 18.0045 16.6673 18.0045C11.4426 18.0045 7.81035 15.8766 6.6983 13.921C6.6325 13.8083 6.65224 13.6625 6.7312 13.5564C6.81675 13.4437 6.98783 13.3841 7.1326 13.4636C8.50785 14.2193 11.1333 14.975 13.3245 14.975C26.4125 14.9684 33.6705 0 49.9828 0C60.2084 0 65.3541 4.16968 66.17 11.0573C66.499 13.8216 66.9004 16.566 67.5453 19.5889C68.177 22.5719 69.0126 25.2103 69.9273 27.915C70.105 28.4519 69.9536 28.8695 69.3351 29.1745C69.3351 29.1745 67.8414 29.7048 67.3281 29.8639C66.8149 30.023 66.6964 30.5268 66.7688 30.9776C68.1046 39.7544 66.9596 46.9867 59.9846 46.9867C53.0096 46.9867 52.1213 36.9106 40.323 36.9106C39.9875 36.9106 39.9085 36.5526 40.0533 36.3736C45.1924 30.1887 48.3969 20.1324 57.1354 20.1324C59.9583 20.1324 61.5178 20.5169 63.255 21.2726C63.3669 21.319 63.5182 21.2925 63.6235 21.1798C63.6959 21.1003 63.7288 20.9014 63.6695 20.8086C62.8865 19.4894 59.6359 17.4477 55.6483 17.4477C40.0072 17.4477 40.2309 40.2781 18.3255 40.2781C11.2189 40.2781 3.82934 36.778 1.36835 32.0316C1.28939 31.8725 1.34861 31.72 1.43415 31.6405C1.53286 31.5477 1.70394 31.488 1.83555 31.5941C4.67161 33.8944 10.4819 36.0753 14.9959 36.0753C22.2933 36.0753 27.5443 32.5553 29.9329 29.0551C30.0251 28.9226 29.9987 28.7436 29.9066 28.6375C29.8013 28.5116 29.6237 28.5049 29.4986 28.5646C26.8731 29.9766 22.4776 30.202 19.9903 30.202C10.0937 30.2152 2.4146 26.198 0.0259952 20.6164C-0.0463869 20.4573 0.0259952 20.2783 0.144439 20.1987C0.256302 20.1258 0.387905 20.1192 0.499768 20.1855C4.5071 22.499 9.19219 23.4934 13.3245 23.4934C30.591 23.4934 35.9143 9.17461 49.9828 9.17461C51.5817 9.17461 54.0362 9.49281 56.2274 10.0563C56.405 10.1027 56.5498 10.0032 56.609 9.89055C56.688 9.74471 56.6485 9.57898 56.5169 9.46629C54.5362 7.68307 51.9963 6.7086 48.3311 6.7086L48.3377 6.71523Z\"/></g>"}, {"id": "endgamegear", "name": "Endgame Gear", "cn": "Endgame Gear", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.endgamegear.com/", "sourceLabel": "endgamegear.com", "element": "官方几何 E/G 徽标", "brief": "官方几何 E/G 徽标", "note": "提取自 endgamegear.com 官方 2048px 透明 logo 左侧图标，完整还原斜切双钩几何造型。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M25.75 9.32L24.80 12.63L8.96 12.57L9.33 11.21L9.78 10.40L10.63 9.65L11.63 9.30Z M24.39 14.37L22.67 20.78L22.01 21.84L21.01 22.52L19.93 22.73L6.25 22.68L8.09 16.00L8.76 15.10L9.64 14.53L10.63 14.32L18.94 14.33L18.25 17.08L17.85 17.57L17.40 17.68L11.72 17.70L11.15 18.07L10.78 19.34L18.76 19.37L19.30 19.18L19.59 18.80L20.83 14.32Z\"/>"}, {"id": "cougar", "name": "Cougar", "cn": "骨伽", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://cougargaming.com/", "sourceLabel": "cougargaming.com", "element": "官方咆哮美洲狮头像", "brief": "官方咆哮美洲狮标", "note": "提取自 Cougar Gaming 官方 logo 左侧美洲狮头像精描，保留尖耳、眼孔与咆哮下颌特征。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M26.75 8.76L25.11 9.38L24.13 9.90L23.08 10.62L23.15 10.77L23.97 10.90L24.90 11.22L25.63 11.74L25.96 12.18L26.14 12.59L26.20 13.73L25.94 14.76L25.63 15.42L25.11 16.18L23.90 17.55L22.21 18.94L20.64 19.93L19.01 20.79L17.04 21.61L14.87 22.31L12.60 22.83L10.43 23.15L7.84 23.34L6.60 23.34L6.16 23.24L8.86 22.62L11.87 21.59L14.37 20.45L16.22 19.23L16.13 19.00L15.24 18.59L14.39 17.76L14.06 16.93L14.05 16.21L14.41 15.07L15.08 14.00L16.09 12.90L17.56 11.72L19.84 10.37L22.32 9.35L23.46 9.03L25.21 8.71L26.56 8.65Z M19.33 9.80L19.41 9.90L19.31 10.00L17.97 10.73L16.11 12.11L14.92 13.31L13.93 14.66L13.41 15.90L13.35 16.73L13.41 17.24L13.56 17.66L14.14 18.48L14.05 18.55L13.11 18.35L12.18 18.35L11.67 18.48L9.91 19.59L9.60 19.64L9.33 19.41L9.15 19.10L8.80 18.17L8.87 18.04L9.29 18.26L9.60 18.21L10.22 17.75L10.40 17.35L10.28 16.31L10.12 15.82L9.57 14.97L9.29 14.79L8.98 14.77L8.11 15.28L7.22 16.10L7.17 16.21L7.38 16.62L7.22 16.74L6.70 16.60L6.10 16.21L5.26 15.17L5.32 14.76L6.23 13.83L6.99 12.69L7.90 12.07L9.88 11.14L11.52 9.69L12.70 8.86L12.91 8.88L13.00 9.07L12.69 10.21L12.80 10.34L16.64 9.90Z M7.60 13.21L8.05 13.44L8.46 13.36L9.08 12.76L9.57 12.49L9.53 12.38L8.46 12.58L8.05 12.76L7.63 13.05Z\"/>"}, {"id": "redragon", "name": "Redragon", "cn": "红龙", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://redragonshop.com/", "sourceLabel": "redragonshop.com / Simple Icons", "element": "官方红龙图腾标志", "brief": "官方红龙图腾标", "note": "直接基于官方 Redragon 矢量轮廓归一，保留锐利龙首、双角与龙翼轮廓。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.8963) translate(-11.993 -12.000)\"><path d=\"M13.995 4.077v.06A10.963 10.963 0 0 1 16.22 8.42c.605 2.167.876 4.414.805 6.662a1.01 1.01 0 0 1 0 .113 6.278 6.278 0 0 0-.721-1.846 4.39 4.39 0 0 0-1.367-1.45c.025.064.059.113.059.168a7.04 7.04 0 0 1 .528 2.245 4.703 4.703 0 0 1-1.076 3.41 1.38 1.38 0 0 0-.113.203l-.069-.065a3.949 3.949 0 0 0-.138-2.374c-.578 2.216-2.068 3.538-4.047 4.437 2.404-.01 4.723-.375 6.697-1.856.015.533-.148.958-.696 1.841 1.673-.839 2.403-2.23 2.586-4.012.45.536.755 1.178.888 1.866.128.656.192 1.327.286 1.974.71-1.747.686-3.593.444-5.512 2.137 1.248 3.02 3.266 3.701 5.428a25.023 25.023 0 0 0-.133-3.494c-.17-1.698-.59-3.36-1.248-4.935a11.844 11.844 0 0 0-6.638-6.583 8.79 8.79 0 0 0-1.973-.563zm-2.734.11c-.306.522-.587 1.06-.933 1.539a18.019 18.019 0 0 1-1.14 1.524 1.313 1.313 0 0 1-.943.43l.445-2.083a.626.626 0 0 0-.143.188c-.3.46-.592.928-.908 1.372a.632.632 0 0 1-.726.247c-.493-.144-.987-.282-1.48-.44a.257.257 0 0 0-.326.08A18.356 18.356 0 0 1 3.785 8.42c-1.076.953-2.24 1.746-3.785 1.638v.065c.434 1.026.864 2.053 1.318 3.074a1.648 1.648 0 0 0 .69.74 12.216 12.216 0 0 1-.183-1.283c-.024-.523.094-.617.617-.667a.168.168 0 0 1 .203.129c.074.187.163.37.246.558.104-.227.193-.44.296-.642a.301.301 0 0 1 .149-.133c.222-.094.45-.168.686-.257l.177.356c.153-.35.296-.696.46-1.037a.375.375 0 0 1 .468-.173v.242a4.935 4.935 0 0 0 .493 2.626 4.244 4.244 0 0 1 .281 1.046c.04.162-.043.257-.196.257l-.4.044a1.655 1.655 0 0 1 .27.247c.075.094.179.27.144.32a.918.918 0 0 1-.39.267.536.536 0 0 1-.315 0 9.746 9.746 0 0 1-.81-.272 3.64 3.64 0 0 1-.414-.212l-.08.094.716.612a1.554 1.554 0 0 0 1.24.41.987.987 0 0 0 .986-.988c.045-.306.005-.616.045-.922a2.704 2.704 0 0 1 .927-1.974 2.561 2.561 0 0 0-1.214.74 6.366 6.366 0 0 1-.079-1.135 1.545 1.545 0 0 1 1.402-1.653 20.515 20.515 0 0 1 1.648-.281c.805-.08 1.599-.246 2.369-.494a4.367 4.367 0 0 0 1.406-.794 17.83 17.83 0 0 1-2.872.38 8.882 8.882 0 0 0 3.4-4.777c-1.056 1.48-2.202 2.867-3.87 3.701a22.7 22.7 0 0 0 1.447-4.086zM5.443 8.07c-.03.153-.054.305-.094.454-.074.29-.163.577-.237.868a.197.197 0 0 1-.198.178c-.384.045-.764.103-1.183.157zM9.4 10.775a4.206 4.206 0 0 0-.577.053 2.897 2.897 0 0 0-1.48.523.987.987 0 0 0-.43.923 1.1 1.1 0 0 1 .972-.671 3.065 3.065 0 0 1 1.762.34c.49.234.772.76.696 1.298a2.338 2.338 0 0 1-.687 1.377 5.797 5.797 0 0 1-1.914 1.308 9.695 9.695 0 0 0-2.32 1.41 3.95 3.95 0 0 0-1.396 2.567h5.921a2.023 2.023 0 0 1 .987-2.551l-.26 1.115a5.428 5.428 0 0 0 1.243-2.665c.171.407.245.848.216 1.288a5.615 5.615 0 0 0 .44-2.866l.518.561c-.049-.4-.09-.755-.134-1.11a3.097 3.097 0 0 0-1.865-2.585 4.197 4.197 0 0 0-1.692-.315z\"/></g>"}, {"id": "audeze", "name": "Audeze", "cn": "Audeze", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.audeze.com/", "sourceLabel": "audeze.com", "element": "官方四段交错三角 A 徽标", "brief": "官方交错三角 A 标", "note": "直接取自 audeze.com 官方 Audeze_A 矢量 SVG，精准还原四块交错折带间隙。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.2174) translate(-46.000 -40.050)\"><polygon points=\"5.9 79.9 .2 71.4 13 71.4 18.7 61.7 23.9 70.6 18.6 79.9 5.9 79.9\"/><polygon points=\"86.3 78.3 52.9 20.5 39.4 43.8 29.1 43.8 52.8 2.7 92 70.2 86.3 78.3\"/><polygon points=\"82.8 80.1 52.9 28.4 47.7 37.4 60.8 59.8 22 59.8 26.6 67.8 65.4 67.8 72.5 80.1 82.8 80.1\"/><polygon points=\"22.3 47.7 49.9 0 39.2 0 0 67.6 10.8 67.6 17.7 55.8 54 55.8 49.4 47.7 22.3 47.7\"/></g>"}, {"id": "keychron", "name": "Keychron", "cn": "渴创", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.keychron.com/", "sourceLabel": "keychron.com", "element": "官方圆形 TK 徽标（真镂空）", "brief": "官方圆形 TK 镂空标", "note": "基于 keychron.com 官方圆形徽标，转为单色真镂空路径（evenodd），明暗底与强调色底块皆清晰通透。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M15.67 5.75L17.44 5.87L19.40 6.33L21.36 7.26L22.85 8.37L24.17 9.79L25.09 11.22L25.75 12.77L26.24 14.92L26.24 17.16L25.89 18.84L25.20 20.61L24.06 22.39L22.57 23.92L20.83 25.08L19.21 25.77L17.16 26.23L14.92 26.24L12.78 25.75L11.01 24.97L9.23 23.70L7.90 22.28L6.89 20.70L6.44 19.67L6.11 18.65L5.76 16.41L5.88 14.55L6.32 12.68L6.78 11.56L7.24 10.72L8.40 9.17L9.89 7.80L11.57 6.78L13.43 6.10Z M14.92 7.34L13.15 7.81L11.76 8.49L10.39 9.51L9.20 10.82L8.27 12.40L7.72 13.99L7.49 15.66L7.58 17.34L7.93 18.80L8.72 20.51L9.76 21.91L10.98 23.03L12.50 23.95L14.08 24.53L15.39 24.76L17.35 24.74L18.46 24.52L19.77 24.07L21.54 23.03L22.59 22.10L23.36 21.17L24.06 20.04L24.53 18.90L23.22 18.84L22.33 20.33L21.36 21.45L19.99 22.47L18.74 23.05L17.25 23.40L15.85 23.46L14.46 23.25L13.15 22.79L11.85 22.02L10.79 21.07L9.88 19.86L9.19 18.37L8.85 16.78L8.84 15.29L9.18 13.71L9.86 12.21L10.44 11.38L11.23 10.54L11.94 9.96L12.82 9.42L13.91 8.95L14.74 8.73L16.51 8.58L18.28 8.85L19.86 9.50L20.73 10.07L21.76 11.00L22.48 11.94L23.13 13.11L24.43 13.16L24.53 13.05L23.81 11.56L23.03 10.46L22.01 9.40L20.75 8.49L19.40 7.82L17.72 7.36L16.60 7.25Z M11.71 11.10L11.65 12.21L11.75 12.35L13.99 12.34L14.14 12.40L14.18 20.75L15.39 20.73L15.43 18.37L16.60 17.25L19.40 20.72L19.58 20.80L21.11 20.79L21.17 20.70L17.52 16.32L20.57 13.24L20.57 13.15L18.84 13.18L15.48 16.53L15.40 16.41L15.41 12.40L18.00 12.33L18.00 11.10Z\"/>"}, {"id": "atk", "name": "ATK", "cn": "ATK", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.atk.store/", "sourceLabel": "atk.store / vxe.com", "element": "官方双刃闪电翼徽标", "brief": "官方双刃闪电翼标", "note": "直接取自官方 SVG 左侧 ATK 双刃闪电图形标（与官网图标一致），替代此前纯字母版本。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.6563) translate(-14.264 -16.000)\"><path d=\"M16.228 11.6278C17.122 12.2382 20.3233 13.6714 28.2385 10.5744C28.4597 10.4885 28.6358 10.796 28.4507 10.9542C25.4842 13.4408 17.6323 20.6971 12.2727 31.8731C12.1553 32.1127 11.8167 31.9771 11.8889 31.7194C13.1125 27.2933 15.3656 18.4637 15.9255 11.7906C15.9391 11.6278 16.1061 11.5374 16.2371 11.6278H16.228Z\"/><path d=\"M12.2993 20.3719C11.4053 19.7616 8.20404 18.3284 0.288883 21.4253C0.0676375 21.5112 -0.108456 21.2038 0.0766679 21.0456C3.04316 18.5635 10.8996 11.3027 16.2592 0.126668C16.3766 -0.112948 16.7152 0.0226835 16.643 0.280383C15.4193 4.70649 13.1663 13.5361 12.6064 20.2092C12.5928 20.3719 12.4258 20.4624 12.2948 20.3719H12.2993Z\"/></g>"}, {"id": "vgn", "name": "VGN", "cn": "VGN", "category": "wordmark", "officialType": "官方字标（官方图精描）", "sourceUrl": "https://vgnlab.com/", "sourceLabel": "vgnlab.com", "element": "官方 VGN 宽体圆角字标", "brief": "官方宽体 VGN 字标", "note": "从 vgnlab.com 官方高清透明 PNG 精描，完整保留标志性宽体倒角 G/N 与开口 V 字形。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M10.86 14.05L10.73 14.39L8.19 18.51L7.70 18.85L7.14 18.88L6.70 18.75L6.33 18.40L3.80 14.26L3.75 13.72L3.86 13.38L4.13 13.15L4.69 13.12L4.99 13.27L7.25 16.88L7.38 16.84L9.61 13.27L9.93 13.12L10.48 13.16L10.74 13.38L10.84 13.61Z M16.61 18.84L14.61 18.88L13.94 18.77L13.05 18.30L12.36 17.51L12.01 16.50L12.02 15.39L12.13 14.94L12.46 14.27L12.83 13.83L13.27 13.47L13.94 13.15L14.27 13.11L18.62 13.11L18.78 13.16L18.96 13.38L19.03 13.72L19.00 14.16L18.84 14.39L18.62 14.53L14.72 14.58L14.05 14.87L13.57 15.50L13.46 15.95L13.55 16.39L13.81 16.84L14.21 17.17L14.72 17.34L16.50 17.37L16.84 17.56L16.99 17.84L16.99 18.40L16.84 18.68Z M28.02 18.51L27.75 18.75L27.42 18.89L26.75 18.88L26.53 18.79L22.29 15.20L22.07 15.09L21.99 18.51L21.82 18.73L21.51 18.88L21.07 18.87L20.85 18.76L20.62 18.45L20.58 18.17L20.58 14.05L20.73 13.54L21.18 13.12L22.36 13.16L26.75 16.85L26.82 13.49L27.08 13.13L27.98 13.14L28.20 13.41L28.25 13.72L28.25 17.95Z M18.95 18.62L18.66 18.84L18.39 18.88L18.06 18.85L17.76 18.62L17.63 18.29L17.61 16.95L17.50 16.76L15.28 16.75L14.94 16.62L14.68 16.17L14.69 15.72L14.79 15.50L15.07 15.28L15.39 15.23L18.06 15.23L18.62 15.41L18.98 15.83L19.08 16.17L19.09 18.17Z\"/>"}, {"id": "scyrox", "name": "Scyrox", "cn": "Scyrox", "category": "wordmark", "officialType": "官方字标（官方图精描）", "sourceUrl": "https://scyrox.com/", "sourceLabel": "scyrox.com", "element": "官方 Scyrox 锐利闪电字标", "brief": "官方 Scyrox 字标", "note": "从 scyrox.com 官方 500×500 透明标志精确描摹完整 Scyrox 锋利疾风字标，不再虚构闪电 S。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M17.04 14.78L17.07 15.13L14.47 19.35L13.17 20.11L12.58 20.60L12.31 20.52L12.34 20.05L14.34 17.12L14.40 17.00L14.34 16.94L12.93 17.99L12.58 18.00L11.88 17.35L9.88 18.12L9.65 18.10L8.94 17.71L8.90 17.35L9.02 17.00L8.95 16.98L8.59 17.71L3.67 20.66L3.41 20.64L3.38 20.28L3.79 18.25L4.02 18.24L4.38 18.56L7.87 16.42L3.67 15.52L3.52 15.36L3.25 14.66L3.26 14.42L3.44 14.27L12.23 11.33L12.38 11.38L12.37 11.73L11.53 13.40L11.17 13.43L10.82 13.23L6.67 14.66L6.84 14.80L9.30 15.42L9.41 15.48L9.53 15.79L9.99 14.66L10.12 14.53L12.46 14.39L13.21 14.42L13.18 14.78L12.70 15.52L10.82 15.64L10.45 16.42L10.47 16.68L11.99 16.18L12.23 16.18L12.35 16.47L13.44 14.78L13.52 14.18L14.81 14.11L15.11 14.19L15.11 14.42L14.27 15.60L14.22 15.78L15.16 15.44L15.51 15.41L15.62 15.25L15.62 14.89L15.74 14.81Z M28.74 17.59L28.64 17.74L27.11 18.78L26.88 18.82L26.64 18.69L25.59 17.35L25.41 17.47L24.07 19.08L23.01 19.65L22.40 20.17L22.07 20.23L21.93 20.17L21.91 19.82L23.76 17.47L21.72 17.47L22.20 17.82L22.19 18.06L21.02 18.46L20.55 18.49L17.97 16.53L17.07 18.18L16.68 18.24L16.10 17.67L16.06 17.35L16.26 17.12L17.75 14.31L15.74 14.25L15.69 13.96L15.98 13.38L16.21 13.25L16.68 13.48L21.14 13.47L21.69 14.31L21.69 14.54L21.49 14.78L21.72 14.83L23.13 14.67L24.49 16.18L24.53 16.38L24.65 16.41L24.72 16.30L24.68 16.18L23.27 14.31L23.24 13.94L24.65 13.93L24.76 14.42L25.47 15.23L25.59 15.25L26.55 14.07L26.64 13.74L28.28 13.75L28.31 14.07L27.78 14.54L26.39 16.30L27.23 17.27L28.64 17.34L28.75 17.47Z M18.56 15.60L19.84 14.31L19.61 14.22L19.14 14.28L18.55 15.36Z M19.49 16.18L20.20 16.60L20.34 16.42L20.63 15.48L20.55 15.37L20.43 15.43L19.49 16.05Z M21.36 16.30L21.49 16.43L22.89 16.37L23.06 16.30L22.66 15.60L21.60 15.76L21.49 15.84Z\"/>"}, {"id": "lamzu", "name": "Lamzu", "cn": "兰族", "category": "wordmark", "officialType": "官方字标（官方图精描）", "sourceUrl": "https://lamzu.com/", "sourceLabel": "lamzu.com", "element": "官方 LAMZU 完整字标", "brief": "官方 LAMZU 字标", "note": "从 lamzu.com 官方高清图精确描摹完整 LAMZU 宽体字标并适度补强笔画，确保 32px 下清晰可读。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M3.25 13.51L3.31 13.45L4.21 13.51L4.21 16.87L4.42 17.33L4.93 17.57L7.02 17.57L7.25 17.55L7.36 17.42L8.86 13.86L9.07 13.51L9.22 13.45L11.18 13.51L11.45 13.97L12.81 17.19L12.93 17.09L12.93 13.74L13.04 13.46L14.52 13.51L15.77 15.71L15.94 15.81L17.33 13.46L24.75 13.45L24.87 13.51L24.92 17.10L25.10 17.36L25.45 17.54L26.72 17.57L27.42 17.47L27.67 17.22L27.77 16.99L27.79 13.51L28.69 13.45L28.75 13.51L28.74 18.26L28.55 18.49L28.34 18.55L24.29 18.55L24.06 18.47L23.71 18.55L17.80 18.55L17.64 18.49L17.64 16.29L17.56 15.99L16.64 17.44L16.29 17.58L15.59 17.58L15.25 17.51L15.01 17.31L14.20 15.97L14.14 16.29L14.14 18.49L11.89 18.54L11.80 18.49L10.15 14.65L10.01 14.78L8.41 18.53L3.54 18.54L3.31 18.35L3.25 18.14Z M18.86 16.87L18.96 16.96L19.07 16.89L21.83 14.67L18.89 14.67Z M20.81 17.54L23.59 17.55L23.66 16.87L23.66 15.48L23.59 15.25L20.93 17.33L20.79 17.45Z M9.12 17.68L9.34 17.57L11.07 17.59L11.14 17.68L11.15 18.49L9.22 18.54L9.11 18.49Z\"/>"}, {"id": "wlmouse", "name": "WLmouse", "cn": "万灵竞记", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.wlmouse.com/", "sourceLabel": "wlmouse.com", "element": "官方三刃翼冠 W 徽标", "brief": "官方三刃 W 徽标", "note": "直接提取自 wlmouse.com 官方 SVG 左侧三刃翼冠图形，完整保留官方弧角与中心锋芒。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.7230) translate(-14.450 -14.520)\"><path d=\"M16.27,14.53C16.27,14.53,16.27,14.53,16.27,14.53c0-0.04,0-0.08,0-0.12c0-1.71,0-3.42,0-5.13\n\t\tc0-0.96-0.01-1.92-0.01-2.89c0-0.68,0-1.36-0.01-2.04c0-0.42,0.01-0.84,0-1.26c0-0.17-0.02-0.35-0.07-0.52\n\t\tc-0.24-0.72-0.68-1.29-1.29-1.72c-0.31-0.22-0.53-0.21-0.84,0c-0.38,0.25-0.66,0.59-0.92,0.96c-0.19,0.28-0.36,0.57-0.41,0.91\n\t\tc-0.04,0.25-0.05,0.5-0.05,0.76c0,5.44,0,10.89,0,16.33c0,1.1,0.01,2.19,0.01,3.29c0,0.91,0.01,1.83,0,2.74\n\t\tc0,0.4,0.09,0.75,0.3,1.09c0.29,0.48,0.65,0.91,1.1,1.26c0.28,0.22,0.5,0.21,0.79,0c0.03-0.02,0.06-0.05,0.09-0.07\n\t\tc0.45-0.38,0.82-0.83,1.1-1.36c0.09-0.17,0.16-0.37,0.19-0.56c0.04-0.32,0.04-0.65,0.04-0.98c0-3.52,0-7.04,0-10.57\n\t\tC16.27,14.62,16.27,14.58,16.27,14.53z\"/><path d=\"M0.64,8.64c0.03-0.17,0.04-0.33,0.08-0.5C0.76,7.98,0.8,7.82,0.87,7.67c0.25-0.56,0.57-1.07,1.01-1.51\n\t\tc0.2-0.2,0.35-0.2,0.55-0.01C2.88,6.6,3.34,7.05,3.8,7.5c0.94,0.93,1.87,1.85,2.81,2.78c0.58,0.58,1.17,1.15,1.69,1.78\n\t\tc0.74,0.9,1.25,1.91,1.59,3.02c0.11,0.36,0.23,0.72,0.31,1.09c0.06,0.25,0.08,0.52,0.08,0.78c0.01,1.77,0.01,3.55,0.02,5.32\n\t\tc0,0.1,0.01,0.2,0.01,0.3c0,0.17-0.05,0.22-0.21,0.24c-0.45,0.06-0.89,0.03-1.32-0.11c-0.43-0.14-0.84-0.33-1.21-0.6\n\t\tc-0.52-0.38-0.84-0.88-0.97-1.51c-0.07-0.34-0.1-0.69-0.1-1.04c0-0.74,0.01-1.48,0-2.21c-0.01-0.56-0.09-1.11-0.35-1.61\n\t\tc-0.21-0.4-0.45-0.77-0.76-1.09c-0.52-0.54-1.06-1.07-1.59-1.6c-0.73-0.73-1.46-1.45-2.19-2.19c-0.15-0.15-0.28-0.3-0.41-0.47\n\t\tC0.88,9.97,0.69,9.5,0.66,8.97c0-0.02-0.01-0.04-0.02-0.05C0.64,8.82,0.64,8.73,0.64,8.64z\"/><path d=\"M18.62,21.16c0-0.45,0-0.9,0-1.35c0-0.95,0-1.9,0.01-2.85c0.01-0.59,0.16-1.15,0.34-1.71\n\t\tc0.25-0.77,0.55-1.52,0.97-2.22c0.4-0.65,0.88-1.25,1.41-1.78c1.49-1.5,3-2.99,4.5-4.48c0.21-0.2,0.41-0.41,0.62-0.61\n\t\tc0.05-0.04,0.1-0.09,0.15-0.12c0.12-0.07,0.24-0.06,0.34,0.04c0.6,0.6,1.1,1.28,1.25,2.14c0.17,0.94-0.07,1.78-0.75,2.46\n\t\tc-1.13,1.14-2.27,2.27-3.41,3.39c-0.43,0.42-0.83,0.86-1.14,1.38c-0.35,0.58-0.49,1.22-0.49,1.89c-0.01,0.84-0.01,1.68-0.02,2.52\n\t\tc-0.01,0.54-0.13,1.06-0.4,1.53c-0.21,0.37-0.53,0.65-0.89,0.87c-0.44,0.27-0.91,0.49-1.43,0.55c-0.3,0.03-0.6,0.02-0.9,0.01\n\t\tc-0.14,0-0.19-0.07-0.19-0.23C18.61,22.11,18.61,21.64,18.62,21.16C18.62,21.16,18.62,21.16,18.62,21.16z\"/></g>"}, {"id": "mchose", "name": "MCHOSE", "cn": "迈从", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.mchose.store/", "sourceLabel": "mchose.store", "element": "官方双折 K 形徽标", "brief": "官方双折 K 徽标", "note": "从 mchose.store 官方图标精确描摹，严格还原官方 45° 斜切双折几何比例。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M17.62 8.53L17.72 8.85L17.60 9.06L6.97 19.69L6.66 19.90L6.45 19.89L6.31 19.72L6.27 19.41L6.26 15.78L6.38 15.47L6.86 14.95L12.97 8.82L13.38 8.52L13.90 8.38L17.31 8.39Z M21.66 8.40L25.38 8.40L25.67 8.54L25.75 8.85L18.95 15.68L18.81 16.09L18.92 16.30L25.69 23.02L25.73 23.34L25.49 23.59L21.76 23.61L21.45 23.53L21.02 23.23L15.74 17.96L14.51 16.72L14.04 16.09L14.09 15.78L14.52 15.30L21.04 8.78Z M14.37 19.82L14.37 20.23L13.94 20.75L11.41 23.28L11.00 23.57L7.17 23.61L6.86 23.53L6.73 23.34L6.78 23.03L11.67 18.16L12.04 17.93L12.35 17.91L12.70 18.06Z\"/>"}, {"id": "dareu", "name": "DAREU", "cn": "达尔优", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://dareu.com/", "sourceLabel": "dareu.com", "element": "官方旋涡 D 徽标", "brief": "官方旋涡 D 徽标", "note": "从 dareu.com 官方透明图标精确描摹，准确还原底部弧形甩尾与偏心内孔流线。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M25.17 12.61L25.79 13.80L25.99 14.71L25.92 15.57L25.64 16.33L24.96 17.57L24.13 18.62L22.93 19.77L21.55 20.81L19.79 21.87L18.36 22.57L16.33 23.39L14.45 23.98L12.35 24.45L10.82 24.66L9.11 24.70L8.06 24.53L7.48 24.31L6.94 23.96L6.49 23.48L6.25 23.07L6.00 21.96L6.14 20.72L6.61 19.57L7.43 18.33L8.72 16.91L10.06 15.73L11.94 14.33L13.78 13.18L14.64 12.78L14.92 12.79L15.00 12.90L14.75 13.37L13.02 15.32L11.84 16.81L11.17 17.86L10.70 18.91L10.56 19.86L10.79 20.53L11.39 21.04L12.44 21.29L13.40 21.16L14.35 20.84L15.44 20.24L16.54 19.39L17.40 18.49L18.00 17.67L18.56 16.52L18.78 15.66L18.82 14.61L18.56 13.47L18.11 12.61L17.40 11.75L16.54 11.06L15.67 10.61L14.92 10.39L13.59 10.26L12.35 10.39L11.59 10.61L10.82 10.95L9.87 11.55L9.16 12.14L8.25 13.09L6.68 15.38L6.51 15.47L6.49 14.81L6.72 13.98L7.75 11.94L9.30 9.95L10.92 8.51L12.25 7.73L13.68 7.35L15.78 7.35L17.97 7.82L20.36 8.77L22.36 9.94L23.92 11.18Z\"/>"}, {"id": "ajazz", "name": "AJAZZ", "cn": "黑爵", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://ajazzstore.com/", "sourceLabel": "ajazzstore.com", "element": "官方前倾锐角 A 徽标", "brief": "官方前倾锐角 A 标", "note": "从 ajazzstore.com 官方 logo 与站点图标提取前倾锐角 A，修正此前错误的双层等边三角。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M25.60 9.07L25.79 9.44L26.00 10.39L26.00 21.70L25.97 22.17L25.79 22.74L25.63 23.02L25.22 23.40L24.87 23.59L24.53 23.63L14.53 23.63L14.06 23.59L13.85 23.30L14.06 22.86L16.80 19.87L17.27 19.69L20.94 19.70L21.29 19.53L21.42 19.34L21.48 18.97L21.48 13.59L21.42 13.06L21.23 12.95L20.69 13.78L11.93 23.59L6.42 23.63L6.05 23.47L6.04 22.93L6.42 22.32L17.36 10.10L18.30 9.30L19.34 8.73L20.76 8.37L24.81 8.39L25.38 8.78Z\"/>"}, {"id": "eweadn", "name": "EWEADN", "cn": "前行者", "category": "graphic", "officialType": "官方图形标（矢量归一）", "sourceUrl": "https://www.eweadn.com/", "sourceLabel": "eweadn.com", "element": "官方六边形立体模块徽标", "brief": "官方六边形立体标", "note": "直接提取自 eweadn.com 官方 SVG 左侧 6 块橙色立体六边形路径，与官网完全一致。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.0699) translate(-170.135 -374.621)\"><path d=\"M248.554 321.775L180.602 360.181C174.122 363.857 166.111 363.857 159.632 360.181L91.7031 321.775L99.2429 317.511L123.724 303.656L155.108 321.398L162.648 325.663C167.266 328.278 172.944 328.278 177.562 325.663L185.102 321.398L216.486 303.656L240.991 317.511L248.53 321.775H248.554Z\"/><path d=\"M303.469 314.495V441.823L271.448 423.728V325.428C271.448 320.409 268.715 315.744 264.262 313.247L263.979 313.082L256.439 308.817L231.935 294.963L185.118 268.503L177.578 264.238V228L185.118 232.265L263.979 276.844L289.944 291.523C298.332 296.258 303.492 305.023 303.492 314.495H303.469Z\"/><path d=\"M162.646 390.976V467.481L155.106 463.217L130.602 449.362V405.655C130.602 400.448 127.751 395.618 123.156 393.002L115.334 388.573L84.2324 370.996V334.781L152.185 373.187C158.664 376.863 162.67 383.625 162.67 390.976H162.646Z\"/><path d=\"M162.644 228V264.214L155.105 268.479L108.287 294.939L83.8067 308.77L76.2669 313.034L75.9841 313.199C71.531 315.721 68.7978 320.362 68.7978 325.381V423.681L36.7773 441.776V314.448C36.7773 304.976 41.9374 296.211 50.3254 291.475L76.2905 276.796L155.105 232.265L162.644 228Z\"/><path d=\"M256.011 334.787V371.002L224.91 388.579L217.087 392.985C212.469 395.6 209.642 400.43 209.642 405.638V449.321L185.137 463.175L177.598 467.44V390.959C177.598 383.631 181.603 376.845 188.083 373.169L256.035 334.764L256.011 334.787Z\"/><path d=\"M295.739 454.332L288.459 458.432L209.621 503.011L183.656 517.69C175.268 522.425 164.948 522.425 156.56 517.69L130.595 503.011L51.7572 458.432L44.4766 454.332L76.5206 436.213L83.7776 440.336L130.595 466.796L155.099 480.65L162.639 484.915C167.257 487.53 172.935 487.53 177.553 484.915L185.093 480.65L209.598 466.796L256.415 440.36L263.672 436.236L295.716 454.355L295.739 454.332Z\"/></g>"}, {"id": "aula", "name": "AULA", "cn": "狼蛛", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.aulagaming.com/", "sourceLabel": "aulagaming.com", "element": "官方狼蛛盾徽标志", "brief": "官方狼蛛盾徽标", "note": "从 aulagaming.com 官方 512px 狼蛛盾徽精确描摹并微调 32px 线条清晰度，完整保留狼蛛三角盾形特征。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M27.74 12.04L27.70 12.12L26.64 12.15L24.71 14.62L24.39 14.61L20.54 13.61L23.75 14.74L24.28 14.84L24.37 15.04L20.56 20.06L18.94 21.07L18.79 21.02L18.80 20.81L19.48 20.06L22.24 15.46L17.87 13.51L17.33 13.43L17.57 13.65L20.54 15.37L21.04 15.46L21.06 15.68L17.80 22.09L16.80 23.05L16.48 23.25L16.30 23.16L16.31 23.05L17.12 21.87L19.28 16.21L19.28 15.89L17.52 14.61L17.37 14.61L18.32 15.46L18.38 15.89L17.36 19.20L16.16 20.54L15.95 20.55L15.78 20.49L14.64 19.20L13.61 15.78L13.67 15.46L14.61 14.61L14.56 14.56L14.34 14.69L12.74 15.87L12.66 16.00L12.72 16.21L14.87 21.87L15.68 23.05L15.63 23.24L15.52 23.25L15.20 23.06L14.20 22.09L10.94 15.68L10.96 15.46L11.45 15.36L14.24 13.69L14.51 13.43L14.02 13.51L9.75 15.46L12.52 20.06L13.20 20.81L13.20 21.02L13.06 21.06L11.44 20.06L7.63 15.04L7.72 14.84L8.25 14.74L11.18 13.75L10.92 13.73L7.61 14.61L7.29 14.62L5.35 12.15L4.30 12.12L4.25 11.94L4.30 11.76L8.47 8.79L14.13 8.78L14.39 8.84L14.35 9.05L9.00 9.66L7.08 11.08L8.43 13.33L8.68 13.58L10.99 13.00L10.07 13.07L9.80 13.00L8.68 11.10L8.18 10.76L8.25 10.47L13.17 9.67L13.70 9.64L13.78 9.80L13.73 9.91L13.38 10.03L10.87 10.76L10.87 10.97L11.46 12.09L13.38 11.88L13.02 10.87L13.06 10.62L13.28 10.60L13.92 10.87L14.84 12.79L15.41 12.82L15.57 10.44L15.79 10.01L15.95 9.95L16.11 10.01L16.35 10.44L16.59 12.82L17.12 12.78L18.14 10.87L18.73 10.61L19.04 10.65L19.05 10.87L18.62 11.88L20.44 12.22L21.13 10.97L21.12 10.76L18.62 10.03L18.26 9.91L18.21 9.80L18.30 9.64L18.83 9.67L23.75 10.47L23.81 10.76L23.32 11.09L22.18 13.00L21.93 13.19L23.32 13.57L23.57 13.33L24.87 11.19L24.91 11.08L24.82 10.95L23.00 9.65L17.87 9.08L17.58 8.94L17.66 8.83L18.08 8.77L23.32 8.76L23.53 8.80L27.70 11.77Z M15.79 13.43L15.95 13.55L16.14 13.43L15.95 13.33Z M16.05 16.95L16.05 16.38L15.95 16.39L15.92 16.53L15.95 16.82Z\"/>"}, {"id": "attackshark", "name": "ATTACK SHARK", "cn": "攻击鲨", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://attackshark.com/", "sourceLabel": "attackshark.com", "element": "官方鲨鱼鳍 A 徽标", "brief": "官方鲨鱼鳍 A 标", "note": "从 attackshark.com 官方 180px 透明图标精确描摹，还原标志性弯月背鳍弧线与横切镂空。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M25.74 6.03L23.89 10.48L22.00 11.43L22.18 11.72L22.97 12.29L23.02 12.47L21.95 12.84L21.48 13.14L22.61 13.87L22.86 14.18L22.70 15.13L22.63 17.50L22.72 19.39L22.92 20.91L22.80 21.09L21.95 21.14L21.84 21.29L22.80 21.89L23.05 22.23L24.42 25.93L24.22 26.00L18.56 25.93L17.86 24.13L17.37 21.66L17.12 18.82L17.09 15.22L17.03 15.03L16.93 15.00L15.70 16.06L14.71 17.12L13.47 18.73L12.73 19.96L12.22 21.00L12.06 21.57L12.29 21.65L13.80 21.57L13.99 21.65L13.98 21.76L12.76 22.41L11.70 23.47L11.23 24.41L11.20 25.93L11.05 26.00L6.32 26.00L6.32 25.25L6.41 25.24L6.51 25.02L6.60 24.41L7.08 22.77L7.60 21.29L8.57 19.11L9.52 17.40L10.52 15.89L12.76 13.17L15.22 10.92L16.93 9.68L18.56 8.68L19.96 7.96L22.33 6.97L25.27 6.03Z\"/>"}, {"id": "delux", "name": "Delux", "cn": "多彩", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.deluxworld.com/", "sourceLabel": "deluxworld.com", "element": "官方斜向闪电翼徽标", "brief": "官方闪电翼徽标", "note": "从 deluxworld.com 官方透明图标精确描摹斜向闪电翼标志，修正此前完全失真的四向 X 标。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M14.04 13.42L13.74 13.58L10.10 13.58L9.60 13.43L5.14 8.79L5.01 8.59L5.02 8.29L5.36 8.02L5.87 8.15L13.94 13.03L14.08 13.23Z M26.89 8.19L26.99 8.59L26.66 9.10L19.69 17.12L19.18 17.32L15.67 17.37L5.67 23.95L5.36 23.98L5.11 23.83L5.00 23.42L5.15 23.12L12.22 14.93L12.83 14.68L16.26 14.66L26.14 8.16L26.55 8.01Z M26.96 23.72L26.65 23.98L26.14 23.86L18.17 19.14L17.97 18.98L17.94 18.68L18.28 18.53L21.91 18.53L22.41 18.68L26.85 23.22L26.98 23.42Z\"/>"}, {"id": "inphic", "name": "Inphic", "cn": "英菲克", "category": "graphic", "officialType": "官方图形标（官方图精描）", "sourceUrl": "https://www.inphic.com/", "sourceLabel": "inphic.com", "element": "官方「in」几何徽标", "brief": "官方「in」几何标", "note": "提取自 inphic.com 官方 2786px 高清透明 logo 左侧标志性「in」徽标，修正此前误画为 ih 的错误。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M15.49 6.01L17.42 6.10L19.26 6.55L20.91 7.30L22.57 8.47L23.98 9.98L24.99 11.64L25.63 13.29L25.99 15.40L25.99 16.60L25.81 17.97L25.43 19.35L24.81 20.73L24.06 21.92L23.02 23.12L21.92 24.06L21.65 24.15L21.46 24.07L21.31 23.76L21.29 11.91L20.93 11.18L20.36 10.79L19.90 10.69L19.35 10.77L18.71 11.22L18.50 11.54L18.37 12.10L18.37 25.41L18.25 25.66L18.07 25.78L16.60 25.99L15.40 25.99L14.02 25.81L13.75 25.64L13.66 25.41L13.66 6.58L13.75 6.36L14.02 6.19Z M10.59 7.96L10.70 8.24L10.70 10.63L10.63 10.69L8.05 10.65L7.86 10.35L7.90 10.17L8.70 9.18L10.07 7.95L10.35 7.84Z M6.52 13.66L10.63 13.63L10.71 13.75L10.70 23.76L10.67 23.94L10.44 24.14L10.07 24.06L9.61 23.70L8.30 22.38L7.39 21.10L6.64 19.54L6.19 17.97L6.00 16.32L6.03 15.31L6.19 14.02L6.31 13.79Z\"/>"}, {"id": "rapoo", "name": "Rapoo", "cn": "雷柏", "category": "wordmark", "officialType": "官方字标（矢量归一）", "sourceUrl": "https://www.rapoo-eu.com/", "sourceLabel": "rapoo-eu.com", "element": "官方 rΛpoo 完整字标", "brief": "官方 rΛpoo 字标", "note": "直接取自 rapoo-eu.com 官方头部矢量 SVG，完整呈现 rΛpoo 独有圆角几何字形，不再截为 rʌ。", "solid": "<g fill=\"currentColor\" transform=\"translate(16 16) scale(0.2254) translate(-55.453 -16.060)\"><path d=\"M105.522.296c2.567.211 5.131 2.902 5.24 5.398.177 4.105.207 9.678 0 12.435-.209 2.757-2.636 5.222-5.24 5.399-2.604.177-9.787.163-12.345 0-2.556-.165-5.108-2.687-5.238-5.399-.13-2.713-.151-9.707 0-12.435.152-2.73 2.853-5.204 5.238-5.398 2.388-.194 9.779-.211 12.345 0m-25.235 0c2.567.211 5.131 2.902 5.24 5.398.177 4.105.207 9.678 0 12.435-.208 2.757-2.635 5.222-5.24 5.399-2.604.177-9.786.163-12.344 0-2.556-.165-5.109-2.687-5.238-5.399-.131-2.713-.152-9.707 0-12.435.151-2.73 2.852-5.204 5.238-5.398 2.387-.194 9.778-.211 12.344 0m0 15.663c.09-.714.133-7.221 0-8.096-.206-1.359-.997-2.06-1.915-2.17-.72-.087-7.312-.166-8.72 0-.523.06-1.575.803-1.71 2.17-.1 1.045-.066 7.24 0 8.096.113 1.39 1.436 2.105 2.135 2.17 1.197.113 7.272.093 8.076 0 .794-.091 1.964-.804 2.134-2.17M53.646.296c2.893 0 6.509 2.012 6.509 11.912 0 9.107-3.659 11.262-6.804 11.262h-8.47v8.505h-5.294V.296h14.059m1.72 11.434c0-5.348-2.015-6.036-4.387-6.036h-6.128V17.98l6.287-.002c2.108 0 4.228-.532 4.228-6.249M12.353 23.468L22.646.297h5.823l9.059 23.171H31.41L25.53 7.336l-7.058 16.19zM0 3.875S.026.297 3.94.297h12.354v5.395H6.823c-.908 0-1.177 1.057-1.177 1.057v16.72H0zm105.522 12.084c.09-.714.133-7.221 0-8.096-.207-1.359-.997-2.06-1.915-2.17-.72-.087-7.312-.166-8.72 0-.523.06-1.575.803-1.71 2.17-.101 1.045-.067 7.24 0 8.096.112 1.39 1.435 2.105 2.135 2.17 1.197.113 7.272.093 8.076 0 .794-.091 1.964-.804 2.134-2.17\"/></g>"}, {"id": "incott", "name": "Incott", "cn": "因科特", "category": "wordmark", "officialType": "官方字标（官方图精描）", "sourceUrl": "https://www.szironcat.com/", "sourceLabel": "szironcat.com", "element": "官方 incott 几何字标", "brief": "官方 incott 字标", "note": "取自深圳因科特官网（szironcat.com）官方 1617px 高清透明 logo，精确还原其粗体圆角 incott 字标。", "solid": "<path fill=\"currentColor\" fill-rule=\"evenodd\" d=\"M3.38 12.46L3.77 12.41L4.40 12.46L4.52 12.70L4.53 13.04L4.50 13.28L4.35 13.48L4.11 13.59L3.77 13.60L3.53 13.55L3.35 13.39L3.25 12.81Z M22.55 12.56L23.01 12.53L23.32 12.70L23.42 12.93L23.48 13.79L24.87 13.82L25.10 13.91L25.25 14.09L25.26 14.67L25.04 14.90L23.59 14.96L23.48 14.98L23.42 15.13L23.43 17.33L23.55 17.80L23.82 18.17L24.17 18.40L24.98 18.53L25.21 18.71L25.27 19.30L25.10 19.56L23.94 19.58L23.48 19.42L22.85 18.96L22.41 18.26L22.28 17.57L22.28 13.04L22.39 12.70Z M26.14 12.55L26.61 12.53L26.88 12.70L26.98 12.93L26.99 13.62L27.07 13.80L28.46 13.82L28.73 13.97L28.69 14.85L28.34 14.96L27.07 14.97L26.99 15.25L27.05 17.68L27.25 18.03L27.53 18.29L27.88 18.45L28.69 18.60L28.75 18.96L28.69 19.55L27.53 19.59L27.07 19.44L26.41 18.96L25.98 18.26L25.85 17.57L25.85 13.04L25.87 12.81Z M3.77 13.79L4.23 13.86L4.42 14.09L4.45 14.32L4.45 19.19L4.35 19.46L4.11 19.59L3.53 19.56L3.32 19.19L3.31 14.32L3.42 13.97Z M9.53 19.54L8.87 19.57L8.64 19.30L8.55 15.83L8.43 15.48L8.17 15.16L7.82 14.97L7.48 14.92L7.01 14.98L6.55 15.25L6.29 15.59L6.17 15.94L6.10 19.30L5.93 19.54L5.74 19.59L5.27 19.57L5.10 19.42L5.01 19.07L5.01 14.32L5.16 13.93L5.39 13.81L5.74 13.81L6.20 14.07L7.01 13.82L7.94 13.82L8.75 14.08L9.33 14.58L9.61 15.13L9.72 15.83L9.73 19.19Z M13.85 19.56L12.46 19.57L11.53 19.23L10.84 18.61L10.37 17.68L10.26 16.41L10.35 15.83L10.57 15.25L11.22 14.43L12.11 13.94L13.04 13.81L14.08 13.94L14.90 14.39L15.52 15.13L15.48 15.76L15.24 15.95L14.90 15.98L14.55 15.85L14.15 15.36L13.74 15.08L13.16 14.92L12.69 14.96L12.35 15.10L12.00 15.37L11.73 15.71L11.51 16.17L11.40 16.75L11.61 17.57L12.11 18.16L12.58 18.42L13.04 18.51L13.62 18.39L14.05 18.14L14.55 17.56L14.78 17.43L15.24 17.44L15.48 17.61L15.55 17.80L15.53 18.26L15.24 18.70L14.66 19.22Z M19.77 19.55L18.26 19.59L17.56 19.36L16.74 18.72L16.40 18.26L16.14 17.68L16.03 17.10L16.02 16.41L16.24 15.48L16.49 15.01L16.88 14.55L17.33 14.18L17.79 13.94L18.37 13.80L19.19 13.78L19.65 13.84L20.23 14.05L20.79 14.43L21.16 14.81L21.66 15.71L21.77 16.29L21.77 16.99L21.51 18.03L20.81 18.96L20.33 19.30Z M18.84 14.88L18.14 15.10L17.68 15.49L17.33 16.06L17.19 16.75L17.42 17.57L17.77 18.03L18.37 18.42L18.95 18.53L19.53 18.38L20.14 17.91L20.48 17.33L20.60 16.64L20.38 15.83L20.01 15.36L19.42 14.99Z\"/>"}, {"id": "vxe", "name": "VXE", "cn": "VXE（含 MAD）", "category": "wordmark", "officialType": "官方字标（机身字形）", "sourceUrl": "https://vxe.com/", "sourceLabel": "vxe.com / atk.store", "element": "官方 VXE 宽体三横 E 字标", "brief": "官方 VXE 三横 E 字标", "note": "按 VXE 蜻蜓 R1 / MAD 系列官方机身与包装字形重绘，保留宽体斜角 V/X 与标志性无竖三横 E。", "solid": "<g fill=\"currentColor\">\n  <path d=\"M4.0 12.0 H6.2 L8.05 17.75 L9.9 12.0 H12.1 L9.15 20.0 H6.95 Z\"/>\n  <path d=\"M12.5 12.0 H14.85 L16.25 14.5 L17.65 12.0 H20.0 L17.45 16.0 L20.1 20.0 H17.75 L16.25 17.4 L14.75 20.0 H12.4 L15.05 16.0 Z\"/>\n  <path d=\"M21.1 12.0 H28.0 V13.8 H21.1 Z M21.1 15.1 H27.4 V16.9 H21.1 Z M21.1 18.2 H28.0 V20.0 H21.1 Z\"/>\n</g>"}, {"id": "bluetooth", "name": "Windows 蓝牙", "cn": "蓝牙外设兜底", "category": "fallback", "officialType": "系统兜底（官方蓝牙符文）", "sourceUrl": "https://www.bluetooth.com/", "sourceLabel": "bluetooth.com / Simple Icons", "element": "标准蓝牙符文（去外胶囊）", "brief": "标准蓝牙符文", "note": "提取自标准蓝牙矢量符文并去掉外层胶囊底，直接置于几格统一圆角底块中，与系统蓝牙图标一致。", "solid": "<g fill=\"currentColor\" fill-rule=\"evenodd\" transform=\"translate(16 16) scale(0.9691) translate(-12.000 -12.000)\"><path d=\"M11.2227 1.6816 l6.2148 6.2149L13.334 12l4.1035 4.1035-6.2148 6.2149V14.125l-3.418 3.42-1.2422-1.2442L10.8515 12l-4.289-4.3008 1.2422-1.2441 3.418 3.4199V1.6816z M12.9707 5.9258 v3.9687l1.9844-1.9843-1.9844-1.9844z M12.9707 14.1074 v3.9668l1.9844-1.9844-1.9844-1.9824Z\"/></g>"}, {"id": "unknown", "name": "未知品牌", "cn": "通用无线兜底", "category": "fallback", "officialType": "系统兜底（无线节点标）", "sourceUrl": "", "sourceLabel": "几格原生设计", "element": "中心圆点 + 双侧无线波弧", "brief": "通用 2.4G 无线信号标", "note": "用于无法归属品牌或 Compx 共享通用接收器，传达通用 2.4G 无线外设语义。", "solid": "<g fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.0\" stroke-linecap=\"round\">\n  <circle cx=\"16\" cy=\"16\" r=\"2.2\" fill=\"currentColor\" stroke=\"none\"/>\n  <path d=\"M12.1 12.4 A5.2 5.2 0 0 0 12.1 19.6\"/>\n  <path d=\"M19.9 12.4 A5.2 5.2 0 0 1 19.9 19.6\"/>\n  <path d=\"M9.3 9.9 A8.8 8.8 0 0 0 9.3 22.1\"/>\n  <path d=\"M22.7 9.9 A8.8 8.8 0 0 1 22.7 22.1\"/>\n</g>"}];
+  const LEGACY_TILES = {
+  mouse: `<g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="11.5" y="8.8" width="9" height="14.4" rx="4.5"/><line x1="16" y1="8.8" x2="16" y2="13.7"/></g>`,
+  headset: `<g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><path d="M10 16 A6 6 0 0 1 22 16"/><rect x="9" y="17.5" width="3.4" height="5.2" rx="1.2"/><rect x="19.6" y="17.5" width="3.4" height="5.2" rx="1.2"/></g>`,
+  keyboard: `<g fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="11.5" width="14" height="9" rx="2"/><circle cx="11.4" cy="15" r="0.65" fill="currentColor" stroke="none"/><circle cx="13.7" cy="15" r="0.65" fill="currentColor" stroke="none"/><circle cx="16" cy="15" r="0.65" fill="currentColor" stroke="none"/><circle cx="18.3" cy="15" r="0.65" fill="currentColor" stroke="none"/><circle cx="20.6" cy="15" r="0.65" fill="currentColor" stroke="none"/><line x1="13" y1="18" x2="19" y2="18"/></g>`
+};
+  const BRAND_MAP = Object.fromEntries(BRANDS.map(b => [b.id, b]));
+
+  function detectInitialTileTheme() {
+    try {
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+        || getComputedStyle(document.body).backgroundColor;
+      const m = bg.match(/\d+/g);
+      if (m && m.length >= 3) return (0.299*+m[0] + 0.587*+m[1] + 0.114*+m[2]) < 128 ? 'dark' : 'light';
+      if (bg.startsWith('#')) {
+        const h = bg.slice(1);
+        const r = parseInt(h.length===3?h[0]+h[0]:h.slice(0,2),16);
+        const g = parseInt(h.length===3?h[1]+h[1]:h.slice(2,4),16);
+        const b = parseInt(h.length===3?h[2]+h[2]:h.slice(4,6),16);
+        if (!Number.isNaN(r)) return (0.299*r + 0.587*g + 0.114*b) < 128 ? 'dark' : 'light';
+      }
+    } catch (e) {}
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+
+  function setTileTheme(t) {
+    document.documentElement.setAttribute('data-tile', t);
+    document.querySelectorAll('[data-set-tile]').forEach(b =>
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-set-tile') === t)));
+  }
+  setTileTheme(detectInitialTileTheme());
+
+  function renderIconSvg(brand, opts = {}) {
+    const bg = opts.bg || 'var(--tile-bg)';
+    const ink = opts.ink || 'var(--tile-ink)';
+    const border = opts.border !== false
+      ? `<rect x="0.35" y="0.35" width="31.3" height="31.3" rx="7.65" fill="none" stroke="var(--tile-border)" stroke-width="0.7"/>`
+      : '';
+    return `<svg class="brand-svg" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="color:${ink}" aria-label="${brand.name}">
+      <rect width="32" height="32" rx="8" fill="${bg}"/>
+      ${border}
+      ${brand.solid}
+    </svg>`;
+  }
+
+  function renderLegacyTileSvg(kind, bg, ink) {
+    return `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="color:${ink}">
+      <rect width="32" height="32" rx="8" fill="${bg}"/>
+      ${LEGACY_TILES[kind]}
+    </svg>`;
+  }
+
+  const GUIDE_SVG = `<svg class="guide-overlay" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="4" width="24" height="24" fill="none" stroke="var(--guide-grid)" stroke-width="0.4" stroke-dasharray="1 0.8"/>
+    <rect x="6" y="6" width="20" height="20" fill="none" stroke="var(--guide-safe)" stroke-width="0.45" stroke-dasharray="0.9 0.7"/>
+    <line x1="16" y1="4" x2="16" y2="28" stroke="var(--guide-grid)" stroke-width="0.3"/>
+    <line x1="4" y1="16" x2="28" y2="16" stroke="var(--guide-grid)" stroke-width="0.3"/>
+  </svg>`;
+
+  const catLabel = { graphic: '图形标', wordmark: '官方字标', fallback: '系统兜底' };
+  const gridEl = document.getElementById('grid4x');
+  gridEl.innerHTML = BRANDS.map(b => `
+    <div class="brand-card" data-id="${b.id}" data-cat="${b.category}">
+      <div class="icon-stage">${renderIconSvg(b)}${GUIDE_SVG}</div>
+      <div class="brand-name">${b.name}</div>
+      <div class="brand-cn">${b.cn !== b.name ? b.cn : '&nbsp;'}</div>
+      <span class="mini-tag">${catLabel[b.category]}</span>
+    </div>`).join('');
+
+  const inspEl = document.getElementById('inspector');
+  let selectedId = null;
+  function openInspector(id) {
+    const b = BRAND_MAP[id];
+    if (!b) return;
+    if (selectedId === id) {
+      selectedId = null;
+      inspEl.classList.remove('open');
+      document.querySelectorAll('.brand-card.selected').forEach(el => el.classList.remove('selected'));
+      return;
+    }
+    selectedId = id;
+    document.querySelectorAll('.brand-card').forEach(el =>
+      el.classList.toggle('selected', el.getAttribute('data-id') === id));
+    const urlPart = b.sourceUrl
+      ? `来源：<a href="${b.sourceUrl}" target="_blank" rel="noopener noreferrer">${b.sourceLabel}</a>`
+      : `来源：${b.sourceLabel}`;
+    inspEl.innerHTML = `
+      <div class="insp-top">
+        <div class="insp-title">${b.name}<span>${b.cn !== b.name ? b.cn + ' · ' : ''}${b.officialType}</span></div>
+        <button type="button" class="insp-close" id="closeInsp">收起</button>
+      </div>
+      <div class="insp-stages">
+        <div class="insp-box is-light">
+          <div class="stage-pair">
+            <div class="sz-96">${renderIconSvg(b)}</div>
+            <div class="sz-36">${renderIconSvg(b)}</div>
+            <div class="sz-32">${renderIconSvg(b)}</div>
+          </div>
+          <small>亮底 · 88px / 36px / 32px</small>
+        </div>
+        <div class="insp-box is-dark">
+          <div class="stage-pair">
+            <div class="sz-96">${renderIconSvg(b)}</div>
+            <div class="sz-36">${renderIconSvg(b)}</div>
+            <div class="sz-32">${renderIconSvg(b)}</div>
+          </div>
+          <small>暗底 · 88px / 36px / 32px</small>
+        </div>
+      </div>
+      <div class="insp-meta">
+        <div><strong>取材：</strong>${b.element} · ${urlPart}</div>
+        <div>${b.note}</div>
+      </div>`;
+    inspEl.classList.add('open');
+    document.getElementById('closeInsp').addEventListener('click', () => openInspector(id));
+  }
+  gridEl.addEventListener('click', e => {
+    const card = e.target.closest('.brand-card');
+    if (card) openInspector(card.getAttribute('data-id'));
+  });
+
+  function fillActualStrip(elId, sizeClass) {
+    document.getElementById(elId).innerHTML = BRANDS.map(b =>
+      `<div class="actual-item ${sizeClass}" title="${b.name}${b.cn !== b.name ? ' · ' + b.cn : ''}">${renderIconSvg(b)}</div>`
+    ).join('');
+  }
+  fillActualStrip('actualLight32', 's32');
+  fillActualStrip('actualLight36', 's36');
+  fillActualStrip('actualDark32', 's32');
+  fillActualStrip('actualDark36', 's36');
+
+  const DEMO_HERO = { brandId: 'gwolves', kind: 'mouse', name: 'G-Wolves HTX Ultra 8K', conn: '2.4G', pct: 14, cells: 2, status: '电量低，该充电了' };
+  const DEMO_ROWS = [
+    { brandId: 'razer', kind: 'headset', name: 'Razer BlackShark V3 Pro', status: '充电中 · 约 55 分钟充满', pct: 46, cells: 2, charging: true, tone: 'chg' },
+    { brandId: 'asus-rog', kind: 'keyboard', name: 'ASUS ROG 无线键盘', status: '2.4G 已连接', pct: 78, cells: 4, tone: 'ok' },
+    { brandId: 'atk', kind: 'mouse', name: 'ATK F1 Ultimate', status: '2.4G 已连接', pct: 92, cells: 5, tone: 'ok' },
+    { brandId: 'sony-inzone', kind: 'headset', name: 'Sony INZONE H9', status: '2.4G 已连接', pct: 85, cells: 4, tone: 'ok' }
+  ];
+
+  function renderPanel(mode, panelIconMode) {
+    const isDark = mode === 'dark';
+    const heroBg = 'var(--p-accent-soft)', heroInk = 'var(--p-accent)';
+    const rowBg = 'var(--p-chip)', rowInk = panelIconMode === 'legacy' ? 'var(--p-sec)' : 'var(--p-ink)';
+    const heroIconHtml = panelIconMode === 'legacy'
+      ? renderLegacyTileSvg(DEMO_HERO.kind, heroBg, heroInk)
+      : renderIconSvg(BRAND_MAP[DEMO_HERO.brandId], { bg: heroBg, ink: heroInk, border: false });
+    const heroCells = Array.from({ length: 10 }, (_, i) => `<i class="${i < DEMO_HERO.cells ? 'bg-low' : ''}"></i>`).join('');
+    const rowsHtml = DEMO_ROWS.map(r => {
+      const ico = panelIconMode === 'legacy'
+        ? renderLegacyTileSvg(r.kind, rowBg, rowInk)
+        : renderIconSvg(BRAND_MAP[r.brandId], { bg: rowBg, ink: rowInk, border: false });
+      const cells = Array.from({ length: 5 }, (_, i) => {
+        if (r.charging && i === r.cells) return '<i class="bg-chg-pulse"></i>';
+        if (i < r.cells) return `<i class="bg-${r.tone}"></i>`;
+        return '<i></i>';
+      }).join('');
+      const cls = r.tone === 'chg' ? 'c-chg' : '';
+      return `<div class="fo-row"><div class="fo-row-tile">${ico}</div><div class="fo-row-meta"><div class="fo-row-nm">${r.name}</div><div class="fo-row-st ${cls}">${r.status}</div></div><div class="fo-cells5">${cells}</div><div class="fo-row-num ${cls}">${r.pct}<small>%</small></div></div>`;
+    }).join('');
+    return `<div class="desktop-backdrop ${isDark ? 'bd-dark' : 'bd-light'}">
+      <span class="bd-caption">${isDark ? '深色模式（Win11 Dark）' : '明亮模式（Win11 Light）'}</span>
+      <div class="flyout ${isDark ? 'f-dark' : 'f-light'}">
+        <div class="fo-head">
+          <div class="fo-brand-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="#211d19" stroke-width="2" stroke-linecap="round"><rect x="3" y="7" width="15" height="10" rx="2"/><path d="M20.5 10.2v3.6"/><rect x="6" y="10" width="2.8" height="4" rx="0.6" fill="#211d19" stroke="none"/><rect x="10.2" y="10" width="2.8" height="4" rx="0.6" fill="#211d19" stroke="none"/></svg></div>
+          <span class="fo-title">几格</span><span class="fo-time">刚刚更新</span>
+          <div class="fo-iconbtn" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13 8a5 5 0 1 1-1.3-3.4"/><path d="M12.2 2.4v2.6H9.6"/></svg></div>
+          <div class="fo-iconbtn" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.35"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.2v1.4M8 12.4v1.4M2.2 8h1.4M12.4 8h1.4M3.9 3.9l1 1M11.1 11.1l1 1M12.1 3.9l-1 1M4.9 11.1l-1 1" stroke-linecap="round"/></svg></div>
+        </div>
+        <div class="fo-hero">
+          <div class="fo-hero-top"><div class="fo-hero-tile">${heroIconHtml}</div><span class="fo-hero-name">${DEMO_HERO.name}</span><span class="fo-conn">${DEMO_HERO.conn}</span></div>
+          <div class="fo-hero-mid"><div class="fo-big c-low">${DEMO_HERO.pct}<small>%</small></div><div class="fo-cells10">${heroCells}</div></div>
+          <div class="fo-hero-st c-low"><span class="fo-dot bg-low"></span><span>${DEMO_HERO.status}</span></div>
+        </div>
+        <div class="fo-list">${rowsHtml}</div>
+        <div class="fo-foot">管理设备</div>
+      </div>
+    </div>`;
+  }
+
+  let currentPanelMode = 'brand';
+  function updatePanels() {
+    document.getElementById('panelStage').innerHTML = renderPanel('light', currentPanelMode) + renderPanel('dark', currentPanelMode);
+  }
+  updatePanels();
+
+  document.getElementById('provList').innerHTML = BRANDS.map(b => {
+    const urlPart = b.sourceUrl
+      ? `<a href="${b.sourceUrl}" target="_blank" rel="noopener noreferrer">${b.sourceLabel}</a>`
+      : `<span>${b.sourceLabel}</span>`;
+    return `<div class="prov-item">
+      <div class="prov-ico">${renderIconSvg(b)}</div>
+      <div>
+        <div class="prov-head"><span class="prov-brand">${b.name}</span>${b.cn !== b.name ? `<span class="prov-cn">${b.cn}</span>` : ''}<span class="prov-type">${b.officialType}</span></div>
+        <div class="prov-body"><strong>${b.element}</strong> · ${urlPart}<br>${b.note}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tab = btn.getAttribute('data-tab');
+      document.querySelectorAll('[data-tab]').forEach(b => b.setAttribute('aria-selected', String(b === btn)));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+    });
+  });
+  document.querySelectorAll('[data-set-tile]').forEach(btn => {
+    btn.addEventListener('click', () => setTileTheme(btn.getAttribute('data-set-tile')));
+  });
+  const btnGuides = document.getElementById('btnGuides');
+  btnGuides.addEventListener('click', () => {
+    const on = document.documentElement.getAttribute('data-guides') === 'on';
+    document.documentElement.setAttribute('data-guides', on ? 'off' : 'on');
+    btnGuides.setAttribute('aria-pressed', String(!on));
+  });
+  document.querySelectorAll('[data-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const f = btn.getAttribute('data-filter');
+      document.querySelectorAll('[data-filter]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      document.querySelectorAll('#grid4x .brand-card').forEach(card => {
+        card.classList.toggle('hidden', !(f === 'all' || card.getAttribute('data-cat') === f));
+      });
+    });
+  });
+  document.querySelectorAll('[data-panel-mode]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentPanelMode = btn.getAttribute('data-panel-mode');
+      document.querySelectorAll('[data-panel-mode]').forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+      updatePanels();
+    });
+  });
+})();
+</script>
+</body>
+</html>

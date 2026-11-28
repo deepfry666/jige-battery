@@ -53,7 +53,7 @@ internal sealed unsafe class GameBannerWindow(HWND hwnd, TrayModel model) : IDis
             canvas.Fill(0, 0, Width, Height, 8, acrylic ? colors.Flyout : colors.Solid);
             canvas.Stroke(.5f, .5f, Width - 1, Height - 1, 7.5f, colors.Border);
             var ink = colors.Status(tone == BatteryTone.Normal ? BatteryTone.Warning : tone);
-            canvas.DeviceTile(device.Device.Kind, 14, 16, 36, ink.WithAlpha(36), ink);
+            canvas.BrandTile(DeviceBrandResolver.Resolve(device.Device), 14, 16, 36, ink.WithAlpha(36), ink);
             // 名称过长时只省略名称，「只剩 xx%」始终完整可见。
             canvas.NameWithSuffix(model.Name(device.Device), suffix, 60, 12, Width - 74, 22, 14, colors.Ink, 600);
             canvas.Text(detail, 60, 35, Width - 74, 20, 12, colors.Secondary, ellipsis: true);
