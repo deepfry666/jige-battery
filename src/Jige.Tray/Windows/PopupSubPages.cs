@@ -30,7 +30,7 @@ internal sealed partial class PopupScene
                 _ => null
             };
             if (optionRow is { } row && row != settings.Expanded)
-                focused = new(PopupAction.ExpandSetting, (int)row);
+                focused = settings.IsVisible(row) ? new(PopupAction.ExpandSetting, (int)row) : default;
         }
         var back = new HitBox(PopupAction.Back, PanelLayout.Back);
         subButtons.Add(back);
@@ -60,87 +60,110 @@ internal sealed partial class PopupScene
     {
         var layout = Settings!;
         var settings = model.Settings;
-        // 三组卡片：显示 / 电量 / 通用，每组上方一个小标题。
-        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        // 三组卡片靠组间距区分，不再绘制分组小标题。
+        for (int section = 0; section < SettingsPanel.SectionCount; section++)
         {
             var card = layout.SectionRect(section);
-            if (!layout.Compact)
-                canvas.Text(SettingsPanel.SectionTitles[section], SettingsPanel.CardX + 8, card.Y - SettingsPanel.HeaderHeight,
-                    200, SettingsPanel.HeaderHeight, 12, colors.Secondary, 600);
             canvas.Fill(card.X, card.Y, card.Width, card.Height, 7, colors.Layer);
         }
-        foreach (var row in SettingsPanel.Rows)
+        bool taskbarClipPushed = false;
+        try
         {
-            var rect = layout.RowRect(row);
-            var target = row switch
+            foreach (var row in SettingsPanel.Rows)
             {
-                SettingRow.GameSilent => PopupAction.GameSilent,
-                SettingRow.Autostart => PopupAction.Autostart,
-                SettingRow.AutoUpdate => PopupAction.AutoUpdate,
-                SettingRow.RuntimeEstimate => PopupAction.RuntimeEstimate,
-                _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
-            };
-            var button = new HitBox(target, rect);
-            subButtons.Add(button);
-            int roundSide = SettingsPanel.IsSectionStart(row) ? -1
-                : SettingsPanel.IsSectionEnd(row) && layout.Progress(row) == 0 ? 1 : 0;
-            DrawSettingBackground(canvas, button, roundSide);
-            if (!SettingsPanel.IsSectionStart(row))
-                canvas.Line(rect.X, rect.Y + .5f, rect.X + rect.Width, rect.Y + .5f, colors.LayerStroke);
-
-            DrawSettingIcon(canvas, row, 25, rect.Y + (rect.Height - 16) / 2);
-            string name = row switch
-            {
-                SettingRow.TrayMode => "显示哪些设备",
-                SettingRow.DisplayLocation => "显示位置",
-                SettingRow.TaskbarStyle => "任务栏样式",
-                SettingRow.TaskbarColor => "任务栏配色",
-                SettingRow.Theme => "外观模式",
-                SettingRow.Threshold => "电量提醒",
-                SettingRow.GameSilent => "游戏中不打扰",
-                SettingRow.PollInterval => "查询间隔",
-                SettingRow.AutoUpdate => "自动检查更新",
-                SettingRow.RuntimeEstimate => "预计可用时间",
-                _ => "开机自启"
-            };
-            if (row == SettingRow.RuntimeEstimate)
-            {
-                // 明确告知用户：数字由本机历史读数推算，不代表实际续航。
-                float topPad = MathF.Max(2, (rect.Height - 36) / 2);
-                canvas.Text(name, 54, rect.Y + topPad, 200, 19, 13.5f, colors.Ink);
-                canvas.Text("含充满时间 · 仅为估算，不代表实际", 54, rect.Y + topPad + 18, 200, 16, 11, colors.Muted, ellipsis: true);
-            }
-            else
-                canvas.Text(name, 54, rect.Y, 122, rect.Height, 13.5f, colors.Ink);
-
-            if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.AutoUpdate or SettingRow.RuntimeEstimate)
-            {
-                DrawSwitch(canvas, SwitchRect(rect), row switch
+                if (SettingsPanel.IsTaskbarRow(row))
                 {
-                    SettingRow.GameSilent => settings.GameSilent,
-                    SettingRow.Autostart => settings.StartWithWindows,
-                    SettingRow.AutoUpdate => settings.AutoUpdateEnabled,
-                    _ => settings.ShowRuntimeEstimate
-                });
-                continue;
-            }
+                    if (layout.TaskbarRowsProgress <= 0)
+                        continue;
+                    if (!taskbarClipPushed)
+                    {
+                        canvas.PushClip(layout.TaskbarRowsClipRect());
+                        taskbarClipPushed = true;
+                    }
+                }
+                else if (taskbarClipPushed)
+                {
+                    canvas.PopClip();
+                    taskbarClipPushed = false;
+                }
 
-            string value = row switch
-            {
-                SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
-                SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation, displayLocationFallback),
-                SettingRow.TaskbarStyle => Presentation.TaskbarStyleLabel(settings.TaskbarStyle),
-                SettingRow.TaskbarColor => Presentation.TaskbarColorLabel(settings.TaskbarColor),
-                SettingRow.Theme => Presentation.ThemeModeLabel(settings.Theme),
-                SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
-                _ => Presentation.Interval(settings.PollSeconds)
-            };
-            canvas.Text(value, SettingsPanel.Right - 164, rect.Y, 140, rect.Height, 13, colors.Muted,
-                align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
-            DrawChevron(canvas, SettingsPanel.Right - 6, rect.Y + rect.Height / 2, layout.Progress(row));
-            DrawSettingChoices(canvas, row);
+                var drawRect = layout.RowDrawRect(row);
+                var hitRect = layout.RowRect(row);
+                var target = row switch
+                {
+                    SettingRow.GameSilent => PopupAction.GameSilent,
+                    SettingRow.Autostart => PopupAction.Autostart,
+                    SettingRow.RuntimeEstimate => PopupAction.RuntimeEstimate,
+                    _ => new PopupTarget(PopupAction.ExpandSetting, (int)row)
+                };
+                if (hitRect.Height > 0)
+                    subButtons.Add(new(target, hitRect));
+                int roundSide = SettingsPanel.IsSectionStart(row) ? -1
+                    : layout.IsSectionEnd(row) && layout.Progress(row) == 0 ? 1 : 0;
+                if (hitRect.Height > 0)
+                    DrawSettingBackground(canvas, new(target, drawRect), roundSide);
+                if (!SettingsPanel.IsSectionStart(row))
+                    canvas.Line(drawRect.X, drawRect.Y + .5f, drawRect.X + drawRect.Width, drawRect.Y + .5f, colors.LayerStroke);
+
+                DrawSettingIcon(canvas, row, 25, drawRect.Y + (drawRect.Height - 16) / 2);
+                string name = row switch
+                {
+                    SettingRow.TrayMode => "显示哪些设备",
+                    SettingRow.DisplayLocation => "显示位置",
+                    SettingRow.TaskbarStyle => "任务栏样式",
+                    SettingRow.TaskbarColor => "任务栏配色",
+                    SettingRow.Theme => "外观模式",
+                    SettingRow.Threshold => "电量提醒",
+                    SettingRow.GameSilent => "游戏中不打扰",
+                    SettingRow.PollInterval => "查询间隔",
+                    SettingRow.RuntimeEstimate => "预计可用时间",
+                    _ => "开机自启"
+                };
+                if (row == SettingRow.RuntimeEstimate)
+                {
+                    bool compact = drawRect.Height < 38;
+                    float titleH = compact ? 17 : 18;
+                    float subH = compact ? 14 : 15;
+                    float topPad = (drawRect.Height - (titleH + subH)) / 2;
+                    canvas.Text(name, 54, drawRect.Y + topPad, 210, titleH, 13.5f, colors.Ink);
+                    canvas.Text("仅为估算", 54, drawRect.Y + topPad + titleH, 210, subH, 11, colors.Muted, ellipsis: true);
+                }
+                else
+                    canvas.Text(name, 54, drawRect.Y, 122, drawRect.Height, 13.5f, colors.Ink);
+
+                if (row is SettingRow.GameSilent or SettingRow.Autostart or SettingRow.RuntimeEstimate)
+                {
+                    DrawSwitch(canvas, SwitchRect(drawRect), row switch
+                    {
+                        SettingRow.GameSilent => settings.GameSilent,
+                        SettingRow.Autostart => settings.StartWithWindows,
+                        _ => settings.ShowRuntimeEstimate
+                    });
+                    continue;
+                }
+
+                string value = row switch
+                {
+                    SettingRow.TrayMode => Presentation.TrayModeShortLabel(settings.TrayMode),
+                    SettingRow.DisplayLocation => SettingsPanel.DisplayLocationLabel(settings.DisplayLocation, displayLocationFallback),
+                    SettingRow.TaskbarStyle => Presentation.TaskbarStyleLabel(settings.TaskbarStyle),
+                    SettingRow.TaskbarColor => Presentation.TaskbarColorLabel(settings.TaskbarColor),
+                    SettingRow.Theme => Presentation.ThemeModeLabel(settings.Theme),
+                    SettingRow.Threshold => $"{settings.LowBatteryThreshold}%",
+                    _ => Presentation.Interval(settings.PollSeconds)
+                };
+                canvas.Text(value, SettingsPanel.Right - 164, drawRect.Y, 140, drawRect.Height, 13, colors.Muted,
+                    align: DWRITE_TEXT_ALIGNMENT_TRAILING, ellipsis: true);
+                DrawChevron(canvas, SettingsPanel.Right - 6, drawRect.Y + drawRect.Height / 2, layout.Progress(row));
+                DrawSettingChoices(canvas, row);
+            }
         }
-        for (int section = 0; section < SettingsPanel.SectionTitles.Length; section++)
+        finally
+        {
+            if (taskbarClipPushed)
+                canvas.PopClip();
+        }
+        for (int section = 0; section < SettingsPanel.SectionCount; section++)
         {
             var card = layout.SectionRect(section);
             canvas.Stroke(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1, 6.5f, colors.LayerStroke);
@@ -209,7 +232,7 @@ internal sealed partial class PopupScene
                 if (hit.Height > 0)
                 {
                     subButtons.Add(new(choice.Target, hit));
-                    int optionRound = SettingsPanel.IsSectionEnd(row) && index == end - 1 ? 1 : 0;
+                    int optionRound = layout.IsSectionEnd(row) && index == end - 1 ? 1 : 0;
                     DrawSettingBackground(canvas, new(choice.Target, rect), optionRound);
                 }
                 if (choice.Target is { Action: PopupAction.TrayToggle, DeviceId: { } id })
@@ -385,12 +408,6 @@ internal sealed partial class PopupScene
                 Line(8, 4.8f, 8, 8);
                 Line(8, 8, 10.2f, 9.4f);
                 break;
-            case SettingRow.AutoUpdate:
-                // 带箭头的环形刷新符号。
-                canvas.Arc(x + 8, y + 8, 5.6f, -MathF.PI * .35f, MathF.PI * 1.35f, ink, 1.3f);
-                Line(10.5f, 3f, 9.3f, .3f);
-                Line(10.5f, 3f, 7.6f, 3.7f);
-                break;
             case SettingRow.Autostart:
                 Line(8, 2, 8, 7.5f);
                 canvas.Arc(x + 8, y + 8.13f, 5.2f, -.856f, MathF.PI + .856f, ink, 1.3f);
@@ -419,7 +436,6 @@ internal sealed partial class PopupScene
         var settings = model.Settings;
         UpdateThumb(ref gameThumb, ref gameMotion, SwitchRect(Settings!.RowRect(SettingRow.GameSilent)), settings.GameSilent);
         UpdateThumb(ref autostartThumb, ref autostartMotion, SwitchRect(Settings.RowRect(SettingRow.Autostart)), settings.StartWithWindows);
-        UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion, SwitchRect(Settings.RowRect(SettingRow.AutoUpdate)), settings.AutoUpdateEnabled);
         UpdateThumb(ref runtimeThumb, ref runtimeMotion, SwitchRect(Settings.RowRect(SettingRow.RuntimeEstimate)), settings.ShowRuntimeEstimate);
     }
 
@@ -529,14 +545,13 @@ internal sealed partial class PopupScene
             canvas.Text(model.Name(device.Device), 59, name.Y, name.Width - 8, name.Height, 13.5f, Dim(colors.Ink), ellipsis: true);
         }
 
-        float prefix = canvas.Text($"{Presentation.Connection(device.Device)} · ", 59, y + 29.25f, 70, 18, 12, Dim(colors.Muted));
-        float badgeWidth = DrawBadge(canvas, device.Device, 59 + prefix, y + 31, hidden);
+        float connectionWidth = canvas.Text(Presentation.Connection(device.Device), 59, y + 29.25f, 50, 18, 12, Dim(colors.Muted));
 
         float iconTop = y + 12.125f;
         // 单台设备的低电量提醒阈值：点一下在「默认 → 5% → … → 30%」之间循环。
         bool custom = model.Settings.DeviceThresholds.ContainsKey(id);
         string thresholdLabel = custom ? $"提醒 {model.ThresholdFor(id)}%" : "提醒 默认";
-        float chipX = 59 + prefix + badgeWidth + 6;
+        float chipX = 59 + connectionWidth + 6;
         float chipWidth = canvas.Measure(thresholdLabel, 10.5f, 600) + 12;
         // 离线可移除的行右侧有「移除」按钮，统一不显示阈值标签，避免有的显示、有的因放不下而消失。
         if (!removable && chipX + chipWidth <= TrayCheckX - 4)
@@ -679,6 +694,7 @@ internal sealed partial class PopupScene
         const float cardX = 12, cardY = 54, cardW = 320, cardH = 148;
         canvas.Fill(cardX, cardY, cardW, cardH, 7, colors.Layer);
         canvas.Stroke(cardX + .5f, cardY + .5f, cardW - 1, cardH - 1, 6.5f, colors.LayerStroke);
+        DrawUpdatesAutoUpdateRow(canvas);
 
         float buttonY = height - 48;
         switch (updateState.Phase)
@@ -758,15 +774,15 @@ internal sealed partial class PopupScene
 
         // 更新说明卡片（支持滚轮与方向键滚动）
         float buttonY = height - 46;
-        float standaloneNoticeH = updateState.IsInstalled ? 0 : 22;
+        var autoUpdateRect = UpdatesAutoUpdateRect();
         const float notesTop = 118;
-        float notesCardH = MathF.Max(90, buttonY - 10 - standaloneNoticeH - notesTop);
+        float notesCardH = MathF.Max(68, autoUpdateRect.Y - 8 - notesTop);
         canvas.Fill(12, notesTop, 320, notesCardH, 7, colors.Layer);
         canvas.Stroke(12.5f, notesTop + .5f, 319, notesCardH - 1, 6.5f, colors.LayerStroke);
         canvas.Text("更新说明", 24, notesTop + 7, 200, 18, 11.5f, colors.Muted, 600);
         canvas.Line(22, notesTop + 29.5f, 322, notesTop + 29.5f, colors.LayerStroke);
 
-        var viewport = new PanelRect(22, notesTop + 34, 298, MathF.Max(40, notesCardH - 42));
+        var viewport = new PanelRect(22, notesTop + 34, 298, MathF.Max(20, notesCardH - 40));
         var blocks = updateState.Notes;
         var blockHeights = new float[blocks.Length];
         float contentHeight = 0;
@@ -827,6 +843,8 @@ internal sealed partial class PopupScene
             canvas.Fill(325, thumbY, 2.5f, thumbH, 1.25f, colors.Muted.WithAlpha(150));
         }
 
+        DrawUpdatesAutoUpdateRow(canvas);
+
         if (!updateState.IsInstalled)
         {
             canvas.Text("当前运行的是独立构建，请前往 Release 获取正式安装器", 16, buttonY - 24, 312, 18, 11.5f, colors.Muted,
@@ -840,6 +858,39 @@ internal sealed partial class PopupScene
                 ready ? "重启并升级" : "下载并安装", primary: true);
         }
     }
+
+    private PanelRect UpdatesAutoUpdateRect()
+    {
+        bool available = updateState.Phase == UpdatePhase.Available && updateState.Available is not null;
+        float y = available
+            ? height - 46 - (updateState.IsInstalled ? 0 : 22) - 48
+            : height - 48 - 52;
+        return new(12, y, 320, 40);
+    }
+
+    private static PanelRect UpdatesAutoUpdateSwitchRect(PanelRect row) =>
+        new(row.X + row.Width - 52, row.Y + (row.Height - 20) / 2, 40, 20);
+
+    private void DrawUpdatesAutoUpdateRow(Canvas canvas)
+    {
+        var card = UpdatesAutoUpdateRect();
+        canvas.Fill(card.X, card.Y, card.Width, card.Height, 7, colors.Layer);
+        var button = new HitBox(PopupAction.AutoUpdate, new(card.X + 1, card.Y + 1, card.Width - 2, card.Height - 2));
+        subButtons.Add(button);
+        ButtonBackground(canvas, button, 6);
+        var ink = colors.Secondary;
+        float ix = card.X + 12, iy = card.Y + (card.Height - 16) / 2;
+        canvas.Arc(ix + 8, iy + 8, 5.6f, -MathF.PI * .35f, MathF.PI * 1.35f, ink, 1.3f);
+        canvas.Line(ix + 10.5f, iy + 3f, ix + 9.3f, iy + .3f, ink, 1.3f);
+        canvas.Line(ix + 10.5f, iy + 3f, ix + 7.6f, iy + 3.7f, ink, 1.3f);
+        canvas.Text("自动检查更新", card.X + 38, card.Y, card.Width - 96, card.Height, 13.5f, colors.Ink, ellipsis: true);
+        DrawSwitch(canvas, UpdatesAutoUpdateSwitchRect(card), model.Settings.AutoUpdateEnabled);
+        canvas.Stroke(card.X + .5f, card.Y + .5f, card.Width - 1, card.Height - 1, 6.5f, colors.LayerStroke);
+    }
+
+    private void DrawUpdatesSwitchThumb() =>
+        UpdateThumb(ref autoUpdateThumb, ref autoUpdateMotion,
+            UpdatesAutoUpdateSwitchRect(UpdatesAutoUpdateRect()), model.Settings.AutoUpdateEnabled);
 
     private void DrawActionButton(Canvas canvas, HitBox box, string label, bool primary)
     {

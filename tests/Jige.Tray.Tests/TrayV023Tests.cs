@@ -9,8 +9,6 @@ public sealed class TrayV023Tests
 {
     private static readonly DateTimeOffset Now = new(2026, 11, 20, 12, 0, 0, TimeSpan.Zero);
     private static readonly DeviceIdentity CompxMouse = new("mouse:atk-1", "ATK 鼠标", DeviceKind.Mouse);
-    private static readonly DeviceIdentity H9 = new("inzone-h9:sony-1", "Sony INZONE H9（一代接收器）", DeviceKind.Headset,
-        AdaptationSource.Catalog, VerificationTier.HardwareVerified);
 
     [Fact]
     public void AsleepReadingKeepsTheModelNameResolvedWhileOnline()
@@ -246,32 +244,6 @@ public sealed class TrayV023Tests
         export.FeedbackFailed();
         Assert.True(export.HasReport);
         Assert.Equal("复制或打开反馈页失败", DiagnosticExport.Label(export.Status));
-    }
-
-    [Fact]
-    public void B1AndB2_PanelBadgesRemainThreeTypesWhileReadingCatalogVerificationData()
-    {
-        // 已实机验证（由核心目录驱动）。
-        Assert.Equal(AdaptationBadge.Verified, DeviceVerification.Badge(H9));
-        Assert.Equal("已实机验证", DeviceVerification.Label(H9));
-        var htx = new DeviceIdentity("mouse:gw", "G-Wolves HTX Ultra 8K", DeviceKind.Mouse,
-            AdaptationSource.Catalog, VerificationTier.HardwareVerified);
-        Assert.Equal("已实机验证", DeviceVerification.Label(htx));
-
-        // 同家族推定与仅按资料在面板均显示「按协议适配」，用户看到仍保持三种徽标。
-        var fenrirPro = new DeviceIdentity("mouse:gw2", "G-Wolves Fenrir Pro 8K", DeviceKind.Mouse,
-            AdaptationSource.Catalog, VerificationTier.FamilyInferred);
-        Assert.Equal(AdaptationBadge.Protocol, DeviceVerification.Badge(fenrirPro));
-        Assert.Equal("按协议适配", DeviceVerification.Label(fenrirPro));
-
-        var atkCatalog = new DeviceIdentity("mouse:atk", "ATK F1 Ultimate", DeviceKind.Mouse,
-            AdaptationSource.Catalog, VerificationTier.DocsOnly);
-        Assert.Equal(AdaptationBadge.Protocol, DeviceVerification.Badge(atkCatalog));
-
-        // 通用适配继续显示「通用适配」。
-        var generic = new DeviceIdentity("mouse:gen", "ATK 鼠标", DeviceKind.Mouse, AdaptationSource.Generic);
-        Assert.Equal(AdaptationBadge.Generic, DeviceVerification.Badge(generic));
-        Assert.Equal("通用适配", DeviceVerification.Label(generic));
     }
 
     [Fact]

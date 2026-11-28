@@ -91,7 +91,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         screenBounds = new(info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom);
         iconBounds = new(anchor.left, anchor.top, anchor.right, anchor.bottom);
         float dpiScale = Desktop.Dpi(screen) / 96f;
-        // 按系统缩放下的可用高度决定设置页是否省掉小标题；紧凑版仍放不下时才等比缩小整个面板。
+        // 按系统缩放下的可用高度决定设置页是否收紧行高；紧凑版仍放不下时才等比缩小整个面板。
         int nativeAvailable = dpiScale > 0 ? (int)(work.Height / dpiScale) - 24 : 0;
         int minimumHeight = IsNotice ? PanelLayout.NoticeHeight
             : PanelLayout.SettingsHeightFor(nativeAvailable) + PanelLayout.DiagnosticFooterExtraHeight + SettingsPanel.OptionHeight;
@@ -117,7 +117,9 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
 
         bool diagnosticFooter = HasDiagnosticFooter(page);
         var size = SizeOf(page);
-        if (scene?.Page != page || scene.Size != size || scene.HasDiagnosticFooter != diagnosticFooter)
+        bool replaceScene = scene?.Page != page || scene.HasDiagnosticFooter != diagnosticFooter ||
+            (page == PanelPage.Settings ? scene.AvailableHeight != AvailableHeight : scene.Size != size);
+        if (replaceScene)
             ReplaceScene(size);
         else
             DrawScene();
@@ -134,6 +136,7 @@ internal sealed unsafe class PopupWindow(HWND hwnd, TrayModel model, string? not
         int count = target switch
         {
             PanelPage.Main => MainCount(),
+            PanelPage.Settings => PanelLayout.SettingsRowCount(model.Settings.DisplayLocation != TrayDisplayLocation.TrayIcons),
             PanelPage.Devices => model.OrderedForManagement().Length,
             PanelPage.Updates => updateState.Phase == UpdatePhase.Available ? 1 : 0,
             _ => 0

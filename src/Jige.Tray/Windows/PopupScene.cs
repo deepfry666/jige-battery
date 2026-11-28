@@ -89,6 +89,7 @@ internal sealed partial class PopupScene : IDisposable
     private float updateNotesScroll;
     private float updateNotesMaxScroll;
     private Version? lastUpdateNotesVersion;
+    private readonly int availableHeight;
     private readonly bool hasDiagnosticFooter;
     private bool HasDiagnosticReport => hasDiagnosticFooter && DiagnosticExport.HasReportStatus(diagnosticStatus);
     private int Threshold(DeviceStatus device) => model.ThresholdFor(device.Device.Id);
@@ -117,11 +118,13 @@ internal sealed partial class PopupScene : IDisposable
         this.noticeId = noticeId;
         this.size = size;
         this.offset = offset;
+        this.availableHeight = availableHeight;
         this.hasDiagnosticFooter = hasDiagnosticFooter;
         Page = page;
         rows = new Composition.Layer[page == PanelPage.Main ? size.Rows : 0];
         if (page == PanelPage.Settings)
-            Settings = new(availableHeight, hasDiagnosticFooter);
+            Settings = new(availableHeight, hasDiagnosticFooter,
+                showTaskbarRows: model.Settings.DisplayLocation != TrayDisplayLocation.TrayIcons);
         frame = new(composition, composition.Root, 0, 0, Width, SurfaceHeight);
         try
         {
@@ -141,6 +144,7 @@ internal sealed partial class PopupScene : IDisposable
 
     public PanelPage Page { get; }
     public PanelSize Size => size;
+    public int AvailableHeight => availableHeight;
     public bool HasDiagnosticFooter => hasDiagnosticFooter;
     public int Offset => offset;
     public SettingsPanel? Settings { get; }
@@ -203,6 +207,7 @@ internal sealed partial class PopupScene : IDisposable
         {
             devices = model.OrderedForManagement();
             Settings?.UpdateTrayChoices(model, devices);
+            Settings?.SyncTaskbarRows(model.Settings.DisplayLocation != TrayDisplayLocation.TrayIcons);
             mainEntries = [];
         }
 
@@ -423,6 +428,8 @@ internal sealed partial class PopupScene : IDisposable
         DrawFrame();
         if (Settings is not null)
             DrawSwitchThumbs();
+        else if (Page == PanelPage.Updates)
+            DrawUpdatesSwitchThumb();
     }
 
     private void DrawFrame() => frame.Draw(canvas =>
@@ -483,20 +490,16 @@ internal sealed partial class PopupScene : IDisposable
         DeviceIcon(canvas, device.Device.Kind, 23, 67, 36,
             disconnected ? colors.Chip : colors.AccentSoft,
             disconnected ? colors.Muted : colors.Accent);
-        float nameWidth = canvas.Text(model.Name(device.Device), 69, 65, 194, 22, 14,
+        float nameY = disconnected ? 65 : 74;
+        float tagY = disconnected ? 68 : 77;
+        float nameWidth = canvas.Text(model.Name(device.Device), 69, nameY, 210, 22, 14,
             disconnected ? colors.Secondary : colors.Ink, 600, ellipsis: true);
-        float tagX = 69 + Math.Min(nameWidth, 194) + 6;
-        canvas.Fill(tagX, 69, 34, 16, 4, colors.Chip);
-        canvas.Text(Presentation.Connection(device.Device), tagX, 69, 34, 16, 10.5f, colors.Secondary, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
+        float tagX = 69 + Math.Min(nameWidth, 210) + 6;
+        canvas.Fill(tagX, tagY, 34, 16, 4, colors.Chip);
+        canvas.Text(Presentation.Connection(device.Device), tagX, tagY, 34, 16, 10.5f, colors.Secondary, 600, align: DWRITE_TEXT_ALIGNMENT_CENTER);
 
-        // 顶部卡片不再显示「固定在托盘」；无在线设备时明确标明「已断开」，同时展示适配徽标（A4 / B4 / B7）。
-        float metaX = 69;
         if (disconnected)
-        {
-            float discWidth = canvas.Text("已断开 · ", metaX, 86, 80, 18, 11.5f, colors.Muted);
-            metaX += discWidth;
-        }
-        DrawBadge(canvas, device.Device, metaX, 87.5f, dimmed: false);
+            canvas.Text("已断开", 69, 86, 80, 18, 11.5f, colors.Muted);
 
         var tone = Presentation.Tone(device, Threshold(device));
         var ink = tone switch
@@ -538,12 +541,8 @@ internal sealed partial class PopupScene : IDisposable
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
         DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
         string status = Presentation.Status(device, Threshold(device), model.Runtime(device, DateTimeOffset.UtcNow), compact: true);
-        bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
-        float nameMaxWidth = isGeneric ? 98 : 153;
-        float nameWidth = canvas.Text(model.Name(device.Device), 56, 5, nameMaxWidth, 19, 13.5f,
+        canvas.Text(model.Name(device.Device), 56, 5, 153, 19, 13.5f,
             tone == BatteryTone.Idle ? colors.Muted : colors.Ink, ellipsis: true);
-        if (isGeneric)
-            DrawBadge(canvas, device.Device, 56 + Math.Min(nameWidth, nameMaxWidth) + 5, 7, dimmed: tone == BatteryTone.Idle);
         var statusColor = tone is BatteryTone.Low or BatteryTone.Warning or BatteryTone.Charging ? colors.Status(tone) : colors.Muted;
         canvas.Text(status, 56, 23, 155, 19, 12, statusColor, ellipsis: true);
 
@@ -556,27 +555,6 @@ internal sealed partial class PopupScene : IDisposable
         };
         DrawNumber(canvas, device, 260, 7, 64, 34, 20, 12, 11, ink, true);
     });
-
-    private float DrawBadge(Canvas canvas, DeviceIdentity device, float x, float y, bool dimmed)
-    {
-        var badge = DeviceVerification.Badge(device);
-        string label = DeviceVerification.Label(badge);
-        float badgeWidth = canvas.Measure(label, 10.5f, 600) + 10;
-        var (bg, fg) = badge switch
-        {
-            AdaptationBadge.Verified => (colors.Charging.WithAlpha(41), colors.Charging),
-            AdaptationBadge.Generic => (colors.AccentSoft, colors.Accent),
-            _ => (colors.Chip, colors.Secondary)
-        };
-        if (dimmed)
-        {
-            bg = bg.WithAlpha((byte)Math.Round(bg.Alpha * .45));
-            fg = fg.WithAlpha((byte)Math.Round(fg.Alpha * .45));
-        }
-        canvas.Fill(x, y, badgeWidth, 15.5f, 4, bg);
-        canvas.Text(label, x + 5, y, badgeWidth - 10, 15.5f, 10.5f, fg, 600);
-        return badgeWidth;
-    }
 
     private void DrawNumber(Canvas canvas, DeviceStatus device, float x, float y, float width, float height,
         float numberSize, float percentSize, float approxSize, Color ink, bool rightAlign)
