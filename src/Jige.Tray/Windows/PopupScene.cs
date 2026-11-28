@@ -480,7 +480,7 @@ internal sealed partial class PopupScene : IDisposable
     {
         canvas.Fill(8, 52, 328, 144, 7, colors.Layer);
         canvas.Stroke(8.5f, 52.5f, 327, 143, 6.5f, colors.LayerStroke);
-        DeviceIcon(canvas, device.Device.Kind, 23, 67, 36,
+        DeviceIcon(canvas, device.Device, 23, 67, 36,
             disconnected ? colors.Chip : colors.AccentSoft,
             disconnected ? colors.Muted : colors.Accent);
         float nameWidth = canvas.Text(model.Name(device.Device), 69, 65, 194, 22, 14,
@@ -536,7 +536,7 @@ internal sealed partial class PopupScene : IDisposable
         var tone = Presentation.Tone(device, Threshold(device));
         if (hoverRow == index)
             canvas.Fill(0, 0, Width - 8, RowHeight, 6, colors.Hover);
-        DeviceIcon(canvas, device.Device.Kind, 12, 8, 32, colors.Chip, colors.Secondary);
+        DeviceIcon(canvas, device.Device, 12, 8, 32, colors.Chip, tone == BatteryTone.Idle ? colors.Muted : colors.Ink);
         string status = Presentation.Status(device, Threshold(device), model.Runtime(device, DateTimeOffset.UtcNow), compact: true);
         bool isGeneric = DeviceVerification.Badge(device.Device) == AdaptationBadge.Generic;
         float nameMaxWidth = isGeneric ? 98 : 153;
@@ -647,7 +647,7 @@ internal sealed partial class PopupScene : IDisposable
             ReminderKind.Predicted => colors.Warning,
             _ => colors.Low
         };
-        DeviceIcon(canvas, notice.Device.Kind, 14, 46, 36, accent.WithAlpha(36), accent);
+        DeviceIcon(canvas, notice.Device, 14, 46, 36, accent.WithAlpha(36), accent);
         var (title, suffix) = Presentation.ReminderParts(noticeKind, notice, model.Runtime(notice, DateTimeOffset.UtcNow));
         canvas.Text(title, 62, 44, 269, 21, 14, colors.Ink, 600, ellipsis: true);
         // 名称过长时只省略名称，「只剩 xx%」「预计可用约 40 分钟」等后缀始终完整可见。
@@ -688,8 +688,8 @@ internal sealed partial class PopupScene : IDisposable
         canvas.Line(20.2f, 12.4f, 17.6f, 12.4f, ink, 1.4f);
     }
 
-    private static void DeviceIcon(Canvas canvas, DeviceKind kind, float x, float y, float size, Color fill, Color ink) =>
-        canvas.DeviceTile(kind, x, y, size, fill, ink);
+    private static void DeviceIcon(Canvas canvas, DeviceIdentity device, float x, float y, float size, Color fill, Color ink) =>
+        canvas.BrandTile(DeviceBrandResolver.Resolve(device), x, y, size, fill, ink);
 
     public void Dispose()
     {

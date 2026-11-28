@@ -181,7 +181,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
     private void DrawSingle(Canvas canvas, HoverCardContent content, int width)
     {
         bool idle = content.Tone == BatteryTone.Idle;
-        canvas.DeviceTile(content.DeviceKind, 14, 12, 32,
+        canvas.BrandTile(content.Brand, 14, 12, 32,
             idle ? colors.Chip : colors.AccentSoft,
             idle ? colors.Muted : colors.Accent);
 
@@ -253,7 +253,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
                 canvas.Line(14, rowTop + .5f, width - 14, rowTop + .5f, colors.Border);
 
             bool idle = row.Tone == BatteryTone.Idle;
-            canvas.DeviceTile(row.Kind, 14, rowTop + 9, 24,
+            canvas.BrandTile(row.Brand, 14, rowTop + 9, 24,
                 idle ? colors.Chip : colors.AccentSoft,
                 idle ? colors.Muted : colors.Accent);
 
@@ -312,7 +312,7 @@ internal sealed unsafe class HoverCardWindow(HWND hwnd, TrayModel model) : IDisp
     {
         if (a is null)
             return false;
-        if (a.Kind != b.Kind || a.Title != b.Title || a.DeviceKind != b.DeviceKind ||
+        if (a.Kind != b.Kind || a.Title != b.Title || a.DeviceKind != b.DeviceKind || a.Brand != b.Brand ||
             a.DeviceName != b.DeviceName || a.ConnectionTag != b.ConnectionTag ||
             a.SourceLabel != b.SourceLabel || a.Percentage != b.Percentage ||
             a.IsEstimated != b.IsEstimated || a.ValueText != b.ValueText ||

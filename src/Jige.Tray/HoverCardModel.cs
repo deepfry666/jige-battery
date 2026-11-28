@@ -16,7 +16,8 @@ internal sealed record HoverCardRow(
     BatteryTone Tone,
     int FilledCells,
     bool IsCharging,
-    bool IsAsleep);
+    bool IsAsleep,
+    DeviceBrand Brand = DeviceBrand.Unknown);
 
 internal sealed record HoverCardContent(
     HoverCardKind Kind,
@@ -35,7 +36,8 @@ internal sealed record HoverCardContent(
     HoverCardRow[] Rows,
     int TotalActiveCount,
     int OverflowCount,
-    string RuntimeLine = "")
+    string RuntimeLine = "",
+    DeviceBrand Brand = DeviceBrand.Unknown)
 {
     public const int CardWidth = 248;
     public const int MaxListRows = 6;
@@ -191,7 +193,8 @@ internal static class HoverCardBuilder
             Rows: [],
             TotalActiveCount: 1,
             OverflowCount: 0,
-            RuntimeLine: RuntimeLine(device, model.Runtime(device, now)));
+            RuntimeLine: RuntimeLine(device, model.Runtime(device, now)),
+            Brand: DeviceBrandResolver.Resolve(device.Device));
     }
 
     private static HoverCardRow BuildRow(TrayModel model, DeviceStatus device, int threshold, DateTimeOffset now)
@@ -208,7 +211,8 @@ internal static class HoverCardBuilder
             Tone: tone,
             FilledCells: Presentation.FilledCells(device, 5),
             IsCharging: device.IsCharging && !device.IsFull,
-            IsAsleep: device.Link == LinkState.Asleep);
+            IsAsleep: device.Link == LinkState.Asleep,
+            Brand: DeviceBrandResolver.Resolve(device.Device));
     }
 
     private static HoverCardContent Empty() => new(
