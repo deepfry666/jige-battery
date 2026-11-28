@@ -1,30 +1,33 @@
 namespace Jige.Tray.Windows;
 
-/// <summary>设置行按显示顺序排列，分三组：显示（5 行）/ 电量（3 行）/ 通用（3 行）。</summary>
+/// <summary>设置行按显示顺序排列，分三组：显示位置与托盘/任务栏（2 或 4 行）/ 电量与轮询（3 行）/ 外观与通用（3 行）。</summary>
 internal enum SettingRow
 {
-    DisplayLocation, TaskbarStyle, TaskbarColor, TrayMode, Theme,
+    DisplayLocation, TrayMode, TaskbarStyle, TaskbarColor,
     Threshold, RuntimeEstimate, PollInterval,
-    GameSilent, Autostart, AutoUpdate
+    Theme, GameSilent, Autostart
 }
 
 internal readonly record struct SettingChoice(PopupTarget Target, string Label);
 
-internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false)
+internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFooter = false, bool showTaskbarRows = true)
 {
     public const int CardX = 9, CardWidth = PanelLayout.Width - 18;
     public const int OptionHeight = PanelLayout.SettingsOptionHeight, Right = CardX + CardWidth - 13;
-    /// <summary>第一组小标题的顶部，以及小标题高度、组间距和各组行数。</summary>
-    public const int StackTop = 47, HeaderHeight = PanelLayout.SettingsHeaderHeight, SectionGap = 6;
-    public static readonly string[] SectionTitles = ["显示", "电量", "通用"];
-    public static readonly int[] SectionSizes = [5, 3, 3];
-    private static readonly int[] SectionStarts = [0, 5, 8];
+    public const int StackTop = PanelLayout.SettingsStackTop, SectionGap = PanelLayout.SettingsSectionGap;
+    public const int SectionCount = PanelLayout.SettingsSections;
+    public static readonly int[] SectionSizes = [4, 3, 3];
+    private static readonly int[] SectionStarts = [0, 4, 7];
+    private const int TaskbarRowCount = PanelLayout.SettingsMaxRowCount - PanelLayout.SettingsTrayRowCount;
     private const int MaxVisibleOptions = 6;
 
     public static ReadOnlySpan<SettingRow> Rows =>
-        [SettingRow.DisplayLocation, SettingRow.TaskbarStyle, SettingRow.TaskbarColor, SettingRow.TrayMode, SettingRow.Theme,
+        [SettingRow.DisplayLocation, SettingRow.TrayMode, SettingRow.TaskbarStyle, SettingRow.TaskbarColor,
             SettingRow.Threshold, SettingRow.RuntimeEstimate, SettingRow.PollInterval,
-            SettingRow.GameSilent, SettingRow.Autostart, SettingRow.AutoUpdate];
+            SettingRow.Theme, SettingRow.GameSilent, SettingRow.Autostart];
+
+    public static bool IsTaskbarRow(SettingRow row) =>
+        row is SettingRow.TaskbarStyle or SettingRow.TaskbarColor;
 
     public static int SectionOf(SettingRow row)
     {
@@ -36,12 +39,6 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     }
 
     public static bool IsSectionStart(SettingRow row) => (int)row == SectionStarts[SectionOf(row)];
-
-    public static bool IsSectionEnd(SettingRow row)
-    {
-        int section = SectionOf(row);
-        return (int)row == SectionStarts[section] + SectionSizes[section] - 1;
-    }
 
     public static readonly SettingChoice[] TrayModeChoices =
     [
@@ -120,28 +117,60 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     private readonly float[] progress = new float[Rows.Length];
     private readonly float[] from = new float[Rows.Length];
     private readonly float[] renderedProgress = new float[Rows.Length];
+    private readonly float[] optionHeight = new float[Rows.Length];
+    private readonly float[] optionHeightFrom = new float[Rows.Length];
     private readonly int[] offsets = new int[Rows.Length];
     private SettingChoice[] trayChoices = TrayModeChoices;
+    private float taskbarProgress = showTaskbarRows ? 1f : 0f;
+    private float taskbarFrom = showTaskbarRows ? 1f : 0f;
+    private float renderedTaskbarProgress = showTaskbarRows ? 1f : 0f;
+    private float rowHeightCurrent = RowHeightFor(availableHeight, showTaskbarRows);
+    private float rowHeightFrom = RowHeightFor(availableHeight, showTaskbarRows);
+    private float renderedRowHeight = RowHeightFor(availableHeight, showTaskbarRows);
     private float renderedHeight = -1;
     private long started;
+
+    private static int RowHeightFor(int height, bool taskbarRows) =>
+        PanelLayout.CompactSettings(height, PanelLayout.SettingsRowCount(taskbarRows))
+            ? PanelLayout.SettingsCompactRowHeight : PanelLayout.SettingsRowHeight;
 
     public SettingRow? Expanded { get; private set; }
     public bool Animating { get; private set; }
     public bool HasDiagnosticFooter => hasDiagnosticFooter;
-    /// <summary>屏幕太矮时不画小标题并收紧行高，见 <see cref="PanelLayout.CompactSettings"/>。</summary>
-    public bool Compact { get; } = PanelLayout.CompactSettings(availableHeight);
+    public bool ShowTaskbarRows { get; private set; } = showTaskbarRows;
+    public int VisibleRowCount => PanelLayout.SettingsRowCount(ShowTaskbarRows);
+    /// <summary>屏幕太矮时收紧行高，见 <see cref="PanelLayout.CompactSettings"/>。</summary>
+    public bool Compact => PanelLayout.CompactSettings(availableHeight, VisibleRowCount);
     public int RowHeight => Compact ? PanelLayout.SettingsCompactRowHeight : PanelLayout.SettingsRowHeight;
-    public int Header => Compact ? 0 : HeaderHeight;
-    private int BaseHeight => PanelLayout.SettingsHeightFor(availableHeight) +
-        (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
+    public float CurrentRowHeight => rowHeightCurrent;
+    public float TaskbarRowsProgress => taskbarProgress;
     public int FooterHeight => hasDiagnosticFooter ? PanelLayout.DiagnosticFooterHeight : PanelLayout.FooterHeight;
+    private int BaseHeight => PanelLayout.SettingsHeightFor(availableHeight, VisibleRowCount) +
+        (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
+    private float BaseHeightFloat => PanelLayout.SettingsChromeHeight +
+        (PanelLayout.SettingsTrayRowCount + TaskbarRowCount * taskbarProgress) * rowHeightCurrent +
+        (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
+    private int MaxBaseHeight => Math.Max(
+        PanelLayout.SettingsHeightFor(availableHeight, PanelLayout.SettingsMaxRowCount),
+        PanelLayout.SettingsHeightFor(availableHeight, PanelLayout.SettingsTrayRowCount)) +
+        (hasDiagnosticFooter ? PanelLayout.DiagnosticFooterExtraHeight : 0);
     private int Capacity => Math.Clamp((availableHeight - BaseHeight) / OptionHeight, 1, MaxVisibleOptions);
-    public int SurfaceHeight => BaseHeight + Capacity * OptionHeight;
-    public float ExtraHeight => VisibleHeight(SettingRow.TrayMode) + VisibleHeight(SettingRow.Threshold) +
-        VisibleHeight(SettingRow.PollInterval) + VisibleHeight(SettingRow.DisplayLocation) +
+    public int SurfaceHeight => MaxBaseHeight + MaxVisibleOptions * OptionHeight;
+    public float ExtraHeight => VisibleHeight(SettingRow.DisplayLocation) + VisibleHeight(SettingRow.TrayMode) +
         VisibleHeight(SettingRow.TaskbarStyle) + VisibleHeight(SettingRow.TaskbarColor) +
+        VisibleHeight(SettingRow.Threshold) + VisibleHeight(SettingRow.PollInterval) +
         VisibleHeight(SettingRow.Theme);
-    public float Height => BaseHeight + ExtraHeight;
+    public float Height => BaseHeightFloat + ExtraHeight;
+
+    public bool IsVisible(SettingRow row) => !IsTaskbarRow(row) || ShowTaskbarRows;
+
+    public bool IsSectionEnd(SettingRow row) => row switch
+    {
+        SettingRow.TrayMode => !ShowTaskbarRows && taskbarProgress <= 0,
+        SettingRow.TaskbarColor => ShowTaskbarRows || taskbarProgress > 0,
+        SettingRow.PollInterval or SettingRow.Autostart => true,
+        _ => false
+    };
 
     public void UpdateTrayChoices(TrayModel model, IReadOnlyList<DeviceStatus> devices)
     {
@@ -150,6 +179,8 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
                 new SettingChoice(new(PopupAction.TrayToggle, DeviceId: device.Device.Id), model.Name(device.Device)))] :
             TrayModeChoices;
         offsets[(int)SettingRow.TrayMode] = Math.Min(Offset(SettingRow.TrayMode), MaxOffset(SettingRow.TrayMode));
+        if (!Animating && Expanded == SettingRow.TrayMode)
+            optionHeight[(int)SettingRow.TrayMode] = VisibleCount(SettingRow.TrayMode) * OptionHeight;
     }
 
     public SettingChoice[] Choices(SettingRow row) => row switch
@@ -170,36 +201,93 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     public int Offset(SettingRow row) => offsets[(int)row];
     public int MaxOffset(SettingRow row) => Count(row) - VisibleCount(row);
     public float Progress(SettingRow row) => progress[(int)row];
-    public float VisibleHeight(SettingRow row) => VisibleCount(row) * OptionHeight * Progress(row);
+    public float VisibleHeight(SettingRow row) => optionHeight[(int)row];
+    private float TaskbarRowsHeight => TaskbarRowCount * rowHeightCurrent * taskbarProgress +
+        VisibleHeight(SettingRow.TaskbarStyle) + VisibleHeight(SettingRow.TaskbarColor);
 
-    public PanelRect RowRect(SettingRow row)
+    /// <summary>「任务栏样式」「任务栏配色」两行在第一组卡片底部平滑展开/收起时的裁剪区域。</summary>
+    public PanelRect TaskbarRowsClipRect()
     {
-        float y = StackTop;
-        for (int index = 0; ; index++)
-        {
-            var current = (SettingRow)index;
-            if (IsSectionStart(current))
-                y += (index > 0 ? 1 + SectionGap : 0) + Header + 1;
-            if (current == row)
-                break;
-            y += RowHeight + VisibleHeight(current);
-        }
-        return new(CardX + 1, y, CardWidth - 2, RowHeight);
+        float y = StackTop + 1 + rowHeightCurrent + VisibleHeight(SettingRow.DisplayLocation) +
+            rowHeightCurrent + VisibleHeight(SettingRow.TrayMode);
+        return new(CardX + 1, y, CardWidth - 2, TaskbarRowsHeight);
     }
 
-    /// <summary>一组设置的卡片外框（含展开的选项）。</summary>
+    /// <summary>行内容绘制区域（始终按完整行高排版，条件隐藏行由裁剪区平滑截断，避免文字被压扁）。</summary>
+    public PanelRect RowDrawRect(SettingRow row) =>
+        new(CardX + 1, RowTop(row), CardWidth - 2, rowHeightCurrent);
+
+    /// <summary>行点击与焦点区域；托盘模式下隐藏的任务栏两行高度为 0，无点击热区。</summary>
+    public PanelRect RowRect(SettingRow row)
+    {
+        var draw = RowDrawRect(row);
+        if (!IsTaskbarRow(row))
+            return draw;
+        if (!ShowTaskbarRows)
+            return draw with { Height = 0 };
+        var clip = TaskbarRowsClipRect();
+        return draw with { Height = Math.Clamp(clip.Y + clip.Height - draw.Y, 0, draw.Height) };
+    }
+
+    private float RowTop(SettingRow row)
+    {
+        float y0 = StackTop + 1;
+        if (row == SettingRow.DisplayLocation)
+            return y0;
+        float yTray = y0 + rowHeightCurrent + VisibleHeight(SettingRow.DisplayLocation);
+        if (row == SettingRow.TrayMode)
+            return yTray;
+        float yStyle = yTray + rowHeightCurrent + VisibleHeight(SettingRow.TrayMode);
+        if (row == SettingRow.TaskbarStyle)
+            return yStyle;
+        if (row == SettingRow.TaskbarColor)
+            return yStyle + rowHeightCurrent + VisibleHeight(SettingRow.TaskbarStyle);
+
+        float yThreshold = yStyle + TaskbarRowsHeight + 1 + SectionGap + 1;
+        if (row == SettingRow.Threshold)
+            return yThreshold;
+        float yRuntime = yThreshold + rowHeightCurrent + VisibleHeight(SettingRow.Threshold);
+        if (row == SettingRow.RuntimeEstimate)
+            return yRuntime;
+        float yPoll = yRuntime + rowHeightCurrent + VisibleHeight(SettingRow.RuntimeEstimate);
+        if (row == SettingRow.PollInterval)
+            return yPoll;
+
+        float yTheme = yPoll + rowHeightCurrent + VisibleHeight(SettingRow.PollInterval) + 1 + SectionGap + 1;
+        if (row == SettingRow.Theme)
+            return yTheme;
+        float yGame = yTheme + rowHeightCurrent + VisibleHeight(SettingRow.Theme);
+        if (row == SettingRow.GameSilent)
+            return yGame;
+        return yGame + rowHeightCurrent + VisibleHeight(SettingRow.GameSilent);
+    }
+
+    /// <summary>一组设置的卡片外框（含展开的选项与条件可见行）。</summary>
     public PanelRect SectionRect(int section)
     {
-        var first = RowRect((SettingRow)SectionStarts[section]);
-        var last = (SettingRow)(SectionStarts[section] + SectionSizes[section] - 1);
-        float bottom = RowRect(last).Y + RowHeight + VisibleHeight(last) + 1;
-        return new(CardX, first.Y - 1, CardWidth, bottom - first.Y + 1);
+        if (section == 0)
+        {
+            float content = 2 * rowHeightCurrent + VisibleHeight(SettingRow.DisplayLocation) +
+                VisibleHeight(SettingRow.TrayMode) + TaskbarRowsHeight;
+            return new(CardX, StackTop, CardWidth, content + 2);
+        }
+        if (section == 1)
+        {
+            float top = RowTop(SettingRow.Threshold) - 1;
+            float content = 3 * rowHeightCurrent + VisibleHeight(SettingRow.Threshold) +
+                VisibleHeight(SettingRow.RuntimeEstimate) + VisibleHeight(SettingRow.PollInterval);
+            return new(CardX, top, CardWidth, content + 2);
+        }
+        float top2 = RowTop(SettingRow.Theme) - 1;
+        float content2 = 3 * rowHeightCurrent + VisibleHeight(SettingRow.Theme) +
+            VisibleHeight(SettingRow.GameSilent) + VisibleHeight(SettingRow.Autostart);
+        return new(CardX, top2, CardWidth, content2 + 2);
     }
 
     public PanelRect OptionsRect(SettingRow row)
     {
-        var parent = RowRect(row);
-        return parent with { Y = parent.Y + RowHeight, Height = VisibleHeight(row) };
+        var parent = RowDrawRect(row);
+        return parent with { Y = parent.Y + rowHeightCurrent, Height = VisibleHeight(row) };
     }
 
     public PanelRect OptionRect(SettingRow row, int index)
@@ -211,10 +299,16 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     public PanelRect OptionHitRect(SettingRow row, int index)
     {
         var option = OptionRect(row, index);
-        if (Expanded != row || index < Offset(row) || index >= Count(row))
+        if (!IsVisible(row) || Expanded != row || index < Offset(row) || index >= Count(row))
             return option with { Height = 0 };
         var area = OptionsRect(row);
-        return option with { Height = Math.Clamp(area.Y + area.Height - option.Y, 0, OptionHeight) };
+        float bottom = area.Y + area.Height;
+        if (IsTaskbarRow(row))
+        {
+            var clip = TaskbarRowsClipRect();
+            bottom = MathF.Min(bottom, clip.Y + clip.Height);
+        }
+        return option with { Height = Math.Clamp(bottom - option.Y, 0, OptionHeight) };
     }
 
     public bool Scroll(int step)
@@ -229,12 +323,12 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
 
     public bool Toggle(SettingRow row, long time, bool animate, int selectedIndex)
     {
-        if (Count(row) == 0)
+        if (!IsVisible(row) || Count(row) == 0)
             return false;
         if (Expanded == row)
             return Collapse(time, animate);
         offsets[(int)row] = Math.Clamp(selectedIndex - VisibleCount(row) + 1, 0, MaxOffset(row));
-        SetExpanded(row, time, animate);
+        SetState(row, ShowTaskbarRows, time, animate);
         return true;
     }
 
@@ -242,16 +336,37 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
     {
         if (Expanded is null)
             return false;
-        SetExpanded(null, time, animate);
+        SetState(null, ShowTaskbarRows, time, animate);
         return true;
     }
 
-    private void SetExpanded(SettingRow? row, long time, bool animate)
+    public bool SetShowTaskbarRows(bool visible, long time, bool animate)
     {
-        // 切换时从当前帧接续，旧选项退场的同时新选项展开。
+        if (ShowTaskbarRows == visible)
+            return false;
+        var nextExpanded = !visible && Expanded is { } active && IsTaskbarRow(active) ? null : Expanded;
+        SetState(nextExpanded, visible, time, animate);
+        return true;
+    }
+
+    public void SyncTaskbarRows(bool visible)
+    {
+        if (ShowTaskbarRows != visible)
+            SetShowTaskbarRows(visible, Environment.TickCount64, animate: false);
+    }
+
+    private void SetState(SettingRow? expanded, bool showTaskbar, long time, bool animate)
+    {
+        // 切换时从当前帧接续，旧选项退场、新选项展开与条件行显隐共用同一缓动曲线。
         Advance(time);
         progress.CopyTo(from, 0);
-        Expanded = row;
+        optionHeight.CopyTo(optionHeightFrom, 0);
+        taskbarFrom = taskbarProgress;
+        rowHeightFrom = rowHeightCurrent;
+        Expanded = expanded;
+        ShowTaskbarRows = showTaskbar;
+        foreach (var row in Rows)
+            offsets[(int)row] = Math.Min(Offset(row), MaxOffset(row));
         started = time;
         Animating = animate;
         renderedHeight = -1;
@@ -271,19 +386,29 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         {
             float target = Expanded == row ? 1 : 0;
             progress[(int)row] = from[(int)row] + (target - from[(int)row]) * eased;
+            float targetHeight = Expanded == row ? VisibleCount(row) * OptionHeight : 0;
+            optionHeight[(int)row] = optionHeightFrom[(int)row] + (targetHeight - optionHeightFrom[(int)row]) * eased;
         }
+        float targetTaskbar = ShowTaskbarRows ? 1 : 0;
+        taskbarProgress = taskbarFrom + (targetTaskbar - taskbarFrom) * eased;
+        float targetRowHeight = RowHeight;
+        rowHeightCurrent = rowHeightFrom + (targetRowHeight - rowHeightFrom) * eased;
 
         bool finished = wasAnimating && !Animating;
         float nextHeight = Height;
         bool heightChanged = renderedHeight < 0 ||
             MathF.Round(nextHeight * scale) != MathF.Round(renderedHeight * scale);
-        bool rowChanged = false;
-        for (int i = 0; i < progress.Length; i++)
+        bool rowChanged = MathF.Abs(taskbarProgress - renderedTaskbarProgress) >= 0.005f ||
+            MathF.Abs(rowHeightCurrent - renderedRowHeight) >= 0.05f;
+        if (!rowChanged)
         {
-            if (MathF.Abs(progress[i] - renderedProgress[i]) >= 0.005f)
+            for (int i = 0; i < progress.Length; i++)
             {
-                rowChanged = true;
-                break;
+                if (MathF.Abs(progress[i] - renderedProgress[i]) >= 0.005f)
+                {
+                    rowChanged = true;
+                    break;
+                }
             }
         }
 
@@ -291,12 +416,16 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
             return false;
 
         renderedHeight = nextHeight;
+        renderedTaskbarProgress = taskbarProgress;
+        renderedRowHeight = rowHeightCurrent;
         progress.CopyTo(renderedProgress, 0);
         return true;
     }
 
     public bool Select(PopupTarget target, TrayModel model, long time, bool animate, Action<TraySettings> save)
     {
+        if (Expanded is { } active && !IsVisible(active))
+            return false;
         var settings = model.Settings;
         TraySettings? next = (Expanded, target.Action) switch
         {
@@ -322,10 +451,17 @@ internal sealed class SettingsPanel(int availableHeight, bool hasDiagnosticFoote
         };
         if (next is null)
             return false;
+        if (target.Action == PopupAction.DisplayLocation)
+        {
+            bool nextShowTaskbar = next.DisplayLocation != TrayDisplayLocation.TrayIcons;
+            SetState(expanded: null, showTaskbar: nextShowTaskbar, time, animate);
+        }
         // 勾选类选项与任务栏样式/配色保持展开，方便边看任务栏效果边连续切换。
-        if (target.Action is not (PopupAction.TrayMode or PopupAction.TaskbarStyle or PopupAction.TaskbarColor
+        else if (target.Action is not (PopupAction.TrayMode or PopupAction.TaskbarStyle or PopupAction.TaskbarColor
             or PopupAction.GameEntryReminder or PopupAction.FullChargeReminder))
+        {
             Collapse(time, animate);
+        }
         save(next);
         return true;
     }

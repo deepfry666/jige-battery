@@ -17,15 +17,19 @@ internal static class PanelLayout
     public const int FooterHeight = 42;
     public const int DiagnosticFooterHeight = 68;
     public const int DiagnosticFooterExtraHeight = DiagnosticFooterHeight - FooterHeight;
-    public const int SettingsRowCount = 11;
-    public const int SettingsRowHeight = 44, SettingsCompactRowHeight = 38;
-    public const int SettingsHeight = 659;
-    public const int SettingsHeaderHeight = 20, SettingsSections = 3, SettingsOptionHeight = 34;
-    /// <summary>屏幕太矮时省掉三组小标题并收紧行高（卡片间距保留），避免整个面板被等比缩小或展开区太窄。</summary>
-    public const int SettingsCompactHeight = SettingsHeight - SettingsSections * SettingsHeaderHeight
-        - SettingsRowCount * (SettingsRowHeight - SettingsCompactRowHeight);
-    public const int UpdatesCompactHeight = 268;
-    public const int UpdatesAvailableHeight = 404;
+    public const int SettingsStackTop = 47;
+    public const int SettingsSections = 3;
+    public const int SettingsSectionGap = 8;
+    public const int SettingsBottomGap = 8;
+    public const int SettingsRowHeight = 40, SettingsCompactRowHeight = 36;
+    public const int SettingsOptionHeight = 34;
+    public const int SettingsMaxRowCount = 10;
+    public const int SettingsTrayRowCount = 8;
+    /// <summary>设置页固定框架高度：顶栏 + 3 组卡片边框 + 组间距 + 底部留白 + 底栏。</summary>
+    public const int SettingsChromeHeight = SettingsStackTop + SettingsSections * 2
+        + (SettingsSections - 1) * SettingsSectionGap + SettingsBottomGap + FooterHeight;
+    public const int UpdatesCompactHeight = 310;
+    public const int UpdatesAvailableHeight = 452;
     public const int DeviceRowsTop = 117;
     public const float DeviceRowHeight = 54.25f;
     public const int DeviceBaseHeight = 171;
@@ -41,7 +45,9 @@ internal static class PanelLayout
         switch (page)
         {
             case PanelPage.Notice or PanelPage.Welcome: return new(NoticeHeight, 0);
-            case PanelPage.Settings: return new(SettingsHeightFor(availableHeight) + footerExtra, 0);
+            case PanelPage.Settings:
+                int visibleRows = count > 0 ? count : SettingsMaxRowCount;
+                return new(SettingsHeightFor(availableHeight, visibleRows) + footerExtra, 0);
             case PanelPage.Updates:
                 int target = count > 0 ? UpdatesAvailableHeight : UpdatesCompactHeight;
                 return new(Math.Min(Math.Max(UpdatesCompactHeight, availableHeight), target), 0);
@@ -56,12 +62,23 @@ internal static class PanelLayout
         }
     }
 
-    /// <summary>放不下「带小标题的设置页 + 诊断页脚 + 一行展开项」时使用紧凑设置页。</summary>
-    public static bool CompactSettings(int availableHeight) =>
-        availableHeight < SettingsHeight + DiagnosticFooterExtraHeight + SettingsOptionHeight;
+    public static int SettingsRowCount(bool showTaskbarRows = true) =>
+        showTaskbarRows ? SettingsMaxRowCount : SettingsTrayRowCount;
 
-    public static int SettingsHeightFor(int availableHeight) =>
-        CompactSettings(availableHeight) ? SettingsCompactHeight : SettingsHeight;
+    public static int SettingsHeight(int visibleRows = SettingsMaxRowCount) =>
+        SettingsChromeHeight + Math.Max(0, visibleRows) * SettingsRowHeight;
+
+    public static int SettingsCompactHeight(int visibleRows = SettingsMaxRowCount) =>
+        SettingsChromeHeight + Math.Max(0, visibleRows) * SettingsCompactRowHeight;
+
+    /// <summary>放不下「常规设置页 + 诊断页脚 + 一行展开项」时收紧行高，避免整个面板被等比缩小或展开区太窄。</summary>
+    public static bool CompactSettings(int availableHeight, int visibleRows = SettingsMaxRowCount) =>
+        availableHeight < SettingsHeight(visibleRows) + DiagnosticFooterExtraHeight + SettingsOptionHeight;
+
+    public static int SettingsHeightFor(int availableHeight, int visibleRows = SettingsMaxRowCount) =>
+        CompactSettings(availableHeight, visibleRows)
+            ? SettingsCompactHeight(visibleRows)
+            : SettingsHeight(visibleRows);
 
     public static double Ease(double progress)
     {

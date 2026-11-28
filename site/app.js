@@ -417,11 +417,11 @@
 
   /* --- 首屏黑曜石交互桌面橱窗 --- */
   var DEMO_DEVICES = [
-    { id: "atk", name: "ATK 鼠标", kind: "mouse", pct: 12, state: "low", conn: "2.4G", source: "ATK 无线接收器", badge: "通用适配", badgeCls: "is-gen", status: "电量低，该充电了", hoverStatus: "电量低 · 1 分钟前读取" },
-    { id: "mx3s", name: "MX Anywhere 3S", kind: "mouse", pct: 20, state: "warn", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按协议适配", badgeCls: "", status: "休眠 · 上次读数", hoverStatus: "电量偏低 · 休眠中 · 2 分钟前读取" },
-    { id: "h9", name: "INZONE H9", kind: "headset", pct: 45, state: "charge", charging: true, conn: "2.4G", source: "Sony INZONE 接收器", badge: "已实机验证", badgeCls: "is-ok", status: "充电中", hoverStatus: "充电中 · 刚刚读取" },
-    { id: "ulx", name: "Finalmouse ULX", kind: "mouse", pct: 72, est: true, state: "ok", conn: "2.4G", source: "Finalmouse 接收器", badge: "通用适配", badgeCls: "is-gen", status: "2.4G 已连接 · 电量估算", hoverStatus: "电量估算 · 3 分钟前读取" },
-    { id: "mxks", name: "MX Keys S", kind: "keyboard", pct: 80, state: "ok", conn: "2.4G", source: "罗技 Bolt 接收器", badge: "按协议适配", badgeCls: "", status: "2.4G 已连接", hoverStatus: "在线 · 1 分钟前读取" }
+    { id: "atk", name: "ATK 鼠标", kind: "mouse", pct: 12, state: "low", conn: "2.4G", source: "ATK 无线接收器", status: "电量低，该充电了", hoverStatus: "电量低 · 1 分钟前读取" },
+    { id: "mx3s", name: "MX Anywhere 3S", kind: "mouse", pct: 20, state: "warn", conn: "2.4G", source: "罗技 Bolt 接收器", status: "休眠 · 上次读数", hoverStatus: "电量偏低 · 休眠中 · 2 分钟前读取" },
+    { id: "h9", name: "INZONE H9", kind: "headset", pct: 45, state: "charge", charging: true, conn: "2.4G", source: "Sony INZONE 接收器", status: "充电中", hoverStatus: "充电中 · 刚刚读取" },
+    { id: "ulx", name: "Finalmouse ULX", kind: "mouse", pct: 72, est: true, state: "ok", conn: "2.4G", source: "Finalmouse 接收器", status: "2.4G 已连接 · 电量估算", hoverStatus: "电量估算 · 3 分钟前读取" },
+    { id: "mxks", name: "MX Keys S", kind: "keyboard", pct: 80, state: "ok", conn: "2.4G", source: "罗技 Bolt 接收器", status: "2.4G 已连接", hoverStatus: "在线 · 1 分钟前读取" }
   ];
 
   function cellsHtml(pct, stateKey, count, isMini, charging, animatePop) {
@@ -538,7 +538,6 @@
         '<div class="fo-dev-ico">' + ICONS[hero.kind] + "</div>" +
         '<div class="fo-hero-meta">' +
           '<div class="fo-hero-title-row"><span class="fo-hero-name">' + hero.name + '</span><span class="fo-conn">' + hero.conn + "</span></div>" +
-          '<span class="fo-badge ' + hero.badgeCls + '">' + hero.badge + "</span>" +
         "</div>" +
       "</div>" +
       '<div class="fo-hero-mid">' +
