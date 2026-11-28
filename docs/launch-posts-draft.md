@@ -22,7 +22,7 @@
 | 提交设备报告模板 | `https://github.com/deepfry666/jige-battery/issues/new?template=device-report.yml` |
 | 反馈与贡献指南 | `https://github.com/deepfry666/jige-battery/blob/main/CONTRIBUTING.md`（英文：`#english`） |
 | 隐私与脱敏说明 | `https://github.com/deepfry666/jige-battery/blob/main/PRIVACY.md` |
-| 技术栈与体积 | C# / .NET 10 NativeAOT 单进程，安装包约 ~5 MB，免安装运行库，免管理员权限 |
+| 技术栈与体积 | C# / .NET 10 NativeAOT 单进程，安装包约 5 MB，免安装运行库，免管理员权限 |
 | 系统支持 | Windows 10（1809+）/ Windows 11 x64 |
 | 开源协议 | MIT（公开协议事实净室独立实现，不复制 GPL/AGPL 代码） |
 | 已实机验证（4 台） | Sony INZONE H9（一代）、游狼 G-Wolves HTX Ultra 8K、Razer BlackShark V3 Pro、ASUS ROG 无线键盘（`0B05:1934`）；另罗技 MX Keys S / MX Anywhere 3S 日常在用 |
@@ -57,7 +57,7 @@
 
 1. **C# / .NET 10 NativeAOT 单进程，约 5 MB**
    - 不需要装 .NET 运行库，不需要管理员权限，默认装在 `%LOCALAPPDATA%\Programs\Jige`。
-   - 主面板与悬停卡片用 Win32 + CsWin32 + Direct2D 自绘；任务栏直读条在 `0.2.19` 专门去掉了常驻 D3D/D2D 硬件资源，改用轻量 GDI 分层置顶窗口 + `GC.ConserveMemory`，降低常驻内存。
+   - 主面板与悬停卡片用 Win32 + CsWin32 + Direct2D 自绘；任务栏直读条在 `0.2.19` 专门去掉了常驻 D3D/D2D 硬件资源，改用轻量 GDI 分层置顶窗口 + `System.GC.ConserveMemory`，降低常驻内存。
    - Windows 10 和 11 默认都支持通知区左侧的「任务栏直读条」（通过 UIA 几何避让应用按钮与 Win10 资讯和兴趣，空间不足或任务栏不在底部时自动回退托盘水位剪影图标），内置 5 种样式和 9 套配色，自适应深浅色与半透明任务栏。
 
 2. **严格只读，绝不猜测命令**
@@ -224,7 +224,7 @@ I built **Jige Battery** (`v0.2.27`, MIT licensed) to fix this for myself and ju
 
 I strictly separate **hardware-verified** devices from **protocol-implemented** ones in the catalog—I never mark something verified until a real Windows reading is confirmed:
 
-- **Hardware-Verified on Windows 11:** G-Wolves HTX Ultra 8K, Sony INZONE H9 (Gen 1), Razer BlackShark V3 Pro, ASUS ROG wireless keyboard (`0B05:1934`) — plus Logitech MX Keys S & MX Anywhere 3S in daily use on Win10.
+- **Hardware-Verified on Windows 11:** G-Wolves HTX Ultra 8K, Sony INZONE H9 (Gen 1), Razer BlackShark V3 Pro, ASUS ROG wireless keyboard (`0B05:1934`) — plus Logitech MX Keys S & MX Anywhere 3S in daily use.
 - **Same-Family Inferred:** G-Wolves Fenrir Pro 8K, HTM Plus, HSK Pro 2.0 8K (same XVI-NEW table/protocol).
 - **Implemented from Public Protocol Docs / Open-Source Specs (Seeking Real-World Verification!):**
   - **Enthusiast / Lightweight Wireless Mice:** Finalmouse UltralightX (ULX + generic `361D` matching), 21 older G-Wolves `XVI-OLD` models, **Lamzu** Maya X (1K/8K), **WLmouse** Beast X series, **Pulsar** X2 V2 / V3 / CrazyLight, **Hitscan** Hyperlight, **Endgame Gear** XM2we, **Glorious** Model O Wireless, **Scyrox** V8 + newly added `395A` series (V6S / V8S / V12 in `v0.2.27`), **ATK** (F1 Ultimate, ZERO, A9 Plus NK, A9 Pro Max 2.0 NK + generic `373B`), **VXE** R1 / MAD, **VGN** Dragonfly F1 / F2 Master / Y2 / Dragonfly 3 Master, **MCHOSE** (A5 Pro Max, M7 Ultra, L7 Pro, A7 V2 Ultra, V3), **Rapoo** VT7 / VT9 Pro / V2, **Incott** 8K, **ATTACK SHARK**, **Delux**, **DAREU**, **AJAZZ**, **EWEADN**, **Keychron** Ultra-Link 8K / M5 / Nape Pro.
